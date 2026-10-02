@@ -1,8 +1,8 @@
 import api from './axios';
 
-export async function downloadFile(url, filename) {
-  const { data } = await api.get(url, { responseType: 'blob' });
-  const blob = new Blob([data], { type: 'text/csv' });
+export async function downloadFile(url, filename, config = {}) {
+  const { data } = await api.get(url, { ...config, responseType: 'blob' });
+  const blob = new Blob([data], { type: data.type || 'application/octet-stream' });
   const link = document.createElement('a');
   link.href = URL.createObjectURL(blob);
   link.download = filename;

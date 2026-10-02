@@ -10,15 +10,12 @@ import { useCart } from '../store/cart';
 import { useLocationStore } from '../store/location';
 import { useWishlist } from '../store/wishlist';
 import ProductCard from '../components/ProductCard';
+import { formatMoney, useSiteSettings } from '../store/siteSettings';
 
 function variantLabel(variant) {
   const attributes = variant.attributes || {};
   const parts = Object.entries(attributes).map(([key, value]) => `${key}: ${value}`);
-  return parts.length ? parts.join(' · ') : (variant.sku || 'Option');
-}
-
-function money(value) {
-  return `?${new Intl.NumberFormat('en-IN', { maximumFractionDigits: 0 }).format(Number(value) || 0)}`;
+  return parts.length ? parts.join(' ï¿½ ') : (variant.sku || 'Option');
 }
 
 function compactCount(value) {
@@ -34,6 +31,7 @@ export default function ProductPage() {
   const add = useCart(state => state.add);
   const location = useLocationStore(state => state.current);
   const toggleWishlist = useWishlist(state => state.toggle);
+  const business = useSiteSettings(state => state.business);
   const [p, setP] = useState(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
@@ -53,7 +51,7 @@ export default function ProductPage() {
     setQty(1);
     setTab('details');
     setShowVideo(false);
-    shop.product(id).then(data => {
+    shop.product(id, { lat: location?.lat, lng: location?.lng }).then(data => {
       if (!live) return;
       setP(data);
       const gallery = data.images?.length ? data.images : (data.image ? [data.image] : []);
@@ -66,13 +64,13 @@ export default function ProductPage() {
       }
     }).finally(() => { if (live) setLoading(false); });
     return () => { live = false; };
-  }, [id]);
+  }, [id, location?.lat, location?.lng]);
 
   useEffect(() => {
     let live = true;
-    shop.home().then(data => { if (live) setDeliveryEta(data.eta || ''); }).catch(() => {});
+    shop.home({ lat: location?.lat, lng: location?.lng }).then(data => { if (live) setDeliveryEta(data.eta || ''); }).catch(() => {});
     return () => { live = false; };
-  }, []);
+  }, [location?.lat, location?.lng]);
 
 
   useEffect(() => {
@@ -86,7 +84,7 @@ export default function ProductPage() {
     [p, variantId]
   );
 
-  if (loading) return <div className="mx-auto max-w-[1280px] px-4 py-16 text-center text-sm text-slate-400">Loading product details…</div>;
+  if (loading) return <div className="mx-auto max-w-[1280px] px-4 py-16 text-center text-sm text-slate-400">Loading product detailsï¿½</div>;
   if (loadError || !p) return (
     <div className="mx-auto max-w-[1280px] px-4 py-16 text-center">
       <p className="font-semibold text-slate-700">{loadError || 'Product not found.'}</p>
@@ -177,13 +175,13 @@ export default function ProductPage() {
         </div>
 
         <div className="qc-product-information">
-          <p className="qc-product-eyebrow">{[p.category, p.subCategory].filter(Boolean).join(' · ')}</p>
+          <p className="qc-product-eyebrow">{[p.category, p.subCategory].filter(Boolean).join(' ï¿½ ')}</p>
           <h1>{p.name}</h1>
           <div className="qc-product-meta">{p.unit && <span>{p.unit}</span>}{p.brand && <span>Brand: {p.brand}</span>}{p.productId && <span>Product ID: {p.productId}</span>}</div>
           {rating > 0 && <a href="#product-reviews" onClick={() => setTab('reviews')} className="qc-product-rating-link"><span><Star size={15} fill="currentColor" /> {rating.toFixed(1)}</span><b>{compactCount(reviewCount)} ratings</b></a>}
 
           <div className="qc-product-price-block">
-            <div className="qc-product-price-line"><strong>{money(displayPrice)}</strong>{displayMrp > displayPrice && <del>{money(displayMrp)}</del>}{currentDiscount > 0 && <span>{currentDiscount}% OFF</span>}</div>
+            <div className="qc-product-price-line"><strong>{formatMoney(displayPrice, business)}</strong>{displayMrp > displayPrice && <del>{formatMoney(displayMrp, business)}</del>}{currentDiscount > 0 && <span>{currentDiscount}% OFF</span>}</div>
             <p>Inclusive of all taxes</p>
             {deliveryEta && <small><Truck size={14} /> Delivery in {deliveryEta}</small>}
           </div>
@@ -191,7 +189,7 @@ export default function ProductPage() {
           {(p.variants || []).length > 0 && <div className="qc-product-variants">
             <h2>{Object.keys(variant?.attributes || {}).join(' / ') || 'Options'}</h2>
             <div>{p.variants.map(item => <button key={item.id} type="button" onClick={() => selectVariant(item)} className={variantId === item.id ? 'active' : ''}>
-              <span>{variantLabel(item)}</span><small>{money(item.price)}</small>
+              <span>{variantLabel(item)}</span><small>{formatMoney(item.price, business)}</small>
             </button>)}</div>
           </div>}
 
@@ -227,7 +225,7 @@ export default function ProductPage() {
         </div>
         <div className="qc-product-tab-content">
           {tab === 'details' && <div className="qc-product-description"><h2>Product Details</h2>{p.shortDesc && <p className="lead">{p.shortDesc}</p>}{p.description && <p>{p.description}</p>}{!p.shortDesc && !p.description && <p>No product description is available.</p>}{p.tags?.length > 0 && <p className="qc-product-tags">{p.tags.map(tag => <span key={tag}>{tag}</span>)}</p>}</div>}
-          {tab === 'specs' && <div className="qc-product-specifications"><h2>Specifications</h2>{specs.length ? <dl>{specs.map(([key, value]) => <div key={key}><dt>{key}</dt><dd>{value == null ? '—' : typeof value === 'object' ? JSON.stringify(value) : String(value)}</dd></div>)}</dl> : <p>No specifications have been added for this product.</p>}</div>}
+          {tab === 'specs' && <div className="qc-product-specifications"><h2>Specifications</h2>{specs.length ? <dl>{specs.map(([key, value]) => <div key={key}><dt>{key}</dt><dd>{value == null ? 'ï¿½' : typeof value === 'object' ? JSON.stringify(value) : String(value)}</dd></div>)}</dl> : <p>No specifications have been added for this product.</p>}</div>}
           {tab === 'reviews' && <div id="product-reviews" className="qc-product-reviews"><h2>Customer Ratings</h2>{rating > 0 ? <div className="qc-review-summary"><strong><Star size={22} fill="currentColor" /> {rating.toFixed(1)}</strong><span>{compactCount(reviewCount)} ratings for {p.name}</span></div> : <p>No customer ratings are available for this product yet.</p>}</div>}
         </div>
       </section>

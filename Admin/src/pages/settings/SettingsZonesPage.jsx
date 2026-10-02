@@ -1,9 +1,10 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Sparkles, Grid2x2, MoreVertical, Download, Search, RotateCcw, Loader2, Eye, Pencil, Trash2 } from 'lucide-react';
+import { Sparkles, Grid2x2, Link2, MoreVertical, Download, Search, RotateCcw, Loader2, Eye, Pencil, Trash2 } from 'lucide-react';
 import api from '../../api/axios';
-import NavyToggle from '../../components/NavyToggle';
-import ZoneDrawMap from '../../components/ZoneDrawMap';
+import { useModuleStore } from '../../store/useStore';
+import NavyToggle from '../../WebAdmin/Qucik commerce/components/NavyToggle';
+import ZoneDrawMap from '../../WebAdmin/Qucik commerce/components/ZoneDrawMap';
 import { useListPagination } from '../../hooks/useListPagination';
 import { fetchPincodePolygon } from '../../constants/nagpurPincodes';
 import {
@@ -34,17 +35,18 @@ const EMPTY = {
 
 export default function SettingsZonesPage() {
   const navigate = useNavigate();
+  const { activeModule } = useModuleStore();
+  const activeModuleKey = String(activeModule?.slug || activeModule?.type || '').toLowerCase();
+  const defaultCommerceType = ['e-commerce', 'e_commerce', 'ecommerce'].includes(activeModuleKey) ? 'ecommerce' : 'quick_commerce';
   const [zones, setZones] = useState([]);
   const [modules, setModules] = useState([]);
-  const [form, setForm] = useState(EMPTY);
-  const [lang, setLang] = useState('default');
+  const [form, setForm] = useState({ ...EMPTY, commerceType: defaultCommerceType });
   const [saving, setSaving] = useState(false);
   const [searchInput, setSearchInput] = useState('');
   const [search, setSearch] = useState('');
   const [pinQuery, setPinQuery] = useState('');
   const [pinOpen, setPinOpen] = useState(false);
   const [pinLoading, setPinLoading] = useState(false);
-  const [connectZone, setConnectZone] = useState(null);
   const [viewZone, setViewZone] = useState(null);
   const [editingId, setEditingId] = useState(null);
   const [menuId, setMenuId] = useState(null);
@@ -57,6 +59,7 @@ export default function SettingsZonesPage() {
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
   const isQuick = form.commerceType === 'quick_commerce';
+  const currentTypeLabel = isQuick ? 'Quick Commerce' : 'E-Commerce';
   const cityMeta = getCity(form.state, form.city);
   const cityOptions = form.state ? citiesInState(form.state) : [];
   const cityPins = form.state && form.city ? pinsInCity(form.state, form.city) : [];
@@ -252,15 +255,6 @@ export default function SettingsZonesPage() {
     load();
   };
 
-  const saveModules = async () => {
-    if (!connectZone) return;
-    const zoneId = connectZone._id;
-    await api.put(`/zones/${zoneId}`, { modules: connectZone.modules || [] });
-    setConnectZone(null);
-    load();
-    navigate(`/settings/zones/delivery?zoneId=${zoneId}`);
-  };
-
   const exportCsv = () => {
     const rows = [['Zone Id', 'Name', 'Type', 'State', 'City', 'Radius', 'Pincodes', 'Vendors', 'Deliverymen', 'Status']];
     listZones.forEach(z => {
@@ -276,18 +270,8 @@ export default function SettingsZonesPage() {
   const inputCls = 'w-full px-3 py-2.5 border rounded-lg text-sm outline-none focus:ring-2 focus:ring-[#1a3a8a]/20 border-gray-200';
   const labelCls = 'block text-sm font-medium text-gray-700 mb-1.5';
 
-  const nameValue = lang === 'en' ? (form.nameEn || form.name) : lang === 'hi' ? form.nameHi : form.name;
-  const dispValue = lang === 'en' ? (form.displayNameEn || form.displayName) : lang === 'hi' ? form.displayNameHi : form.displayName;
-  const setName = (v) => {
-    if (lang === 'en') setForm(f => ({ ...f, nameEn: v, name: f.name || v }));
-    else if (lang === 'hi') set('nameHi', v);
-    else setForm(f => ({ ...f, name: v, nameEn: f.nameEn || v }));
-  };
-  const setDisp = (v) => {
-    if (lang === 'en') set('displayNameEn', v);
-    else if (lang === 'hi') set('displayNameHi', v);
-    else setForm(f => ({ ...f, displayName: v, displayNameEn: f.displayNameEn || v }));
-  };
+  const setName = (value) => set('name', value);
+  const setDisp = (value) => set('displayName', value);
 
   return (
     <div className="space-y-5">
@@ -309,40 +293,24 @@ export default function SettingsZonesPage() {
           <div>
             <p className="text-xs font-semibold text-gray-500 uppercase mb-2">Commerce type</p>
             <div className="flex flex-wrap gap-2">
-              <button type="button" onClick={() => switchType('quick_commerce')}
-                className={`px-4 py-2 rounded-lg text-sm font-semibold border ${isQuick ? 'bg-[#1a3a8a] text-white border-[#1a3a8a]' : 'bg-white text-gray-600 border-gray-200'}`}>
-                Quick Commerce
-              </button>
-              <button type="button" onClick={() => switchType('ecommerce')}
-                className={`px-4 py-2 rounded-lg text-sm font-semibold border ${!isQuick ? 'bg-[#1a3a8a] text-white border-[#1a3a8a]' : 'bg-white text-gray-600 border-gray-200'}`}>
-                E-Commerce
+              <button type="button"
+                className="px-4 py-2 rounded-lg text-sm font-semibold border bg-[#1a3a8a] text-white border-[#1a3a8a] cursor-default"
+                disabled>
+                {currentTypeLabel}
               </button>
             </div>
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <div className="space-y-4">
-              <div className="flex gap-4 border-b text-sm" style={{ borderColor: CARD_BORDER }}>
-                {[
-                  { id: 'default', label: 'Default' },
-                  { id: 'en', label: 'English(EN)' },
-                  { id: 'hi', label: 'Hindi - हिन्दी(HI)' },
-                ].map(t => (
-                  <button key={t.id} type="button" onClick={() => setLang(t.id)}
-                    className={`pb-2 font-medium ${lang === t.id ? 'text-[#1a3a8a] border-b-2 border-[#1a3a8a]' : 'text-gray-500'}`}>
-                    {t.label}
-                  </button>
-                ))}
-              </div>
-
               <div>
-                <label className={labelCls}>Business Zone name ({lang === 'hi' ? 'HI' : lang === 'en' ? 'EN' : 'Default'})</label>
-                <input className={inputCls} value={nameValue} onChange={e => setName(e.target.value)}
+                <label className={labelCls}>Business Zone name</label>
+                <input className={inputCls} value={form.name} onChange={e => setName(e.target.value)}
                   placeholder="Write a New Business Zone Name" />
               </div>
               <div>
-                <label className={labelCls}>Display name ({lang === 'hi' ? 'HI' : lang === 'en' ? 'EN' : 'Default'})</label>
-                <input className={inputCls} value={dispValue} onChange={e => setDisp(e.target.value)}
+                <label className={labelCls}>Display name</label>
+                <input className={inputCls} value={form.displayName} onChange={e => setDisp(e.target.value)}
                   placeholder="Write a New Display Zone Name" />
               </div>
 
@@ -481,25 +449,15 @@ export default function SettingsZonesPage() {
         </div>
       </form>
 
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex">
-          <input value={searchInput} onChange={e => setSearchInput(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && setSearch(searchInput.trim())}
-            placeholder={isQuick ? 'Search Quick Commerce zone' : 'Search E-Commerce zone / Pin'}
-            className="px-3 py-2 border rounded-l-lg text-sm w-56 outline-none bg-white" style={{ borderColor: CARD_BORDER }} />
-          <button type="button" onClick={() => setSearch(searchInput.trim())}
-            className={`px-3 rounded-r-lg ${listBtnNavy}`}><Search size={14} /></button>
-        </div>
-        <button type="button" onClick={exportCsv}
-          className={`inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm ${listBtnOutline}`}>
-          <Download size={14} /> Export
-        </button>
-      </div>
-
       <ZoneTable
         title={isQuick ? 'Quick Commerce Zone List' : 'E-Commerce Zone List'}
         rows={pager.paginated}
         pager={pager}
+        searchInput={searchInput}
+        onSearchInputChange={setSearchInput}
+        onSearch={() => setSearch(searchInput.trim())}
+        searchPlaceholder={isQuick ? 'Search Quick Commerce zone' : 'Search E-Commerce zone / Pin'}
+        onExport={exportCsv}
         coverKind={isQuick ? 'quick' : 'ecom'}
         menuId={menuId}
         setMenuId={setMenuId}
@@ -507,7 +465,10 @@ export default function SettingsZonesPage() {
         onToggle={toggleStatus}
         onView={(z) => { setMenuId(null); setViewZone(z); }}
         onEdit={startEdit}
-        onConnect={(z) => { setMenuId(null); navigate(`/settings/zones/delivery?zoneId=${z._id}`); }}
+        onConnect={(z) => {
+          setMenuId(null);
+          navigate(`/settings/zones/delivery?city=${encodeURIComponent(z.city || '')}&zoneId=${encodeURIComponent(z._id)}`);
+        }}
         onSearchCharge={(z) => { setMenuId(null); navigate(`/settings/zones/${z._id}/search-charges`); }}
         onDelete={handleDelete}
       />
@@ -554,46 +515,34 @@ export default function SettingsZonesPage() {
         </div>
       )}
 
-      {connectZone && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40" onClick={() => setConnectZone(null)}>
-          <div className="bg-white rounded-2xl w-full max-w-md p-5" onClick={e => e.stopPropagation()}>
-            <h3 className="font-bold text-gray-900 mb-1 flex items-center gap-2"><Sparkles size={16} /> Connect Module</h3>
-            <p className="text-xs text-gray-500 mb-4">{connectZone.name} — module select karo</p>
-            <div className="space-y-2 max-h-64 overflow-y-auto">
-              {modules.map(m => {
-                const on = (connectZone.modules || []).includes(m.slug);
-                return (
-                  <label key={m._id} className="flex items-center gap-2 text-sm cursor-pointer">
-                    <input type="checkbox" checked={on} className="accent-[#1a3a8a]"
-                      onChange={() => {
-                        const next = on
-                          ? (connectZone.modules || []).filter(s => s !== m.slug)
-                          : [...(connectZone.modules || []), m.slug];
-                        setConnectZone({ ...connectZone, modules: next });
-                      }} />
-                    {m.name}
-                  </label>
-                );
-              })}
-            </div>
-            <div className="flex justify-end gap-2 mt-4">
-              <button type="button" onClick={() => setConnectZone(null)} className={`px-4 py-2 rounded-lg text-sm ${listBtnOutline}`}>Cancel</button>
-              <button type="button" onClick={saveModules} className={`px-4 py-2 rounded-lg text-sm font-semibold ${listBtnNavy}`}>Save</button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
 
-function ZoneTable({ title, rows, pager, coverKind, menuId, setMenuId, onDefault, onToggle, onView, onEdit, onConnect, onSearchCharge, onDelete }) {
+function ZoneTable({ title, rows, pager, searchInput, onSearchInputChange, onSearch, searchPlaceholder, onExport, coverKind, menuId, setMenuId, onDefault, onToggle, onView, onEdit, onConnect, onSearchCharge, onDelete }) {
   const { page, perPage, total } = pager;
   return (
     <div className="bg-white rounded-xl border shadow-sm overflow-hidden" style={{ borderColor: CARD_BORDER }}>
-      <div className="flex items-center gap-2 px-5 py-4 border-b" style={{ borderColor: CARD_BORDER }}>
-        <h2 className="font-semibold text-gray-800">{title}</h2>
-        <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-[#eef2f8] text-[#1a3a8a]">{total}</span>
+      <div className="flex flex-col gap-3 border-b px-5 py-4 sm:flex-row sm:items-center sm:justify-between" style={{ borderColor: CARD_BORDER }}>
+        <div className="flex items-center gap-2">
+          <h2 className="font-semibold text-gray-800">{title}</h2>
+          <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-[#eef2f8] text-[#1a3a8a]">{total}</span>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex min-w-0">
+            <input value={searchInput} onChange={e => onSearchInputChange(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && onSearch()}
+              placeholder={searchPlaceholder}
+              className="w-56 max-w-full rounded-l-lg border bg-white px-3 py-2 text-sm outline-none"
+              style={{ borderColor: CARD_BORDER }} />
+            <button type="button" onClick={onSearch}
+              className={`rounded-r-lg px-3 ${listBtnNavy}`}><Search size={14} /></button>
+          </div>
+          <button type="button" onClick={onExport}
+            className={`inline-flex items-center gap-1.5 rounded-lg px-4 py-2 text-sm ${listBtnOutline}`}>
+            <Download size={14} /> Export
+          </button>
+        </div>
       </div>
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
@@ -652,15 +601,10 @@ function ZoneTable({ title, rows, pager, coverKind, menuId, setMenuId, onDefault
                 </td>
                 <td className={listTdClass}>
                   <div className="flex items-center gap-1.5 relative">
-                    <button type="button" title="Edit" onClick={() => onEdit(z)}
+                    <button type="button" title="Delivery Settings" aria-label="Delivery Settings" onClick={() => onConnect(z)}
                       className="w-8 h-8 flex items-center justify-center rounded-lg border text-sky-600 hover:bg-sky-50"
                       style={{ borderColor: '#bae6fd' }}>
-                      <Pencil size={14} />
-                    </button>
-                    <button type="button" title="View" onClick={() => onView(z)}
-                      className="w-8 h-8 flex items-center justify-center rounded-lg border text-sky-600 hover:bg-sky-50"
-                      style={{ borderColor: '#bae6fd' }}>
-                      <Eye size={14} />
+                      <Link2 size={14} />
                     </button>
                     <button type="button" title="Search Charge" onClick={() => onSearchCharge(z)}
                       className="w-8 h-8 flex items-center justify-center rounded-lg border text-sky-600 hover:bg-sky-50"
@@ -676,7 +620,6 @@ function ZoneTable({ title, rows, pager, coverKind, menuId, setMenuId, onDefault
                       <div className="absolute right-0 top-9 z-20 w-36 bg-white border rounded-lg shadow-lg py-1 text-sm">
                         <button type="button" onClick={() => onEdit(z)} className="w-full text-left px-3 py-1.5 hover:bg-gray-50">Edit</button>
                         <button type="button" onClick={() => onView(z)} className="w-full text-left px-3 py-1.5 hover:bg-gray-50">View</button>
-                        <button type="button" onClick={() => onConnect(z)} className="w-full text-left px-3 py-1.5 hover:bg-gray-50">Delivery Settings</button>
                         <button type="button" onClick={() => onDelete(z)} className="w-full text-left px-3 py-1.5 text-red-500 hover:bg-red-50">Delete</button>
                       </div>
                     )}

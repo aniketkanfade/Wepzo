@@ -1,46 +1,56 @@
-import { Routes, Route, Navigate } from 'react-router-dom';
+import { Navigate, Route, Routes } from 'react-router-dom';
 import { useAuthStore } from './store/useStore';
 import Login from './pages/Login';
-import Dashboard from './pages/Dashboard';
+import Register from './pages/Register';
 import ComponentsPage from './pages/ComponentsPage';
 import PlansPage from './pages/PlansPage';
 import UsersPage from './pages/UsersPage';
-import StoreListPage from './pages/StoreListPage';
-import StoreNewRequestsPage from './pages/StoreNewRequestsPage';
-import StoreFormPage from './pages/StoreFormPage';
-import StoreViewPage from './pages/StoreViewPage';
-import StoreRecommendedPage from './pages/StoreRecommendedPage';
-import StoreBulkImportPage from './pages/StoreBulkImportPage';
-import StoreBulkExportPage from './pages/StoreBulkExportPage';
-import PromotionModulePage from './pages/PromotionModulePage';
+import UserDetailPage from './pages/UserDetailPage';
+import PublishedWebsitePage from './pages/PublishedWebsitePage';
+import CustomersPage from './WebAdmin/Qucik commerce/CustomersPage';
+import StoreListPage from './WebAdmin/Qucik commerce/StoreListPage';
+import StoreNewRequestsPage from './WebAdmin/Qucik commerce/StoreNewRequestsPage';
+import StoreFormPage from './WebAdmin/Qucik commerce/StoreFormPage';
+import StoreViewPage from './WebAdmin/Qucik commerce/StoreViewPage';
+import StoreRecommendedPage from './WebAdmin/Qucik commerce/StoreRecommendedPage';
+import StoreBulkImportPage from './WebAdmin/Qucik commerce/StoreBulkImportPage';
+import StoreBulkExportPage from './WebAdmin/Qucik commerce/StoreBulkExportPage';
+import PromotionModulePage from './WebAdmin/Marketing/PromotionModulePage';
 import RolesPage from './pages/RolesPage';
-import CategoriesPage from './pages/CategoriesPage';
-import SubCategoriesPage from './pages/SubCategoriesPage';
-import ChildCategoriesPage from './pages/ChildCategoriesPage';
-import CategorySpecificationsPage from './pages/CategorySpecificationsPage';
-import CategoryVariantsPage from './pages/CategoryVariantsPage';
-import CategoryBulkImportPage from './pages/CategoryBulkImportPage';
-import CategoryBulkExportPage from './pages/CategoryBulkExportPage';
-import AttributesPage from './pages/AttributesPage';
-import UnitsPage from './pages/UnitsPage';
-import BrandsPage from './pages/BrandsPage';
-import ProductAddPage from './pages/ProductAddPage';
-import ProductListPage from './pages/ProductListPage';
-import ProductViewPage from './pages/ProductViewPage';
-import ProductLowStockPage from './pages/ProductLowStockPage';
-import ProductGalleryPage from './pages/ProductGalleryPage';
-import ProductRequestPage from './pages/ProductRequestPage';
-import ProductReviewPage from './pages/ProductReviewPage';
-import ProductBarcodePage from './pages/ProductBarcodePage';
-import ProductBulkImportPage from './pages/ProductBulkImportPage';
-import ProductBulkExportPage from './pages/ProductBulkExportPage';
-import OrdersPage from './pages/OrdersPage';
-import OrderDetailPage from './pages/OrderDetailPage';
-import RefundsPage from './pages/RefundsPage';
-import RefundDetailPage from './pages/RefundDetailPage';
-import FlashSalesPage from './pages/FlashSalesPage';
-import Layout from './components/Layout';
+import CategoriesPage from './WebAdmin/Qucik commerce/CategoriesPage';
+import SubCategoriesPage from './WebAdmin/Qucik commerce/SubCategoriesPage';
+import ChildCategoriesPage from './WebAdmin/Qucik commerce/ChildCategoriesPage';
+import CategorySpecificationsPage from './WebAdmin/Qucik commerce/CategorySpecificationsPage';
+import CategoryVariantsPage from './WebAdmin/Qucik commerce/CategoryVariantsPage';
+import CategoryBulkImportPage from './WebAdmin/Qucik commerce/CategoryBulkImportPage';
+import CategoryBulkExportPage from './WebAdmin/Qucik commerce/CategoryBulkExportPage';
+import AttributesPage from './WebAdmin/Qucik commerce/AttributesPage';
+import UnitsPage from './WebAdmin/Qucik commerce/UnitsPage';
+import BrandsPage from './WebAdmin/Qucik commerce/BrandsPage';
+import ProductAddPage from './WebAdmin/Qucik commerce/ProductAddPage';
+import ProductListPage from './WebAdmin/Qucik commerce/ProductListPage';
+import ProductViewPage from './WebAdmin/Qucik commerce/ProductViewPage';
+import ProductLowStockPage from './WebAdmin/Qucik commerce/ProductLowStockPage';
+import ProductGalleryPage from './WebAdmin/Qucik commerce/ProductGalleryPage';
+import ProductRequestPage from './WebAdmin/Qucik commerce/ProductRequestPage';
+import ProductReviewPage from './WebAdmin/Qucik commerce/ProductReviewPage';
+import ProductBarcodePage from './WebAdmin/Qucik commerce/ProductBarcodePage';
+import ProductBulkImportPage from './WebAdmin/Qucik commerce/ProductBulkImportPage';
+import ProductBulkExportPage from './WebAdmin/Qucik commerce/ProductBulkExportPage';
+import StoreSingleOrdersPage from './WebAdmin/Qucik commerce/StoreSingleOrdersPage';
+import QuickCommerceOrders from './WebAdmin/Qucik commerce/QuickCommerceOrdersPage';
+import ECommerceDashboardPage from './WebAdmin/E-Commerce/ECommerceDashboardPage';
+import MarketingDashboardPage from './WebAdmin/Marketing/MarketingDashboardPage';
+import InformationWebDashboardPage from './WebAdmin/informastion web/InformationWebDashboardPage';
+import OrderDetailPage from './WebAdmin/Qucik commerce/OrderDetailPage';
+import RefundsPage from './WebAdmin/Qucik commerce/RefundsPage';
+import RefundDetailPage from './WebAdmin/Qucik commerce/RefundDetailPage';
+import FlashSalesPage from './WebAdmin/Qucik commerce/FlashSalesPage';
+import FlashSaleFormPage from './WebAdmin/Qucik commerce/FlashSaleFormPage';
+import Layout from './WebAdmin/Qucik commerce/components/Layout';
+import WebsiteBuilder from './WebAdmin/Qucik commerce/components/WebsiteBuilder';
 import SettingsBusinessPage from './pages/settings/SettingsBusinessPage';
+import BusinessSettingsLayout from './pages/settings/BusinessSettingsLayout';
 import SettingsEmployeeRolesPage from './pages/settings/SettingsEmployeeRolesPage';
 import SettingsEmployeesPage from './pages/settings/SettingsEmployeesPage';
 import SettingsEmployeesHomePage from './pages/settings/employees/SettingsEmployeesHomePage';
@@ -51,29 +61,66 @@ import SettingsEmployeeLoginPage from './pages/settings/employees/SettingsEmploy
 import SettingsEmployeeLoginHistoryPage from './pages/settings/employees/SettingsEmployeeLoginHistoryPage';
 import SettingsAccessPage from './pages/settings/SettingsAccessPage';
 import SettingsZonesPage from './pages/settings/SettingsZonesPage';
+import SettingsZoneConnectPage from './pages/settings/SettingsZoneConnectPage';
 import SettingsZoneSearchChargePage from './pages/settings/SettingsZoneSearchChargePage';
-import SettingsModulesPage from './pages/settings/SettingsModulesPage';
+import MainModulesPage from './WebAdmin/Qucik commerce/MainModulesPage';
+import WebsiteModulesPage from './pages/settings/WebsiteModulesPage';
+import WebsiteAccessPage from './pages/settings/WebsiteAccessPage';
+import WebsiteSubscriptionPlansPage from './pages/settings/WebsiteSubscriptionPlansPage';
+import WebsiteSubscriptionPage from './pages/WebsiteSubscriptionPage';
 import SettingsTaxPage from './pages/settings/SettingsTaxPage';
 import SettingsHubPage from './pages/settings/SettingsHubPage';
 import SettingsGenericPage from './pages/settings/SettingsGenericPage';
 import SettingsDeliveryPage from './pages/settings/SettingsDeliveryPage';
 import SettingsLogsPage from './pages/settings/SettingsLogsPage';
 import SettingsUserManagementPage from './pages/settings/SettingsUserManagementPage';
+import QuickCommerceAdminHome from './WebAdmin/Qucik commerce/QuickCommerceAdminHome';
+import StoreSingleAdminHome from './WebAdmin/Qucik commerce/StoreSingleAdminHome';
+import StoreSingleCatalogPage from './WebAdmin/Qucik commerce/StoreSingleCatalogPage';
+import StoreSingleSettingsPage from './WebAdmin/Qucik commerce/StoreSingleSettingsPage';
+import QuickCommerceZonesPage from './WebAdmin/Qucik commerce/QuickCommerceZonesPage';
 
 function PrivateRoute({ children }) {
   const { token } = useAuthStore();
   return token ? children : <Navigate to="/login" />;
 }
 
+function MainAdminRoute({ children }) {
+  const { user } = useAuthStore();
+  return user?.role === 'main_admin' ? children : <Navigate to="/" replace />;
+}
+
 export default function App() {
   return (
     <Routes>
       <Route path="/login" element={<Login />} />
+      <Route path="/register" element={<Register />} />
+      <Route path="/published-websites/:websiteId" element={<PublishedWebsitePage />} />
       <Route path="/" element={<PrivateRoute><Layout /></PrivateRoute>}>
-        <Route index element={<Dashboard />} />
+        <Route index element={<Navigate to="/quick-commerce" replace />} />
+        <Route path="quick-commerce" element={<QuickCommerceAdminHome />} />
+        <Route path="quick-commerce/modules" element={<MainModulesPage />} />
+        <Route path="quick-commerce/modules/add" element={<MainModulesPage />} />
+        <Route path="quick-commerce/orders" element={<QuickCommerceOrders />} />
+        <Route path="e-commerce" element={<ECommerceDashboardPage />} />
+        <Route path="marketing" element={<MarketingDashboardPage />} />
+        <Route path="information-web" element={<InformationWebDashboardPage />} />
+        <Route path="store-single" element={<StoreSingleAdminHome />} />
+        <Route path="store-single/orders" element={<StoreSingleOrdersPage />} />
+        <Route path="store-single/catalog" element={<StoreSingleCatalogPage />} />
+        <Route path="store-single/settings" element={<StoreSingleSettingsPage />} />
+        <Route path="quick-commerce/catalog" element={<ProductListPage />} />
+        <Route path="quick-commerce/categories" element={<CategoriesPage />} />
+        <Route path="quick-commerce/zones" element={<QuickCommerceZonesPage />} />
+        <Route path="website-builder" element={<WebsiteBuilder />} />
+        <Route path="website-subscription" element={<WebsiteSubscriptionPage />} />
         <Route path="components" element={<ComponentsPage />} />
         <Route path="plans" element={<PlansPage />} />
         <Route path="users" element={<UsersPage />} />
+        <Route path="users/:userId" element={<UserDetailPage />} />
+        <Route path="customers/details/:customerId" element={<CustomersPage />} />
+        <Route path="customers/:view/:customerId" element={<CustomersPage />} />
+        <Route path="customers/:view?" element={<CustomersPage />} />
         <Route path="stores" element={<Navigate to="/stores/list" replace />} />
         <Route path="stores/list" element={<StoreListPage />} />
         <Route path="stores/new-requests" element={<StoreNewRequestsPage />} />
@@ -107,18 +154,22 @@ export default function App() {
         <Route path="products/setup/bulk-export" element={<ProductBulkExportPage />} />
         <Route path="orders/refunds/view/:orderId" element={<RefundDetailPage />} />
         <Route path="orders/refunds/:type" element={<RefundsPage />} />
-        <Route path="orders/flash-sales" element={<FlashSalesPage />} />
+        <Route path="quick-commerce/flash-sales" element={<FlashSalesPage />} />
+        <Route path="quick-commerce/flash-sales/new" element={<FlashSaleFormPage />} />
+        <Route path="quick-commerce/flash-sales/:saleId/edit" element={<FlashSaleFormPage />} />
+        <Route path="orders/flash-sales" element={<Navigate to="/quick-commerce/flash-sales" replace />} />
         <Route path="orders/view/:orderId" element={<OrderDetailPage />} />
-        <Route path="orders/:status" element={<OrdersPage />} />
-        <Route path="orders" element={<OrdersPage />} />
+        <Route path="orders/quick-commerce" element={<QuickCommerceOrders />} />
+        <Route path="orders/:status" element={<StoreSingleOrdersPage />} />
+        <Route path="orders" element={<StoreSingleOrdersPage />} />
         <Route path="settings" element={<SettingsHubPage />} />
         <Route path="settings/general" element={<SettingsGenericPage pageKey="general" />} />
         <Route path="settings/website" element={<SettingsGenericPage pageKey="website" />} />
         <Route path="settings/visibility" element={<SettingsGenericPage pageKey="visibility" />} />
-        <Route path="settings/app" element={<SettingsGenericPage pageKey="app" />} />
-        <Route path="settings/payment" element={<SettingsGenericPage pageKey="payment" />} />
+        <Route path="settings/app" element={<BusinessSettingsLayout><SettingsGenericPage pageKey="app" /></BusinessSettingsLayout>} />
+        <Route path="settings/payment" element={<BusinessSettingsLayout><SettingsGenericPage pageKey="payment" /></BusinessSettingsLayout>} />
         <Route path="settings/notifications" element={<SettingsGenericPage pageKey="notifications" />} />
-        <Route path="settings/email-sms" element={<SettingsGenericPage pageKey="emailSms" />} />
+        <Route path="settings/email-sms" element={<BusinessSettingsLayout><SettingsGenericPage pageKey="emailSms" /></BusinessSettingsLayout>} />
         <Route path="settings/security" element={<SettingsGenericPage pageKey="security" />} />
         <Route path="settings/users" element={<SettingsUserManagementPage />} />
         <Route path="settings/database" element={<SettingsGenericPage pageKey="database" />} />
@@ -126,18 +177,31 @@ export default function App() {
         <Route path="settings/backup" element={<SettingsGenericPage pageKey="backup" />} />
         <Route path="settings/audit-logs" element={<SettingsLogsPage kind="audit" />} />
         <Route path="settings/system-logs" element={<SettingsLogsPage kind="system" />} />
-        <Route path="settings/business" element={<SettingsBusinessPage />} />
+        <Route path="settings/business" element={<Navigate to="/settings/business/info" replace />} />
+        <Route path="settings/business/info" element={<BusinessSettingsLayout><SettingsBusinessPage /></BusinessSettingsLayout>} />
+        <Route path="settings/vendor" element={<BusinessSettingsLayout><SettingsGenericPage pageKey="vendor" /></BusinessSettingsLayout>} />
+        <Route path="settings/order" element={<BusinessSettingsLayout><SettingsGenericPage pageKey="orders" /></BusinessSettingsLayout>} />
+        <Route path="settings/refund" element={<BusinessSettingsLayout><SettingsGenericPage pageKey="refund" /></BusinessSettingsLayout>} />
+        <Route path="settings/deliveryman" element={<BusinessSettingsLayout><SettingsGenericPage pageKey="deliveryman" /></BusinessSettingsLayout>} />
+        <Route path="settings/customer" element={<BusinessSettingsLayout><SettingsGenericPage pageKey="customer" /></BusinessSettingsLayout>} />
+        <Route path="settings/priority-setup" element={<BusinessSettingsLayout><SettingsGenericPage pageKey="priority" /></BusinessSettingsLayout>} />
+        <Route path="settings/disbursement" element={<BusinessSettingsLayout><SettingsGenericPage pageKey="disbursement" /></BusinessSettingsLayout>} />
+        <Route path="settings/automated-message" element={<BusinessSettingsLayout><SettingsGenericPage pageKey="automatedMessage" /></BusinessSettingsLayout>} />
         <Route path="settings/zones/tax" element={<SettingsTaxPage />} />
         <Route path="settings/zones/delivery" element={<SettingsDeliveryPage />} />
         <Route path="settings/zones/add" element={<SettingsZonesPage />} />
         <Route path="settings/zones/import" element={<SettingsZonesPage />} />
+        <Route path="settings/zones/:zoneId/connect" element={<SettingsZoneConnectPage />} />
         <Route path="settings/zones/search-charges" element={<SettingsZoneSearchChargePage />} />
         <Route path="settings/zones/:id/search-charges" element={<SettingsZoneSearchChargePage />} />
         <Route path="settings/zones" element={<SettingsZonesPage />} />
         <Route path="settings/delivery" element={<Navigate to="/settings/zones/delivery" replace />} />
         <Route path="settings/tax" element={<Navigate to="/settings/zones/tax" replace />} />
-        <Route path="settings/modules/add" element={<SettingsModulesPage />} />
-        <Route path="settings/modules" element={<SettingsModulesPage />} />
+        <Route path="settings/modules/add" element={<Navigate to="/quick-commerce/modules/add" replace />} />
+        <Route path="settings/modules" element={<Navigate to="/quick-commerce/modules" replace />} />
+        <Route path="settings/website-modules" element={<MainAdminRoute><WebsiteModulesPage /></MainAdminRoute>} />
+        <Route path="settings/website-access" element={<WebsiteAccessPage />} />
+        <Route path="settings/website-subscriptions" element={<MainAdminRoute><WebsiteSubscriptionPlansPage /></MainAdminRoute>} />
         <Route path="settings/employee-roles" element={<SettingsEmployeeRolesPage />} />
         <Route path="settings/employees/add" element={<SettingsEmployeeAddPage />} />
         <Route path="settings/employees/list" element={<SettingsEmployeesPage />} />

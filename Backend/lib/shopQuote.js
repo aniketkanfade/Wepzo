@@ -34,8 +34,7 @@ function pickRule(zone, moduleSlug = 'grocery') {
   const rules = zone?.deliveryRules || [];
   const cat = rules.find(r => r.scope === 'category' && ruleMatchesModule(r, moduleSlug));
   if (cat) return cat;
-  const zoneRule = rules.find(r => r.scope !== 'category' && ruleMatchesModule(r, moduleSlug));
-  return zoneRule || rules.find(r => r.scope !== 'category') || rules[0] || null;
+  return rules.find(r => r.scope !== 'category' && ruleMatchesModule(r, moduleSlug)) || null;
 }
 
 function deliveryFromRule(rule, { distanceKm, itemsTotal }) {
@@ -159,15 +158,29 @@ function enrichOrderEta(order) {
   return order;
 }
 
-function quoteDelivery({ store, lat, lng, itemsTotal, storeLat, storeLng, moduleSlug = 'grocery' }) {
+function quoteDelivery({ store, lat, lng, itemsTotal, storeId, storeLat, storeLng, moduleSlug = 'grocery' }) {
   const platformFee = 5;
   if (lat == null || lng == null) {
     return { deliverable: false, message: 'Delivery location select karo', itemsTotal, deliveryCharge: 0, searchCharge: 0, platformFee, total: itemsTotal + platformFee };
   }
   const zones = store.deliveryZones || [];
-  const zone = pickQcZone(zones, Number(lat), Number(lng));
+  const selectedStore = (store.stores || []).find(item => String(item._id) === String(storeId) || String(item.storeId) === String(storeId));
+  if (storeId && !selectedStore) {
+    return { deliverable: false, message: 'Selected store service area me available nahi hai.', itemsTotal, deliveryCharge: 0, searchCharge: 0, platformFee, total: itemsTotal + platformFee };
+  }
+  const customerZones = zones.filter(item => isInsideDeliveryZone(item, Number(lat), Number(lng)));
+  const zone = customerZones.find(item => {
+    if (!selectedStore) return true;
+    if (selectedStore.zoneId != null && (String(selectedStore.zoneId) === String(item._id) || String(selectedStore.zoneId) === String(item.zoneId))) return true;
+    return selectedStore.lat != null && selectedStore.lng != null && isInsideDeliveryZone(item, Number(selectedStore.lat), Number(selectedStore.lng));
+  }) || null;
   if (!zone) {
     return { deliverable: false, message: 'Is location par delivery zone nahi hai', itemsTotal, deliveryCharge: 0, searchCharge: 0, platformFee, total: itemsTotal + platformFee };
+  }
+  const connectedModules = Array.isArray(zone.modules) ? zone.modules : [];
+  const ruleConnected = (zone.deliveryRules || []).some(rule => (rule.modules || (rule.module ? [rule.module] : [])).includes(moduleSlug));
+  if (!connectedModules.includes(moduleSlug) && !ruleConnected) {
+    return { deliverable: false, message: 'This module is not connected to the selected delivery zone.', itemsTotal, deliveryCharge: 0, searchCharge: 0, platformFee, total: itemsTotal + platformFee, zone: { _id: zone._id, name: zone.name, zoneId: zone.zoneId, city: zone.city } };
   }
   const distanceKm = (storeLat != null && storeLng != null)
     ? distanceMeters(storeLat, storeLng, lat, lng) / 1000
@@ -178,6 +191,27 @@ function quoteDelivery({ store, lat, lng, itemsTotal, storeLat, storeLng, module
     const cityDefault = zones.find(z => z.isDefault && z.status !== false && z.city === zone.city && z._id !== zone._id);
     rule = pickRule(cityDefault, moduleSlug);
     ruleSource = rule ? 'city_default_zone' : 'none';
+  }
+  if (!rule) {
+    return { deliverable: false, message: 'Delivery charges are not configured for this module in the selected zone.', itemsTotal, deliveryCharge: 0, searchCharge: 0, platformFee, total: itemsTotal + platformFee, distanceKm: Number(distanceKm.toFixed(2)), zone: { _id: zone._id, name: zone.name, zoneId: zone.zoneId, city: zone.city }, ruleSource: 'none' };
+  }
+  const dropRadiusKm = rule?.dropRadiusKm == null ? null : Number(rule.dropRadiusKm);
+  if (dropRadiusKm > 0 && distanceKm > dropRadiusKm) {
+    return {
+      deliverable: false,
+      message: `Delivery address ${Number(distanceKm.toFixed(1))} km away; module limit is ${dropRadiusKm} km.`,
+      itemsTotal,
+      deliveryCharge: 0,
+      searchCharge: 0,
+      platformFee,
+      total: itemsTotal + platformFee,
+      distanceKm: Number(distanceKm.toFixed(2)),
+      pickupRadiusKm: rule?.pickupRadiusKm == null ? null : Number(rule.pickupRadiusKm),
+      dropRadiusKm,
+      zone: { _id: zone._id, name: zone.name, zoneId: zone.zoneId, city: zone.city },
+      ruleId: rule?._id || null,
+      ruleSource,
+    };
   }
   const d = deliveryFromRule(rule, { distanceKm, itemsTotal });
   const search = matchingSearchCharge(zone, 'customer');
@@ -195,6 +229,8 @@ function quoteDelivery({ store, lat, lng, itemsTotal, storeLat, storeLng, module
     total,
     freeDelivery: d.freeDelivery,
     distanceKm: Number(distanceKm.toFixed(2)),
+    pickupRadiusKm: rule?.pickupRadiusKm == null ? null : Number(rule.pickupRadiusKm),
+    dropRadiusKm,
     etaMinutes,
     zone: { _id: zone._id, name: zone.name, zoneId: zone.zoneId, city: zone.city },
     zoneName: zone.name,

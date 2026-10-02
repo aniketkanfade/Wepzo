@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
 import { LogIn } from 'lucide-react';
 import api from '../../../api/axios';
-import AdminListLayout from '../../../components/AdminListLayout';
-import NavyToggle from '../../../components/NavyToggle';
+import AdminListLayout from '../../../WebAdmin/Qucik commerce/components/AdminListLayout';
+import NavyToggle from '../../../WebAdmin/Qucik commerce/components/NavyToggle';
 import { useListPagination } from '../../../hooks/useListPagination';
 import {
   listTheadClass, listTheadStyle, listThClass, listTdClass, listRowClass, listRowStyle, listBtnOutline,

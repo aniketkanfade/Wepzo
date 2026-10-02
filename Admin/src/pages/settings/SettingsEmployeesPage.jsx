@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Users, Plus, Trash2, Eye } from 'lucide-react';
 import api from '../../api/axios';
-import AdminListLayout from '../../components/AdminListLayout';
+import AdminListLayout from '../../WebAdmin/Qucik commerce/components/AdminListLayout';
 import { useListPagination } from '../../hooks/useListPagination';
 import {
   listBtnNavy, listTheadClass, listTheadStyle, listThClass, listRowClass, listRowStyle, listTdClass,

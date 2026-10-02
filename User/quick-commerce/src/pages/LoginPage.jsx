@@ -19,9 +19,20 @@ export default function LoginPage() {
     setBusy(true);
     setErr('');
     try {
+      const identifier = form.email.trim();
+      const email = identifier.toLowerCase();
+      const phone = form.phone.replace(/\D/g, '');
+      const loginPhone = identifier.replace(/\D/g, '');
+      const emailValid = !email || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+      const phoneValid = !phone || /^[6-9]\d{9}$/.test(phone);
+      const loginIdentifierValid = email.includes('@') ? emailValid : /^[6-9]\d{9}$/.test(loginPhone);
+      if (mode === 'register' && !email && !phone) throw new Error('Valid email ya mobile number bharo');
+      if (mode === 'login' && !loginIdentifierValid) throw new Error(email.includes('@') ? 'Valid email address bharo' : 'Valid 10 digit mobile number bharo');
+      if (mode === 'register' && !emailValid) throw new Error('Valid email address bharo');
+      if (mode === 'register' && !phoneValid) throw new Error('Valid 10 digit mobile number bharo');
       const data = mode === 'login'
-        ? await shop.login({ email: form.email, password: form.password })
-        : await shop.register(form);
+        ? await shop.login(email.includes('@') ? { email, password: form.password } : { phone: loginPhone, password: form.password })
+        : await shop.register({ ...form, email, phone });
       setSession(data.token, data.user);
       navigate(next);
     } catch (ex) {
@@ -44,9 +55,9 @@ export default function LoginPage() {
           {mode === 'register' && (
             <input required value={form.name} onChange={e => set('name', e.target.value)} placeholder="Full name" className="w-full px-3 py-2 border rounded-lg text-sm" />
           )}
-          <input required value={form.email} onChange={e => set('email', e.target.value)} placeholder="Email" type="email" className="w-full px-3 py-2 border rounded-lg text-sm" />
+          <input value={form.email} onChange={e => set('email', e.target.value)} placeholder={mode === 'login' ? 'Email or mobile number' : 'Email (optional)'} type="text" inputMode="email" className="w-full px-3 py-2 border rounded-lg text-sm" />
           {mode === 'register' && (
-            <input value={form.phone} onChange={e => set('phone', e.target.value)} placeholder="Phone" className="w-full px-3 py-2 border rounded-lg text-sm" />
+            <input value={form.phone} onChange={e => set('phone', e.target.value)} placeholder="Mobile number (optional)" inputMode="numeric" maxLength={10} className="w-full px-3 py-2 border rounded-lg text-sm" />
           )}
           <input required value={form.password} onChange={e => set('password', e.target.value)} placeholder="Password" type="password" className="w-full px-3 py-2 border rounded-lg text-sm" />
           {err && <p className="text-xs text-rose-600">{err}</p>}

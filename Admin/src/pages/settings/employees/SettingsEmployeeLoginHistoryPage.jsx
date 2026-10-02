@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { History } from 'lucide-react';
 import api from '../../../api/axios';
-import AdminListLayout from '../../../components/AdminListLayout';
+import AdminListLayout from '../../../WebAdmin/Qucik commerce/components/AdminListLayout';
 import { useListPagination } from '../../../hooks/useListPagination';
 import { listTheadClass, listTheadStyle, listThClass, listTdClass, listRowClass, listRowStyle } from '../../../constants/listTheme';
 import { formatWhen } from './employeeForm.jsx';

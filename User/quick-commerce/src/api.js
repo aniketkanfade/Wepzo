@@ -4,7 +4,8 @@ const api = axios.create({ baseURL: '/api' });
 
 export function readQcToken() {
   try {
-    const raw = localStorage.getItem('wepzo-qc-auth');
+    const storageKey = getShopAuthStorageKey();
+    const raw = localStorage.getItem(storageKey);
     if (!raw) return null;
     const parsed = JSON.parse(raw);
     return parsed?.state?.token || parsed?.token || null;
@@ -13,10 +14,35 @@ export function readQcToken() {
   }
 }
 
+export function getShopAuthStorageKey() {
+  try {
+    const websiteId = new URLSearchParams(window.location.search).get('websiteId')
+      || JSON.parse(sessionStorage.getItem('wepzo-website-context') || 'null')?.websiteId;
+    return websiteId ? `wepzo-qc-auth:${websiteId}` : 'wepzo-qc-auth';
+  } catch {
+    return 'wepzo-qc-auth';
+  }
+}
+
 api.interceptors.request.use((config) => {
+  const urlParams = new URLSearchParams(window.location.search);
+  const templatePreview = urlParams.get('templatePreview') === '1';
+  if (templatePreview) {
+    delete config.headers.Authorization;
+    delete config.headers['X-Website-Id'];
+    delete config.headers['X-Website-Module-Id'];
+    return config;
+  }
   const token = readQcToken();
   if (token) config.headers.Authorization = `Bearer ${token}`;
   else delete config.headers.Authorization;
+  try {
+    const savedContext = JSON.parse(sessionStorage.getItem('wepzo-website-context') || 'null');
+    const websiteId = urlParams.get('websiteId') || savedContext?.websiteId;
+    const websiteModuleId = urlParams.get('websiteModuleId') || savedContext?.websiteModuleId;
+    if (websiteId) config.headers['X-Website-Id'] = websiteId;
+    if (websiteModuleId) config.headers['X-Website-Module-Id'] = websiteModuleId;
+  } catch { /* ignore unavailable browser storage */ }
   return config;
 });
 
@@ -32,7 +58,7 @@ api.interceptors.response.use(
   (r) => r,
   (err) => {
     if (err.response?.status === 401 && isShopAuthRequest(err.config) && typeof window !== 'undefined') {
-      try { localStorage.removeItem('wepzo-qc-auth'); } catch { /* ignore */ }
+      try { localStorage.removeItem(getShopAuthStorageKey()); } catch { /* ignore */ }
       const path = window.location.pathname || '/';
       if (!path.startsWith('/login')) {
         const next = encodeURIComponent(path + (window.location.search || ''));
@@ -53,9 +79,9 @@ export const shop = {
     if (token) api.defaults.headers.common.Authorization = `Bearer ${token}`;
     else delete api.defaults.headers.common.Authorization;
   },
-  home: () => api.get('/shop/home').then(r => r.data),
+  home: (params) => api.get('/shop/home', { params }).then(r => r.data),
   products: (params) => api.get('/shop/products', { params }).then(r => r.data),
-  product: (id) => api.get(`/shop/products/${id}`).then(r => r.data),
+  product: (id, params) => api.get(`/shop/products/${id}`, { params }).then(r => r.data),
   quote: (body) => api.post('/shop/quote', body).then(r => r.data),
   coupons: () => api.get('/shop/coupons').then(r => r.data),
   placeOrder: (body) => api.post('/shop/orders', body, { headers: authHeaders() }).then(r => r.data),

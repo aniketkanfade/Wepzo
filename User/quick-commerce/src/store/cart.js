@@ -16,6 +16,7 @@ export const useCart = create(persist((set, get) => ({
       cartKey,
       id: product.id,
       productId: product.productId,
+      moduleSlug: product.moduleSlug || 'grocery',
       variantId: product.variantId || '',
       name: product.name,
       image: product.image,

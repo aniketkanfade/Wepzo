@@ -25,12 +25,13 @@ function playOrderBeep() {
   }
 }
 
-export default function useAdminOrderAlerts() {
+export default function useAdminOrderAlerts(enabled = true) {
   const [toast, setToast] = useState(null);
   const [unread, setUnread] = useState(0);
   const seenRef = useRef(null);
 
   useEffect(() => {
+    if (!enabled) return;
     let cancelled = false;
 
     const poll = async () => {
@@ -67,7 +68,7 @@ export default function useAdminOrderAlerts() {
       cancelled = true;
       clearInterval(timer);
     };
-  }, []);
+  }, [enabled]);
 
   const dismissToast = () => setToast(null);
   const clearUnread = () => setUnread(0);

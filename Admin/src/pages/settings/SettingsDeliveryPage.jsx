@@ -7,6 +7,8 @@ import { LIST_CARD_BORDER as CARD_BORDER, listBtnNavy } from '../../constants/li
 const EMPTY_FORM = {
   scope: 'zone',
   categories: [],
+  modules: [],
+  moduleId: '',
   chargeMode: 'fixed',
   amount: '',
   perKmCharge: '',
@@ -37,6 +39,7 @@ export default function SettingsDeliveryPage() {
   const [params, setParams] = useSearchParams();
   const [zones, setZones] = useState([]);
   const [categories, setCategories] = useState([]);
+  const [modules, setModules] = useState([]);
   const [rules, setRules] = useState([]);
   const [form, setForm] = useState(EMPTY_FORM);
   const [editingId, setEditingId] = useState(null);
@@ -44,10 +47,15 @@ export default function SettingsDeliveryPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [loadError, setLoadError] = useState('');
+  const [moduleFilter, setModuleFilter] = useState('');
 
   const zoneList = asArray(zones);
   const categoryList = asArray(categories);
+  const moduleList = asArray(modules).filter(item => item.status !== false);
   const ruleList = asArray(rules);
+  const visibleRuleList = moduleFilter
+    ? ruleList.filter(rule => (rule.modules || (rule.module ? [rule.module] : [])).includes(moduleFilter))
+    : ruleList;
   const cities = useMemo(
     () => [...new Set(zoneList.map(item => item.city).filter(Boolean))],
     [zoneList],
@@ -95,6 +103,11 @@ export default function SettingsDeliveryPage() {
       }).catch(() => {
         if (!cancelled) setCategories([]);
       }),
+      api.get('/system-modules').then(({ data }) => {
+        if (!cancelled) setModules(asArray(data));
+      }).catch(() => {
+        if (!cancelled) setModules([]);
+      }),
     ]).finally(() => {
       if (!cancelled) setLoading(false);
     });
@@ -125,6 +138,14 @@ export default function SettingsDeliveryPage() {
   const toggleCategory = (value) => set('categories', value === 'all'
     ? (form.categories.includes('all') ? [] : ['all'])
     : [...form.categories.filter(item => item !== 'all'), ...(form.categories.includes(value) ? [] : [value])]);
+  const selectModule = (value) => {
+    const selected = moduleList.find(item => String(item._id) === value);
+    setForm(current => ({
+      ...current,
+      moduleId: selected?._id || '',
+      modules: selected?.slug ? [selected.slug] : [],
+    }));
+  };
 
   const editRule = (rule) => {
     setEditingId(rule._id);
@@ -132,6 +153,8 @@ export default function SettingsDeliveryPage() {
     setForm({
       scope: rule.scope || 'zone',
       categories: asArray(rule.categories),
+      modules: asArray(rule.modules || (rule.module ? [rule.module] : [])),
+      moduleId: rule.moduleId || moduleList.find(item => item.slug === (rule.modules || [rule.module])[0])?._id || '',
       chargeMode: rule.chargeMode || 'fixed',
       amount: rule.amount ?? '',
       perKmCharge: rule.perKmCharge ?? '',
@@ -153,9 +176,13 @@ export default function SettingsDeliveryPage() {
     if (!form.deliveryFree && form.chargeMode === 'fixed' && form.amount === '') return alert('Delivery charge bharo');
     if (!form.deliveryFree && form.chargeMode === 'per_km' && form.perKmCharge === '') return alert('Per KM charge bharo');
     if (form.scope === 'category' && !form.categories.length) return alert('Category select karo ya All Categories choose karo');
+    if (form.scope === 'module' && !form.modules.length) return alert('Module select karo');
     setSaving(true);
     const payload = {
       ...form,
+      scope: form.moduleId || form.modules.length ? 'module' : form.scope,
+      modules: form.moduleId || form.scope === 'module' ? form.modules : [],
+      moduleId: form.moduleId || form.scope === 'module' ? form.moduleId : '',
       amount: form.amount === '' ? 0 : Number(form.amount),
       perKmCharge: form.perKmCharge === '' ? 0 : Number(form.perKmCharge),
       minimumKm: form.minimumKm === '' ? 0 : Number(form.minimumKm),
@@ -172,6 +199,14 @@ export default function SettingsDeliveryPage() {
       } else {
         const targets = zoneId === 'all-city' ? zoneList.filter(item => item.city === selectedCity) : [zone].filter(Boolean);
         if (!targets.length) return alert('Zone nahi mila');
+        if (form.moduleId || form.modules.length) {
+          const moduleSlug = form.modules[0];
+          const duplicate = ruleList.some(rule => {
+            const ruleModules = rule.modules || (rule.module ? [rule.module] : []);
+            return ruleModules.includes(moduleSlug) && (zoneId === 'all-city' || String(rule._zoneId) === String(zoneId));
+          });
+          if (duplicate) return alert('Is zone me is module ka rule pehle se hai. Existing rule edit karein.');
+        }
         await Promise.all(targets.map(item => api.post(`/zones/${item._id}/delivery-rules`, payload)));
       }
       reset();
@@ -252,9 +287,18 @@ export default function SettingsDeliveryPage() {
               <label className="text-xs font-semibold text-gray-600">Charge Scope
                 <select value={form.scope} onChange={e => set('scope', e.target.value)} className="mt-1 w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm bg-white">
                   <option value="zone">Zone-wise</option>
+                  <option value="module">Module-wise</option>
                   <option value="category">Category-wise</option>
                 </select>
               </label>
+              {form.scope === 'module' && (
+                <label className="text-xs font-semibold text-gray-600">Module
+                  <select value={form.moduleId} onChange={e => selectModule(e.target.value)} className="mt-1 w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm bg-white">
+                    <option value="">Select module</option>
+                    {moduleList.map(item => <option key={item._id || item.slug} value={item._id}>{item.name}</option>)}
+                  </select>
+                </label>
+              )}
               {!form.deliveryFree && form.chargeMode === 'fixed' ? (
                 <label className="text-xs font-semibold text-gray-600">Delivery Charge (Rs)
                   <input type="number" min="0" step="0.01" value={form.amount} onChange={e => set('amount', e.target.value)} className="mt-1 w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm" />
@@ -273,6 +317,12 @@ export default function SettingsDeliveryPage() {
                   </label>
                   <label className="text-xs font-semibold text-gray-600">Minimum Delivery Charge
                     <input type="number" min="0" step="0.01" value={form.minimumDeliveryCharge} onChange={e => set('minimumDeliveryCharge', e.target.value)} className="mt-1 w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm" />
+                  </label>
+                  <label className="text-xs font-semibold text-gray-600">Rider Pickup Radius (KM)
+                    <input type="number" min="0" step="0.1" value={form.pickupRadiusKm} onChange={e => set('pickupRadiusKm', e.target.value)} placeholder="No limit" className="mt-1 w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm" />
+                  </label>
+                  <label className="text-xs font-semibold text-gray-600">Customer Drop Radius (KM)
+                    <input type="number" min="0" step="0.1" value={form.dropRadiusKm} onChange={e => set('dropRadiusKm', e.target.value)} placeholder="No limit" className="mt-1 w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm" />
                   </label>
                 </>
               ) : null}
@@ -299,27 +349,41 @@ export default function SettingsDeliveryPage() {
           </form>
 
           <div className="bg-white rounded-xl border shadow-sm overflow-hidden" style={{ borderColor: CARD_BORDER }}>
-            <div className="px-5 py-4 border-b font-semibold text-gray-800">Delivery Rules {selectedCity ? `for ${selectedCity}` : ''} ({ruleList.length})</div>
+            <div className="px-5 py-4 border-b flex flex-wrap items-center justify-between gap-3">
+              <div className="font-semibold text-gray-800">Delivery Rules {selectedCity ? `for ${selectedCity}` : ''} ({visibleRuleList.length})</div>
+              <select value={moduleFilter} onChange={event => setModuleFilter(event.target.value)} className="px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white">
+                <option value="">All Modules</option>
+                {moduleList.map(item => <option key={item._id || item.slug} value={item.slug}>{item.name}</option>)}
+              </select>
+            </div>
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[900px] text-sm">
+              <table className="w-full min-w-[1200px] text-sm">
                 <thead>
                   <tr className="bg-gray-50 text-left text-xs text-gray-500">
                     <th className="px-5 py-3">Zone</th>
+                    <th className="px-5 py-3">Scope / Module</th>
                     <th className="px-5 py-3">Charge</th>
                     <th className="px-5 py-3">Mode</th>
+                    <th className="px-5 py-3">Minimum KM</th>
+                    <th className="px-5 py-3">Pickup KM</th>
+                    <th className="px-5 py-3">Drop KM</th>
                     <th className="px-5 py-3">Free Above</th>
                     <th className="px-5 py-3">Action</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {ruleList.length === 0 && (
-                    <tr><td colSpan={5} className="px-5 py-8 text-center text-gray-400">Is zone par abhi koi delivery rule nahi.</td></tr>
+                  {visibleRuleList.length === 0 && (
+                    <tr><td colSpan={9} className="px-5 py-8 text-center text-gray-400">Is filter par abhi koi delivery rule nahi.</td></tr>
                   )}
-                  {ruleList.map(rule => (
+                  {visibleRuleList.map(rule => (
                     <tr key={rule._id} className="border-t border-gray-100">
                       <td className="px-5 py-3 font-medium">{rule.zoneName || zone?.name || '—'} <span className="text-gray-400 font-normal">#{rule.zoneId || zone?.zoneId}</span></td>
+                      <td className="px-5 py-3"><span className="capitalize">{(rule.modules || (rule.module ? [rule.module] : [])).length ? 'Module-wise' : `${rule.scope || 'zone'}-wise`}</span>{(rule.modules || (rule.module ? [rule.module] : [])).length ? <span className="block text-xs text-gray-500">{(rule.modules || [rule.module]).join(', ')}</span> : null}{rule.moduleId ? <span className="block text-[11px] text-gray-400">ID: {rule.moduleId}</span> : null}</td>
                       <td className="px-5 py-3 font-semibold text-[#1a3a8a]">{chargeLabel(rule)}</td>
                       <td className="px-5 py-3">{rule.deliveryFree ? 'Free' : rule.chargeMode === 'per_km' ? 'Per KM' : 'Fixed'}</td>
+                      <td className="px-5 py-3">{rule.minimumKm != null && Number(rule.minimumKm) > 0 ? `${rule.minimumKm} km` : '—'}</td>
+                      <td className="px-5 py-3">{rule.pickupRadiusKm != null && Number(rule.pickupRadiusKm) > 0 ? `${rule.pickupRadiusKm} km` : 'No limit'}</td>
+                      <td className="px-5 py-3">{rule.dropRadiusKm != null && Number(rule.dropRadiusKm) > 0 ? `${rule.dropRadiusKm} km` : 'No limit'}</td>
                       <td className="px-5 py-3">{rule.freeAbove != null ? `Rs ${rule.freeAbove}` : '—'}</td>
                       <td className="px-5 py-3">
                         <button type="button" onClick={() => editRule(rule)} className="inline-flex items-center gap-1 mr-3 text-blue-700"><Pencil size={14} /> Edit</button>

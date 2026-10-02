@@ -1,6 +1,47 @@
-const { buildOrderStatusBreakdown, buildSalesOverview, buildTopProducts, buildStatChanges, parseOrderDate } = require('./storeDataUtils');
+const { buildOrderStatusBreakdown, buildTopProducts, buildStatChanges, parseOrderDate } = require('./storeDataUtils');
 
-function getDashboardStats(store) {
+function dashboardSalesAnalytics(orders, periodDays) {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const start = new Date(today);
+  start.setDate(start.getDate() - periodDays + 1);
+  const points = new Map();
+
+  for (let day = new Date(start); day <= today; day.setDate(day.getDate() + 1)) {
+    const key = `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, '0')}-${String(day.getDate()).padStart(2, '0')}`;
+    points.set(key, {
+      date: day.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }),
+      sales: 0,
+      orders: 0,
+    });
+  }
+
+  for (const order of orders) {
+    if (['Cancelled', 'Failed'].includes(order.status)) continue;
+    const parsed = parseOrderDate(order.orderDate || order.date);
+    if (!parsed) continue;
+    const key = `${parsed.getFullYear()}-${String(parsed.getMonth() + 1).padStart(2, '0')}-${String(parsed.getDate()).padStart(2, '0')}`;
+    const point = points.get(key);
+    if (!point) continue;
+    point.sales += Number(order.amount) || 0;
+    point.orders += 1;
+  }
+
+  const series = [...points.values()];
+  const totalSales = series.reduce((sum, point) => sum + point.sales, 0);
+  const totalOrders = series.reduce((sum, point) => sum + point.orders, 0);
+
+  return {
+    series,
+    totalSales,
+    totalOrders,
+    averageOrderValue: totalOrders ? Math.round(totalSales / totalOrders) : 0,
+    periodDays,
+  };
+}
+
+function getDashboardStats(store, requestedPeriodDays = 30) {
+  const periodDays = [7, 30, 90].includes(Number(requestedPeriodDays)) ? Number(requestedPeriodDays) : 30;
   const orders = store.orders || [];
   const productItems = store.productItems || [];
   const customers = store.customers || [];
@@ -12,12 +53,17 @@ function getDashboardStats(store) {
   const totalCustomers = Math.max(customers.length, uniqueCustomers.size);
   const totalProducts = productItems.length;
   const totalStores = stores.filter(s => ['active', 'inactive'].includes(s.status)).length;
-  const totalRevenue = orders
-    .filter(o => o.status === 'Delivered')
-    .reduce((s, o) => s + (Number(o.amount) || 0), 0);
-
+  const totalDeliveryPartners = (store.deliveryMen || []).length;
+  const pendingOrders = orders.filter(order => order.status === 'Pending').length;
+  const lowStockProducts = productItems.filter(product =>
+    product.status !== false && Number.isFinite(Number(product.stock)) &&
+    Number(product.stock) <= Number(product.lowStockLimit || 0)
+  ).length;
+  const totalSales = orders
+    .filter(order => !['Cancelled', 'Failed'].includes(order.status))
+    .reduce((sum, order) => sum + (Number(order.amount) || 0), 0);
   const orderStatus = buildOrderStatusBreakdown(orders);
-  const salesOverview = buildSalesOverview(orders);
+  const salesAnalytics = dashboardSalesAnalytics(orders, periodDays);
   const topProducts = buildTopProducts(store);
 
   const sortedOrders = [...orders].sort((a, b) => {
@@ -51,12 +97,16 @@ function getDashboardStats(store) {
   return {
     stats: [
       { label: 'Total Orders', value: totalOrders, change: changes.orders, icon: 'orders', color: 'blue' },
+      { label: 'Total Sales', value: totalSales, change: changes.revenue, icon: 'sales', color: 'green', currency: 'INR' },
       { label: 'Total Customers', value: totalCustomers, change: changes.customers, icon: 'customers', color: 'green' },
       { label: 'Total Products', value: totalProducts, change: changes.products, icon: 'products', color: 'yellow' },
       { label: 'Total Stores', value: totalStores, change: changes.stores, icon: 'stores', color: 'purple' },
-      { label: 'Total Revenue', value: totalRevenue, change: changes.revenue, icon: 'revenue', color: 'red', currency: 'INR' },
+      { label: 'Total Delivery Partners', value: totalDeliveryPartners, icon: 'delivery', color: 'cyan' },
+      { label: 'Pending Orders', value: pendingOrders, icon: 'pending', color: 'orange' },
+      { label: 'Low Stock', value: lowStockProducts, icon: 'lowStock', color: 'red' },
     ],
-    salesOverview,
+    salesAnalytics,
+    salesOverview: salesAnalytics.series,
     orderStatus,
     recentOrders: recent,
     topProducts,

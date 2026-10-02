@@ -3,6 +3,7 @@ import ReactDOM from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
 import App from './App';
 import './index.css';
+import './mobile.css';
 import { useAuthStore } from './store/auth';
 import { shop } from './api';
 

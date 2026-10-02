@@ -77,6 +77,29 @@ npm run dev     # Starts on http://localhost:3000
 | GET | /api/roles | List roles (admin) |
 | GET | /api/access | List access sections |
 
+## Website Module APIs and Data
+
+The Admin selects an API URL from the active website module. By default, all modules use the existing `/api` server and module data is scoped by `X-Website-Module`. Set any of these Admin build variables to route a module to its own API server; each value must include `/api`:
+
+| Module | Variable |
+|---|---|
+| Quick Commerce | `VITE_QUICK_COMMERCE_API_URL` |
+| E-Commerce | `VITE_E_COMMERCE_API_URL` |
+| Store Singlepage Web | `VITE_STORE_SINGLE_API_URL` |
+| Marketing | `VITE_MARKETING_API_URL` |
+| Information Web | `VITE_INFORMATION_WEB_API_URL` |
+
+Use `VITE_API_URL` as the shared fallback URL. To run separate memory-backed servers, start each Backend instance with a unique `PORT`, matching `WEBSITE_MODULE`, and unique `DATA_FILE`, for example from `Backend/`:
+
+```powershell
+$env:PORT="5101"
+$env:WEBSITE_MODULE="ecommerce"
+$env:DATA_FILE="data/quick-commerce.json"
+npm start
+```
+
+Start one instance per module using unique ports and data files; use `e-commerce`, `store-singlepage-web`, `marketing`, or `general` for the other module names. `WEBSITE_MODULE` locks the API to its module even if the client sends another module header. If independent servers use MongoDB-backed routes, give each a `MONGODB_URI` for a separate database. Leave these settings unset to keep the current single-server behavior.
+
 ## Tech Stack
 
 - **Frontend:** React 18, Vite, Tailwind CSS, Zustand, Recharts

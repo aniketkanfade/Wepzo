@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const bcrypt = require('bcryptjs');
 const { v4: uuidv4 } = require('uuid');
+const { QUICK_COMMERCE_COMPONENTS } = require('./quickCommerceComponents');
 
 
 const store = {
@@ -9,6 +10,7 @@ const store = {
   components: [],
   modules: [],
   plans: [],
+  websiteSubscriptionPlans: [],
   websites: [],
   stores: [],
   nextStoreId: 1001,
@@ -17,9 +19,13 @@ const store = {
   employees: [],
   employeeLoginHistory: [],
   businessSettings: {},
+  businessSettingsByModule: {},
   deliveryZones: [],
   nextZoneId: 54,
   systemModules: [],
+  websiteModules: [],
+  websiteModuleCatalogSeeded: false,
+  websiteModuleContentSeeded: false,
   categories: [],
   subCategories: [],
   childCategories: [],
@@ -56,18 +62,19 @@ const store = {
 
 let adminId = null;
 
-const PERSIST_PATH = path.join(__dirname, '..', 'data', 'wepzo-store.json');
-const DEMO_CUSTOMER_ID = 'cust-wepzo-demo';
-const DEMO_CUSTOMER_EMAIL = 'customer@wepzo.com';
+const PERSIST_PATH = process.env.DATA_FILE
+  ? path.resolve(process.env.DATA_FILE)
+  : path.join(__dirname, '..', 'data', 'wepzo-store.json');
 
 const PERSIST_KEYS = [
   'productItems', 'products', 'productImportHistory', 'productExportHistory', 'orders', 'customers', 'deliveryZones', 'stores',
+  'websiteSubscriptionPlans',
   'users', 'nextStoreId', 'nextZoneId', 'employees', 'employeeLoginHistory',
   'categories', 'subCategories', 'childCategories', 'brands', 'attributes', 'units',
-  'storeDiscounts', 'productRequests', 'productReviews', 'businessSettings',
+  'storeDiscounts', 'productRequests', 'productReviews', 'businessSettings', 'businessSettingsByModule',
   'roles', 'accessSections', 'modules', 'components', 'plans', 'flashSales',
   'campaigns', 'banners', 'otherBanners', 'coupons', 'pushNotifications',
-  'advertisements', 'deliveryMen', 'systemModules', 'websites',
+  'advertisements', 'deliveryMen', 'systemModules', 'websiteModules', 'websiteModuleCatalogSeeded', 'websiteModuleContentSeeded', 'websites',
 ];
 
 function collectionHasData(val) {
@@ -87,36 +94,45 @@ function loadPersisted() {
   }
 }
 
+function normalizeWebsiteModuleKey(value) {
+  const raw = String(value || '').trim().toLowerCase().replace(/_/g, '-');
+  if (!raw) return '';
+  if (['qcommerce', 'quick-commerce', 'quick_commerce'].includes(raw)) return 'quick-commerce';
+  if (['ecommerce', 'e-commerce', 'e_commerce'].includes(raw)) return 'e-commerce';
+  if (['store-single', 'store-singlepage-web', 'store-single-page', 'store-singlepage'].includes(raw)) return 'store-singlepage-web';
+  if (['marketing', 'promotion', 'promotions'].includes(raw)) return 'marketing';
+  if (['general', 'information-web', 'information_web', 'website', 'web'].includes(raw)) return 'general';
+  return raw;
+}
+
 function applyPersisted(data) {
   if (!data) return;
   PERSIST_KEYS.forEach((key) => {
     if (data[key] === undefined) return;
-    // Always restore customers (even empty) so JWT ids are not replaced by a fresh seed.
-    if (key === 'customers' || collectionHasData(data[key])) store[key] = data[key];
+    store[key] = data[key];
   });
-}
-
-async function ensureDemoCustomer() {
-  const hash = await bcrypt.hash('customer123', 10);
-  store.customers = Array.isArray(store.customers) ? store.customers : [];
-  const demo = store.customers.find(c =>
-    (c.email || '').toLowerCase() === DEMO_CUSTOMER_EMAIL || c._id === DEMO_CUSTOMER_ID
-  );
-  if (!demo) {
-    store.customers.unshift({
-      _id: DEMO_CUSTOMER_ID,
-      name: 'Aniket Hartulkar',
-      email: DEMO_CUSTOMER_EMAIL,
-      phone: '9876543210',
-      password: hash,
-      role: 'customer',
-    });
-    return;
+  if (Array.isArray(store.websiteModules)) {
+    store.websiteModules = store.websiteModules.map(module => ({
+      ...module,
+      slug: normalizeWebsiteModuleKey(module.slug || module.type || ''),
+      type: normalizeWebsiteModuleKey(module.type || module.slug || ''),
+    }));
   }
-  demo.email = DEMO_CUSTOMER_EMAIL;
-  demo.phone = demo.phone || '9876543210';
-  demo.role = demo.role || 'customer';
-  if (!demo.password) demo.password = hash;
+  if (Array.isArray(store.users)) {
+    store.users = store.users.map(user => ({
+      ...user,
+      selectedModuleSlug: normalizeWebsiteModuleKey(user.selectedModuleSlug || user.websiteModuleSlug || ''),
+      websiteModuleSlug: normalizeWebsiteModuleKey(user.websiteModuleSlug || user.selectedModuleSlug || ''),
+      selectedModuleType: normalizeWebsiteModuleKey(user.selectedModuleType || user.selectedModuleSlug || user.websiteModuleSlug || '') || user.selectedModuleType,
+    }));
+  }
+  if (Array.isArray(store.websites)) {
+    store.websites = store.websites.map(website => ({
+      ...website,
+      websiteModuleSlug: normalizeWebsiteModuleKey(website.websiteModuleSlug || website.moduleType || ''),
+      moduleType: normalizeWebsiteModuleKey(website.moduleType || website.websiteModuleSlug || '') || website.moduleType,
+    }));
+  }
 }
 
 let persistTimer = null;
@@ -143,8 +159,63 @@ function schedulePersist() {
   }, 300);
 }
 
+function ensureQuickCommerceCatalog() {
+  let changed = false;
+  if (!Array.isArray(store.components)) store.components = [];
+  if (!Array.isArray(store.modules)) store.modules = [];
+
+  QUICK_COMMERCE_COMPONENTS.forEach(component => {
+    const existing = store.components.find(item => item.slug === component.slug);
+    if (!existing) {
+      store.components.push({ _id: uuidv4(), ...component, status: 'active' });
+      changed = true;
+      return;
+    }
+    const updates = { ...component, status: 'active' };
+    if (Object.keys(updates).some(key => existing[key] !== updates[key])) {
+      Object.assign(existing, updates);
+      changed = true;
+    }
+  });
+
+  const retiredComponents = store.components.filter(component =>
+    ['quick-commerce-storefront', 'quick-commerce-favorites-cart'].includes(component.slug)
+  );
+  retiredComponents.forEach(component => {
+    if (component.status === 'inactive') return;
+    component.status = 'inactive';
+    changed = true;
+  });
+
+  let commerceModule = store.modules.find(module => module.slug === 'ecommerce' || module.type === 'ecommerce');
+  if (!commerceModule) {
+    commerceModule = { _id: uuidv4(), name: 'Quick Commerce', slug: 'quick-commerce', type: 'quick-commerce', status: 'active', components: [] };
+    store.modules.push(commerceModule);
+    changed = true;
+  }
+  if (commerceModule.name !== 'Quick Commerce') {
+    commerceModule.name = 'Quick Commerce';
+    changed = true;
+  }
+
+  const retiredIds = new Set(retiredComponents.map(component => component._id));
+  if (commerceModule.components?.some(id => retiredIds.has(id))) {
+    commerceModule.components = commerceModule.components.filter(id => !retiredIds.has(id));
+    changed = true;
+  }
+
+  const linkedComponents = new Set(commerceModule.components || []);
+  store.components.filter(component => component.moduleType === 'ecommerce').forEach(component => {
+    if (linkedComponents.has(component._id)) return;
+    commerceModule.components = [...(commerceModule.components || []), component._id];
+    linkedComponents.add(component._id);
+    changed = true;
+  });
+
+  if (changed) schedulePersist();
+}
+
 async function fillEmptyCollections() {
-  await ensureDemoCustomer();
   if (!collectionHasData(store.productItems) && collectionHasData(store.stores)) {
     const { seedProductItems } = require('./productSeed');
     const { seedQuickCommerceProducts } = require('./qcShopSeed');
@@ -164,14 +235,81 @@ async function fillEmptyCollections() {
   }
 }
 
+function ensureWebsiteModuleCatalog() {
+  if (store.websiteModuleCatalogSeeded) return;
+  if (!Array.isArray(store.websiteModules)) store.websiteModules = [];
+
+  const defaultModules = [
+    { name: 'Quick Commerce', slug: 'quick-commerce', type: 'quick-commerce' },
+    { name: 'Marketing', slug: 'marketing', type: 'marketing' },
+    { name: 'General', slug: 'general', type: 'general' },
+  ];
+  const sourceModules = [...defaultModules, ...(store.modules || [])];
+  const additions = [];
+  sourceModules.forEach(module => {
+    const slug = module.slug || module.type;
+    if (!slug || store.websiteModules.some(existing => existing.slug === slug) || additions.some(existing => existing.slug === slug)) return;
+    additions.push({
+      _id: uuidv4(),
+      name: module.name || slug,
+      slug,
+      type: module.type || slug,
+      image: module.image || '',
+      status: module.status === false || module.status === 'false' || module.status === 'inactive' ? false : true,
+    });
+  });
+
+  store.websiteModules = [...additions, ...store.websiteModules];
+  store.websiteModuleCatalogSeeded = true;
+  persistNow();
+}
+function ensureWebsiteModuleContent() {
+  const demoContent = {
+    ecommerce: {
+      description: 'Launch a quick-commerce storefront with a branded homepage, product catalog, cart and checkout.',
+      image: 'https://images.unsplash.com/photo-1542838132-92c53300491e?w=1200&auto=format&fit=crop&q=80',
+      videoUrl: '',
+    },
+    marketing: {
+      description: 'Create campaign landing pages, collect leads and share promotions from one marketing website.',
+      image: 'https://images.unsplash.com/photo-1460925895917-afdab827c52f?w=1200&auto=format&fit=crop&q=80',
+      videoUrl: '',
+    },
+    general: {
+      description: 'Build a polished business website with your story, key information and contact details.',
+      image: 'https://images.unsplash.com/photo-1497366754035-f200968a6e72?w=1200&auto=format&fit=crop&q=80',
+      videoUrl: '',
+    },
+  };
+  let removedLegacyVideoLink = false;
+  (store.websiteModules || []).forEach(module => {
+    const videoUrl = String(module.videoUrl || '');
+    if (videoUrl && !videoUrl.startsWith('/api/uploads/website-modules/')) { module.videoUrl = ''; removedLegacyVideoLink = true; }
+  });
+  if (store.websiteModuleContentSeeded) {
+    const needsSampleContent = (store.websiteModules || []).some(module => {
+      const sample = demoContent[module.slug] || demoContent.general;
+      return Object.entries(sample).some(([key, value]) => value && !module[key]);
+    });
+    if (!needsSampleContent) { if (removedLegacyVideoLink) persistNow(); return; }
+  }
+  (store.websiteModules || []).forEach(module => {
+    const sample = demoContent[module.slug] || demoContent.general;
+    if (!module.description) module.description = sample.description || `Build and customize your ${module.name || 'business'} website.`;
+    if (!module.image) module.image = sample.image || demoContent.general.image;
+    if (!module.videoUrl) module.videoUrl = sample.videoUrl || demoContent.general.videoUrl;
+  });
+  store.websiteModuleContentSeeded = true;
+  persistNow();
+}
 async function seedMemory() {
   const persisted = loadPersisted();
-  if (persisted && collectionHasData(persisted.users) && collectionHasData(persisted.stores)) {
+  if (persisted) {
     applyPersisted(persisted);
-    await fillEmptyCollections();
-    await ensureDemoCustomer();
+    ensureQuickCommerceCatalog();
+    ensureWebsiteModuleCatalog();
+    ensureWebsiteModuleContent();
     console.log('Memory store loaded from wepzo-store.json');
-    persistNow();
     return;
   }
 
@@ -283,12 +421,13 @@ async function seedMemory() {
       htmlTemplate: '<section style="padding:40px 32px"><h2>Cart</h2><p style="margin-top:16px">Total: ₹1,998</p></section>' },
     { name: 'Contact Form', slug: 'contact-form', type: 'contact', moduleType: 'general', price: 200,
       htmlTemplate: '<section style="padding:40px 32px;max-width:600px;margin:0 auto"><h2>Contact Us</h2><input placeholder="Name" style="width:100%;padding:10px;margin:12px 0;border:1px solid #d1d5db;border-radius:6px"><button style="background:#2563eb;color:white;padding:10px 32px;border:none;border-radius:6px">Send</button></section>' },
+    ...QUICK_COMMERCE_COMPONENTS,
   ];
 
-  store.components = compData.map(c => ({ _id: uuidv4(), ...c, status: 'active', description: c.name }));
+  store.components = compData.map(c => ({ _id: uuidv4(), ...c, status: 'active', description: c.description || c.name }));
 
   store.modules = [
-    { _id: uuidv4(), name: 'E-Commerce', slug: 'ecommerce', type: 'ecommerce', status: 'active',
+    { _id: uuidv4(), name: 'Quick Commerce', slug: 'ecommerce', type: 'ecommerce', status: 'active',
       components: store.components.filter(c => ['ecommerce','general'].includes(c.moduleType)).map(c => c._id) },
     { _id: uuidv4(), name: 'Marketing', slug: 'marketing', type: 'marketing', status: 'active',
       components: store.components.filter(c => ['marketing','general'].includes(c.moduleType)).map(c => c._id) },
@@ -420,13 +559,7 @@ async function seedMemory() {
   store.categorySpecifications = seedCategorySpecifications();
   store.categoryVariants = seedCategoryVariants();
 
-  const customerHash = await bcrypt.hash('customer123', 10);
-  store.customers = [
-    { _id: DEMO_CUSTOMER_ID, name: 'Aniket Hartulkar', email: DEMO_CUSTOMER_EMAIL, phone: '9876543210', password: customerHash, role: 'customer' },
-    { _id: uuidv4(), name: 'Ali Khan', email: 'ali@mail.com', phone: '9000000001' },
-    { _id: uuidv4(), name: 'Priya Sharma', email: 'priya@mail.com', phone: '9000000002' },
-    { _id: uuidv4(), name: 'John Doe', email: 'john@mail.com', phone: '9000000003' },
-  ];
+  store.customers = [];
   store.products = [];
   const { areaLocations } = require('./deliveryMenSeed');
   const { defaultStoreSettings } = require('./defaultStoreSettings');
@@ -543,9 +676,10 @@ async function seedMemory() {
   ];
 
   applyPersisted(persisted);
-  await ensureDemoCustomer();
+  ensureWebsiteModuleCatalog();
+  ensureWebsiteModuleContent();
   persistNow();
   console.log('Memory store seeded. Login: admin@wepzo.com / admin123');
 }
 
-module.exports = { store, seedMemory, schedulePersist, persistNow, PERSIST_PATH, DEMO_CUSTOMER_ID, DEMO_CUSTOMER_EMAIL };
+module.exports = { store, seedMemory, schedulePersist, persistNow, PERSIST_PATH };

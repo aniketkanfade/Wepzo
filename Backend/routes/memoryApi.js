@@ -3,22 +3,45 @@ const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const archiver = require('archiver');
 const multer = require('multer');
+const https = require('https');
+const crypto = require('crypto');
+const fs = require('fs');
+const path = require('path');
 const { v4: uuidv4 } = require('uuid');
 const { store, schedulePersist } = require('../lib/memoryStore');
 const {
   attachStoreRef, syncData, recomputeStoreCounts, cascadeDeleteStore,
   propagateStoreRename, findStoreById, findStoreByName, belongsToStore, getProductStats, buildAllProductSales, parseOrderDate,
 } = require('../lib/storeDataUtils');
-const { toCsv, parseCsv, categoriesToRows, subToRows, childToRows, templateRow, productsToRows, importProductsFromRows } = require('../lib/bulkCsv');
+const { toCsv, parseCsv, categoriesToRows, subToRows, childToRows, templateRow, productsToRows, productHeaders, importProductsFromRows, rowsFromExcel, toExcelBuffer } = require('../lib/bulkCsv');
 const { applyQuickCommerceFlag, shouldListOnQuickCommerce } = require('../lib/qcShopSeed');
+const { isInsideDeliveryZone } = require('../lib/geoUtils');
 const { importCategories, importSubCategories, importChildCategories } = require('../lib/bulkImport');
 const {
   getDiscountStatus, calculateStoreDiscountAmount, pickBestStoreDiscount, discountsForStore,
 } = require('../lib/storeDiscountUtils');
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
+const websiteModuleMediaDirectory = path.join(__dirname, '..', 'uploads', 'website-modules');
+fs.mkdirSync(websiteModuleMediaDirectory, { recursive: true });
+const websiteModuleMediaUpload = multer({
+  storage: multer.diskStorage({
+    destination: (_req, _file, callback) => callback(null, websiteModuleMediaDirectory),
+    filename: (_req, file, callback) => {
+      const extension = path.extname(file.originalname).toLowerCase().replace(/[^.a-z0-9]/g, '').slice(0, 12);
+      callback(null, `${Date.now()}-${require('crypto').randomBytes(8).toString('hex')}${extension}`);
+    },
+  }),
+  limits: { fileSize: 50 * 1024 * 1024, files: 11 },
+  fileFilter: (_req, file, callback) => {
+    if (file.fieldname === 'video' && file.mimetype.startsWith('video/')) return callback(null, true);
+    if (file.fieldname === 'images' && file.mimetype.startsWith('image/')) return callback(null, true);
+    callback(new Error('Only image and video files are allowed'));
+  },
+});
 
 const router = express.Router();
+const SERVER_WEBSITE_MODULE = String(process.env.WEBSITE_MODULE || '').trim().toLowerCase();
 
 router.use((req, res, next) => {
   if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method)) {
@@ -36,6 +59,30 @@ const JWT_VERIFY_SECRETS = [...new Set([
   'wepzo_super_secret_key_change_in_production',
 ].filter(Boolean))];
 const token = (id, extra = {}) => jwt.sign({ id, ...extra }, JWT_SIGN_SECRET, { expiresIn: '7d' });
+function normalizeWebsiteModuleSlug(value) {
+  const raw = String(value || '').trim().toLowerCase().replace(/_/g, '-');
+  if (!raw) return '';
+  const map = {
+    qcommerce: 'quick-commerce',
+    'quick-commerce': 'quick-commerce',
+    ecommerce: 'ecommerce',
+    'e-commerce': 'ecommerce',
+    marketing: 'marketing',
+    general: 'general',
+    'information-web': 'general',
+    'information-web-site': 'general',
+  };
+  return map[raw] || raw;
+}
+
+function websiteBuilderType(module) {
+  const explicitType = normalizeWebsiteModuleSlug(module?.type || '');
+  if (['ecommerce', 'marketing', 'general'].includes(explicitType)) return explicitType;
+  const moduleLabel = `${normalizeWebsiteModuleSlug(module?.slug || '')} ${module?.name || ''}`.toLowerCase();
+  if (/e[\s-]?commerce|quick[\s-]?commerce|qcommerce|storefront|store|shop|singlepage|fashion|grocery/.test(moduleLabel)) return 'ecommerce';
+  if (/marketing|campaign/.test(moduleLabel)) return 'marketing';
+  return 'general';
+}
 
 function readBearer(req) {
   const raw = req.header('Authorization') || req.header('authorization') || '';
@@ -54,8 +101,29 @@ function findShopCustomer(decoded) {
   const list = store.customers || [];
   const id = decoded && decoded.id;
   const email = String(decoded?.email || '').toLowerCase().trim();
-  return list.find(c => c._id === id)
-    || (email ? list.find(c => (c.email || '').toLowerCase() === email) : null)
+  const sameWebsite = customer => decoded?.websiteId
+    ? String(customer.websiteId || '') === String(decoded.websiteId)
+    : !customer.websiteId;
+  return list.find(c => c._id === id && sameWebsite(c))
+    || (email ? list.find(c => (c.email || '').toLowerCase() === email && sameWebsite(c)) : null)
+    || null;
+}
+
+function findUserWebsite(user) {
+  const websites = (store.websites || []).filter(website => String(website.userId || '') === String(user?._id || ''));
+  const selectedModuleId = String(user?.selectedModuleId || user?.websiteModuleId || '').trim();
+  const selectedSlugs = new Set([
+    user?.selectedModuleSlug,
+    user?.websiteModuleSlug,
+    user?.selectedModuleType,
+  ].map(normalizeWebsiteModuleSlug).filter(Boolean));
+  const matchesModule = website => {
+    if (selectedModuleId && website.websiteModuleId) return String(website.websiteModuleId) === selectedModuleId;
+    const websiteSlug = normalizeWebsiteModuleSlug(website.websiteModuleSlug || website.moduleType || '');
+    return !selectedSlugs.size || selectedSlugs.has(websiteSlug);
+  };
+  return websites.find(website => String(website._id) === String(user?.websiteId || '') && matchesModule(website))
+    || websites.find(matchesModule)
     || null;
 }
 
@@ -68,6 +136,14 @@ const auth = (req, res, next) => {
     const decoded = verifyAnySecret(t);
     const user = store.users.find(u => u._id === decoded.id);
     if (user) {
+      if (user.role === 'website_user') {
+        const website = findUserWebsite(user);
+        const websiteId = String(website?._id || '');
+        if (user.websiteId !== websiteId) {
+          user.websiteId = websiteId;
+          schedulePersist();
+        }
+      }
       req.user = user;
       return next();
     }
@@ -76,6 +152,8 @@ const auth = (req, res, next) => {
     const role = (store.roles || []).find(r => r._id === emp.roleId || r.slug === emp.roleSlug);
     req.user = {
       _id: emp._id,
+      websiteModuleSlug: emp.websiteModuleSlug || '',
+      selectedModuleSlug: emp.websiteModuleSlug || '',
       name: emp.name,
       email: emp.email,
       role: emp.roleSlug || 'employee',
@@ -85,6 +163,168 @@ const auth = (req, res, next) => {
     next();
   } catch { res.status(401).json({ message: 'Invalid token' }); }
 };
+const requireWebsiteBuilderAccess = (req, res, next) => {
+  if (req.user?.role !== 'website_user') return next();
+  const requested = normalizeWebsiteModuleSlug(req.user.selectedModuleSlug || req.user.websiteModuleSlug || '');
+  const module = (store.websiteModules || []).find(item => normalizeWebsiteModuleSlug(item.slug || item.type || '') === requested);
+  const allowed = [...(module?.access?.header || []), ...(module?.access?.sidebar || [])];
+  if (!allowed.includes('/website-builder')) return res.status(403).json({ message: 'Website builder access is not enabled for this module' });
+  next();
+};
+
+function adminWebsiteModuleSlug(req) {
+  const isWebsiteUser = req.user?.role === 'website_user';
+  const isEmployee = !!req.user?.employeeId;
+  const explicitId = String(req.user?.selectedModuleId || req.user?.websiteModuleId || req.body?.moduleId || req.query?.moduleId || '').trim();
+  const explicitModuleId = explicitId || String(req.get('X-Website-Module-Id') || req.headers['x-website-module-id'] || '').trim();
+  const requested = String(
+    isWebsiteUser || isEmployee
+      ? (req.user.selectedModuleSlug || req.user.websiteModuleSlug || '')
+      : (req.get('X-Website-Module') || SERVER_WEBSITE_MODULE || 'ecommerce')
+  ).trim().toLowerCase();
+  const normalizedRequested = normalizeWebsiteModuleSlug(requested);
+  if (explicitModuleId) {
+    const module = (store.websiteModules || []).find(item => String(item._id) === String(explicitModuleId));
+    if (module) return normalizeWebsiteModuleSlug(module.slug || module.type || normalizedRequested || 'quick-commerce');
+  }
+  const module = (store.websiteModules || []).find(item => {
+    const slug = normalizeWebsiteModuleSlug(item.slug || '');
+    const id = String(item._id || '').trim();
+    return id === explicitModuleId || slug === normalizedRequested || String(item.slug || '').toLowerCase() === requested;
+  });
+  return module ? normalizeWebsiteModuleSlug(module.slug || module.type || normalizedRequested) : (normalizedRequested || 'quick-commerce');
+}
+function adminWebsiteModuleInfo(req) {
+  const slug = normalizeWebsiteModuleSlug(adminWebsiteModuleSlug(req) || '');
+  const explicitId = String(req.user?.selectedModuleId || req.user?.websiteModuleId || req.body?.moduleId || req.query?.moduleId || '').trim();
+  const explicitModuleId = explicitId || String(req.get('X-Website-Module-Id') || req.headers['x-website-module-id'] || '').trim();
+  const module = (store.websiteModules || []).find(item => {
+    if (explicitModuleId && String(item._id) === String(explicitModuleId)) return true;
+    return normalizeWebsiteModuleSlug(item.slug || item.type || '') === slug;
+  });
+  const name = String(module?.name || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+  const quickCommerce = ['quick-commerce', 'quick_commerce', 'qcommerce'].includes(slug)
+    || name.includes('quick commerce')
+    || (!module && slug === 'ecommerce');
+  const ecommerce = !quickCommerce && (['e-commerce', 'e_commerce', 'ecommerce'].includes(slug) || name === 'e commerce' || name === 'ecommerce');
+  return { slug, module, quickCommerce, ecommerce };
+}
+
+function isInAdminWebsiteModule(req, item, { includeShared = false } = {}) {
+  const active = adminWebsiteModuleInfo(req);
+  const itemSlug = normalizeWebsiteModuleSlug(item?.websiteModuleSlug || '');
+  let matchesModule = false;
+  if (itemSlug) matchesModule = itemSlug === active.slug;
+
+  // Legacy commerce records without a website-module tag can be classified by their old commerce type.
+  else if (item?.commerceType === 'quick_commerce') matchesModule = active.quickCommerce;
+  else if (item?.commerceType === 'ecommerce') matchesModule = active.ecommerce;
+
+  // Untagged legacy records belong to the original Quick Commerce module only.
+  else matchesModule = active.quickCommerce;
+
+  if (!matchesModule) return false;
+  if (req.user?.role === 'website_user') {
+    const websiteId = String(req.user.websiteId || '');
+    if (item?.websiteId) return !!websiteId && String(item.websiteId) === websiteId;
+    return includeShared;
+  }
+  return !item?.websiteId;
+}
+function isInAdminWebsiteData(req, item) {
+  if (!isInAdminWebsiteModule(req, item)) return false;
+  if (req.user?.role !== 'website_user') return true;
+  const websiteId = String(req.user.websiteId || '');
+  return !!websiteId && String(item?.websiteId || '') === websiteId;
+}
+function canEditAdminWebsiteData(req, item) {
+  return req.user?.role !== 'website_user'
+    || (!!req.user.websiteId && String(item?.websiteId || '') === String(req.user.websiteId));
+}
+function tagAdminWebsiteModule(req, item) {
+  return {
+    ...item,
+    websiteModuleSlug: adminWebsiteModuleSlug(req),
+    ...(req.user?.role === 'website_user' && req.user.websiteId ? { websiteId: req.user.websiteId } : {}),
+  };
+}
+function quickCommerceWebsiteModuleSlug() {
+  const module = (store.websiteModules || []).find(item => String(item.slug || '').toLowerCase() === 'qcommerce'
+    || ['quick-commerce', 'quick_commerce'].includes(String(item.slug || '').toLowerCase())
+    || String(item.name || '').toLowerCase().includes('quick commerce'));
+  return String(module?.slug || 'qcommerce').toLowerCase();
+}
+function isQuickCommerceWebsiteRecord(item) {
+  const slug = String(item?.websiteModuleSlug || '').toLowerCase();
+  if (slug) {
+    const assignedModule = (store.websiteModules || []).find(module => String(module.slug || '').toLowerCase() === slug);
+    if (assignedModule) return slug === quickCommerceWebsiteModuleSlug();
+    return [quickCommerceWebsiteModuleSlug(), 'quick-commerce', 'quick_commerce', 'ecommerce'].includes(slug);
+  }
+  if (item?.commerceType) return item.commerceType === 'quick_commerce';
+  return true;
+}
+
+function adminWebsiteModuleView(req) {
+  const scoped = { ...store };
+  ['productItems', 'categories', 'subCategories', 'childCategories', 'brands', 'stores', 'campaigns', 'banners', 'otherBanners', 'coupons', 'pushNotifications', 'advertisements', 'productRequests', 'productReviews', 'flashSales', 'deliveryZones', 'deliveryMen', 'storeDiscounts', 'employees', 'roles', 'systemModules', 'modules'].forEach(key => {
+    if (Array.isArray(store[key])) scoped[key] = store[key].filter(item => isInAdminWebsiteModule(req, item));
+  });
+  scoped.orders = (store.orders || []).filter(item => isInAdminWebsiteData(req, item));
+  scoped.customers = (store.customers || []).filter(customer => {
+    if (isInAdminWebsiteData(req, customer)) return true;
+    const email = String(customer.email || '').toLowerCase();
+    const name = String(customer.name || '').toLowerCase();
+    return scoped.orders.some(order => String(order.customerId || '') === String(customer._id)
+      || (email && String(order.customerEmail || '').toLowerCase() === email)
+      || (name && String(order.customer || '').toLowerCase() === name));
+  });
+  return scoped;
+}
+
+function buildWebsiteIdentity(userId, moduleIdentity) {
+  return `${String(userId || '').trim()}:${String(moduleIdentity || '').trim().toLowerCase()}`;
+}
+
+function normalizeWebsiteHost(value) {
+  return String(value || '').split(',')[0].trim().toLowerCase()
+    .replace(/^https?:\/\//, '').split(/[/?#]/)[0].replace(/:\d+$/, '').replace(/\.$/, '');
+}
+
+function websiteContextForRequest(req, { requirePublished = false } = {}) {
+  const requestedWebsiteId = String(req.get('X-Website-Id') || req.query?.websiteId || req.body?.websiteId || '').trim();
+  const requestHost = normalizeWebsiteHost(req.get('X-Forwarded-Host') || req.get('Origin') || req.get('Host') || req.hostname);
+  const hostWebsite = requestHost ? (store.websites || []).find(item =>
+    normalizeWebsiteHost(item.domain?.fullDomain || item.domain?.name) === requestHost
+  ) : null;
+  if (requestedWebsiteId && hostWebsite && String(hostWebsite._id) !== requestedWebsiteId) {
+    return { error: { status: 403, message: 'Website ID does not match this domain' } };
+  }
+  const websiteId = requestedWebsiteId || String(hostWebsite?._id || '');
+  if (!websiteId) return { website: null, websiteId: '', moduleId: '' };
+  const website = requestedWebsiteId
+    ? (store.websites || []).find(item => String(item._id) === requestedWebsiteId)
+    : hostWebsite;
+  if (!website || ((requirePublished || hostWebsite) && website.status !== 'published')) {
+    return { error: { status: 404, message: 'Published website not found' } };
+  }
+  const module = (store.websiteModules || []).find(item =>
+    (website.websiteModuleId && String(item._id) === String(website.websiteModuleId))
+    || normalizeWebsiteModuleSlug(item.slug || item.type || '') === normalizeWebsiteModuleSlug(website.websiteModuleSlug || website.moduleType || '')
+  );
+  const moduleId = String(website.websiteModuleId || module?._id || '');
+  const requestedModuleId = String(req.get('X-Website-Module-Id') || req.query?.websiteModuleId || req.body?.websiteModuleId || '').trim();
+  if (requestedModuleId && moduleId && requestedModuleId !== moduleId) {
+    return { error: { status: 403, message: 'Website module does not match this website' } };
+  }
+  return { website, websiteId, moduleId };
+}
+
+function belongsToWebsite(item, websiteId) {
+  return websiteId
+    ? String(item?.websiteId || '') === String(websiteId)
+    : !item?.websiteId;
+}
 
 function shopAuth(req, res, next) {
   try {
@@ -94,8 +334,19 @@ function shopAuth(req, res, next) {
     if (decoded.kind !== 'shop') {
       return res.status(401).json({ message: 'Customer login zaroori hai', code: 'WRONG_KIND' });
     }
+    const requestedWebsiteId = String(req.get('X-Website-Id') || req.query?.websiteId || decoded.websiteId || '').trim();
+    if (decoded.websiteId && requestedWebsiteId !== String(decoded.websiteId)) {
+      return res.status(403).json({ message: 'Customer account is linked to another website', code: 'WRONG_WEBSITE' });
+    }
+    if (decoded.websiteId && !req.get('X-Website-Id')) req.headers['x-website-id'] = decoded.websiteId;
+    const websiteContext = websiteContextForRequest(req, { requirePublished: !!requestedWebsiteId });
+    if (websiteContext.error) return res.status(websiteContext.error.status).json({ message: websiteContext.error.message });
     const user = findShopCustomer(decoded);
     if (!user) return res.status(401).json({ message: LOGIN_AGAIN, code: 'STALE_TOKEN' });
+    if (requestedWebsiteId && String(user.websiteId || '') !== requestedWebsiteId) {
+      return res.status(403).json({ message: 'Customer account is linked to another website', code: 'WRONG_WEBSITE' });
+    }
+    if (user.isBlocked) return res.status(403).json({ message: 'Customer account blocked hai', code: 'CUSTOMER_BLOCKED' });
     req.customer = user;
     next();
   } catch {
@@ -105,7 +356,7 @@ function shopAuth(req, res, next) {
 
 function publicCustomer(c) {
   if (!c) return c;
-  const { password, ...rest } = c;
+  const { password, passwordHash, ...rest } = c;
   return rest;
 }
 
@@ -118,6 +369,7 @@ function publicEmployee(e) {
 function recordEmployeeLogin(emp, { status, ip, device }) {
   const row = {
     _id: uuidv4(),
+    websiteModuleSlug: emp.websiteModuleSlug || quickCommerceWebsiteModuleSlug(),
     employeeId: emp._id,
     employeeName: emp.name,
     email: emp.email,
@@ -135,13 +387,92 @@ function recordEmployeeLogin(emp, { status, ip, device }) {
   return row;
 }
 
+router.post('/auth/register', async (req, res) => {
+  const name = String(req.body?.name || '').trim();
+  const email = String(req.body?.email || '').toLowerCase().trim();
+  const password = String(req.body?.password || '');
+  const moduleSlug = String(req.body?.moduleSlug || '').trim();
+  const requestModuleSlug = String(req.get('X-Website-Module') || req.headers['x-website-module'] || '').trim().toLowerCase();
+  const requestModuleId = String(req.body?.moduleId || req.get('X-Website-Module-Id') || req.headers['x-website-module-id'] || '').trim();
+  const targetModuleSlug = (moduleSlug || requestModuleSlug || '').trim().toLowerCase();
+  if (!name || !email || !password || (!targetModuleSlug && !requestModuleId)) {
+    return res.status(400).json({ message: 'Name, email, password aur Website Module zaroori hain' });
+  }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).json({ message: 'Valid email address bharo' });
+  if (password.length < 8) return res.status(400).json({ message: 'Password kam se kam 8 characters ka hona chahiye' });
+  const candidateModule = requestModuleId
+    ? (store.websiteModules || []).find(module => String(module._id) === requestModuleId && module.status !== false && module.status !== 'inactive')
+    : (store.websiteModules || []).find(module => normalizeWebsiteModuleSlug(module.slug || '') === normalizeWebsiteModuleSlug(targetModuleSlug) && module.status !== false && module.status !== 'inactive');
+  if (!candidateModule) return res.status(400).json({ message: 'Selected Website Module active nahi hai' });
+  const duplicate = (store.users || []).some(user => String(user.email || '').toLowerCase() === email
+    && (
+      String(user.selectedModuleId || user.websiteModuleId || '').toLowerCase() === String(candidateModule._id || '').toLowerCase()
+      || normalizeWebsiteModuleSlug(String(user.selectedModuleSlug || user.websiteModuleSlug || '')) === normalizeWebsiteModuleSlug(candidateModule.slug || '')
+    ))
+    || (store.employees || []).some(employee => String(employee.email || '').toLowerCase() === email
+      && normalizeWebsiteModuleSlug(String(employee.websiteModuleSlug || '')) === normalizeWebsiteModuleSlug(candidateModule.slug || ''));
+  if (duplicate) return res.status(409).json({ message: 'Email already registered for this module' });
+
+  const user = {
+    _id: uuidv4(),
+    name,
+    email,
+    password: await bcrypt.hash(password, 12),
+    role: 'website_user',
+    accessSections: ['website_design'],
+    selectedModuleId: String(candidateModule._id || ''),
+    selectedModuleSlug: normalizeWebsiteModuleSlug(candidateModule.slug || candidateModule.type || targetModuleSlug),
+    selectedModuleName: candidateModule.name,
+    selectedModuleType: websiteBuilderType(candidateModule),
+    status: 'active',
+    createdAt: new Date().toISOString(),
+  };
+  store.users.unshift(user);
+  res.status(201).json({
+    token: token(user._id),
+    user: {
+      id: user._id, name: user.name, email: user.email, role: user.role,
+      accessSections: user.accessSections, selectedModuleId: user.selectedModuleId, selectedModuleSlug: user.selectedModuleSlug, selectedModuleName: user.selectedModuleName, selectedModuleType: user.selectedModuleType,
+    },
+    module: { id: user.selectedModuleId, slug: user.selectedModuleSlug, name: user.selectedModuleName, type: user.selectedModuleType },
+  });
+});
 router.post('/auth/login', async (req, res) => {
-  const { email, password } = req.body;
-  const user = store.users.find(u => u.email === email);
+  const email = String(req.body?.email || '').toLowerCase().trim();
+  const password = String(req.body?.password || '');
+  const requestModuleSlug = String(req.get('X-Website-Module') || req.headers['x-website-module'] || '').trim().toLowerCase();
+  const requestModuleId = String(req.body?.moduleId || req.get('X-Website-Module-Id') || req.headers['x-website-module-id'] || '').trim();
+  const canonicalRequestModuleSlug = normalizeWebsiteModuleSlug(requestModuleSlug);
+  let user = (store.users || []).find(u => {
+    const sameEmail = String(u.email || '').toLowerCase() === email;
+    if (!sameEmail) return false;
+    if (requestModuleId) return String(u.selectedModuleId || u.websiteModuleId || '').toLowerCase() === requestModuleId.toLowerCase();
+    return canonicalRequestModuleSlug
+      && normalizeWebsiteModuleSlug(String(u.selectedModuleSlug || u.websiteModuleSlug || '')) === canonicalRequestModuleSlug;
+  });
+  if (!user) {
+    const matches = (store.users || []).filter(u => String(u.email || '').toLowerCase() === email);
+    if (matches.length === 1) user = matches[0];
+  }
   if (user) {
     if (!(await bcrypt.compare(password, user.password)))
       return res.status(401).json({ message: 'Invalid email or password' });
-    return res.json({ token: token(user._id), user: { id: user._id, name: user.name, email: user.email, role: user.role, accessSections: user.accessSections } });
+    const selectedModule = (store.websiteModules || []).find(module => String(module._id) === String(user.selectedModuleId || user.websiteModuleId || ''))
+      || (store.websiteModules || []).find(module => normalizeWebsiteModuleSlug(String(module.slug || '')) === normalizeWebsiteModuleSlug(String(user.selectedModuleSlug || user.websiteModuleSlug || '')));
+    if (user.role === 'website_user' && selectedModule) {
+      user.selectedModuleId = String(selectedModule._id || user.selectedModuleId || '');
+      user.selectedModuleSlug = normalizeWebsiteModuleSlug(selectedModule.slug || selectedModule.type || user.selectedModuleSlug || '');
+      user.selectedModuleType = websiteBuilderType(selectedModule);
+    }
+    const website = user.role === 'website_user' ? findUserWebsite(user) : null;
+    if (user.role === 'website_user') {
+      const websiteId = String(website?._id || '');
+      if (user.websiteId !== websiteId) {
+        user.websiteId = websiteId;
+        schedulePersist();
+      }
+    }
+    return res.json({ token: token(user._id), user: { id: user._id, name: user.name, email: user.email, role: user.role, accessSections: user.accessSections, websiteId: user.websiteId || '', selectedModuleId: user.selectedModuleId || selectedModule?._id || '', selectedModuleSlug: user.selectedModuleSlug || selectedModule?.slug || requestModuleSlug, selectedModuleName: user.selectedModuleName || selectedModule?.name, selectedModuleType: user.selectedModuleType || (selectedModule && websiteBuilderType(selectedModule)) } });
   }
   const emp = (store.employees || []).find(e => (e.email || '').toLowerCase() === String(email || '').toLowerCase());
   if (!emp) return res.status(401).json({ message: 'Invalid email or password' });
@@ -164,6 +495,10 @@ router.post('/auth/login', async (req, res) => {
       email: emp.email,
       role: emp.roleSlug || 'employee',
       accessSections: role?.accessSections || [],
+      employeeId: emp._id,
+      selectedModuleSlug: emp.websiteModuleSlug || quickCommerceWebsiteModuleSlug(),
+      websiteModuleSlug: emp.websiteModuleSlug || quickCommerceWebsiteModuleSlug(),
+      selectedModuleName: (store.websiteModules || []).find(module => String(module.slug || '').toLowerCase() === String(emp.websiteModuleSlug || quickCommerceWebsiteModuleSlug()).toLowerCase())?.name || 'Quick Commerce',
     },
   });
 });
@@ -173,10 +508,10 @@ router.get('/auth/me', auth, (req, res) => res.json({ user: req.user }));
 router.get('/dashboard', auth, (req, res) => {
   syncData(store);
   const { getDashboardStats } = require('../lib/dashboardData');
-  res.json(getDashboardStats(store));
+  res.json(getDashboardStats(adminWebsiteModuleView(req), req.query.periodDays));
 });
 
-router.get('/categories', auth, (req, res) => res.json(store.categories));
+router.get('/categories', auth, (req, res) => res.json(store.categories.filter(item => isInAdminWebsiteModule(req, item))));
 
 router.post('/categories', auth, (req, res) => {
   const maxId = store.categories.reduce((m, c) => Math.max(m, c.categoryId || 0), 0);
@@ -189,77 +524,80 @@ router.post('/categories', auth, (req, res) => {
     priority: req.body.priority || 'Normal',
     status: req.body.status !== false,
     featured: req.body.featured || false,
-    image: req.body.image || ''
+    image: req.body.image || '',
+    moduleId: req.body.moduleId || '',
+    websiteModuleSlug: adminWebsiteModuleSlug(req),
+    ...(req.user?.role === 'website_user' && req.user.websiteId ? { websiteId: req.user.websiteId } : {}),
   };
   store.categories.push(cat);
   res.status(201).json(cat);
 });
 
 router.put('/categories/:id', auth, (req, res) => {
-  const idx = store.categories.findIndex(c => c._id === req.params.id);
+  const idx = store.categories.findIndex(c => c._id === req.params.id && isInAdminWebsiteModule(req, c) && canEditAdminWebsiteData(req, c));
   if (idx === -1) return res.status(404).json({ message: 'Not found' });
-  store.categories[idx] = { ...store.categories[idx], ...req.body, _id: req.params.id };
+  store.categories[idx] = { ...store.categories[idx], ...req.body, _id: req.params.id, websiteModuleSlug: adminWebsiteModuleSlug(req), websiteId: store.categories[idx].websiteId || '' };
   res.json(store.categories[idx]);
 });
 
 router.delete('/categories/:id', auth, (req, res) => {
-  store.categories = store.categories.filter(c => c._id !== req.params.id);
+  store.categories = store.categories.filter(c => c._id !== req.params.id || !isInAdminWebsiteModule(req, c) || !canEditAdminWebsiteData(req, c));
   res.json({ message: 'Deleted' });
 });
 
-router.get('/sub-categories', auth, (req, res) => res.json(store.subCategories));
+router.get('/sub-categories', auth, (req, res) => res.json(store.subCategories.filter(item => isInAdminWebsiteModule(req, item))));
 router.post('/sub-categories', auth, (req, res) => {
   const maxId = store.subCategories.reduce((m, c) => Math.max(m, c.subCategoryId || 0), 0);
-  const item = { _id: uuidv4(), subCategoryId: maxId + 1, ...req.body, status: req.body.status !== false, featured: req.body.featured || false };
+  const item = tagAdminWebsiteModule(req, { _id: uuidv4(), subCategoryId: maxId + 1, ...req.body, status: req.body.status !== false, featured: req.body.featured || false });
   store.subCategories.push(item);
   res.status(201).json(item);
 });
 router.put('/sub-categories/:id', auth, (req, res) => {
-  const idx = store.subCategories.findIndex(c => c._id === req.params.id);
+  const idx = store.subCategories.findIndex(c => c._id === req.params.id && isInAdminWebsiteModule(req, c) && canEditAdminWebsiteData(req, c));
   if (idx === -1) return res.status(404).json({ message: 'Not found' });
-  store.subCategories[idx] = { ...store.subCategories[idx], ...req.body, _id: req.params.id };
+  store.subCategories[idx] = { ...store.subCategories[idx], ...req.body, _id: req.params.id, websiteModuleSlug: adminWebsiteModuleSlug(req), websiteId: store.subCategories[idx].websiteId || '' };
   res.json(store.subCategories[idx]);
 });
 router.delete('/sub-categories/:id', auth, (req, res) => {
-  store.subCategories = store.subCategories.filter(c => c._id !== req.params.id);
-  store.childCategories = store.childCategories.filter(c => c.subCategoryId !== req.params.id);
+  store.subCategories = store.subCategories.filter(c => c._id !== req.params.id || !isInAdminWebsiteModule(req, c) || !canEditAdminWebsiteData(req, c));
+  store.childCategories = store.childCategories.filter(c => c.subCategoryId !== req.params.id || !isInAdminWebsiteModule(req, c) || !canEditAdminWebsiteData(req, c));
   res.json({ message: 'Deleted' });
 });
 
-router.get('/child-categories', auth, (req, res) => res.json(store.childCategories));
+router.get('/child-categories', auth, (req, res) => res.json(store.childCategories.filter(item => isInAdminWebsiteModule(req, item))));
 router.post('/child-categories', auth, (req, res) => {
   const maxId = store.childCategories.reduce((m, c) => Math.max(m, c.childCategoryId || 0), 0);
-  const item = { _id: uuidv4(), childCategoryId: maxId + 1, ...req.body, status: req.body.status !== false, featured: req.body.featured || false };
+  const item = tagAdminWebsiteModule(req, { _id: uuidv4(), childCategoryId: maxId + 1, ...req.body, status: req.body.status !== false, featured: req.body.featured || false });
   store.childCategories.push(item);
   res.status(201).json(item);
 });
 router.put('/child-categories/:id', auth, (req, res) => {
-  const idx = store.childCategories.findIndex(c => c._id === req.params.id);
+  const idx = store.childCategories.findIndex(c => c._id === req.params.id && isInAdminWebsiteModule(req, c) && canEditAdminWebsiteData(req, c));
   if (idx === -1) return res.status(404).json({ message: 'Not found' });
-  store.childCategories[idx] = { ...store.childCategories[idx], ...req.body, _id: req.params.id };
+  store.childCategories[idx] = { ...store.childCategories[idx], ...req.body, _id: req.params.id, websiteModuleSlug: adminWebsiteModuleSlug(req), websiteId: store.childCategories[idx].websiteId || '' };
   res.json(store.childCategories[idx]);
 });
 router.delete('/child-categories/:id', auth, (req, res) => {
-  store.childCategories = store.childCategories.filter(c => c._id !== req.params.id);
+  store.childCategories = store.childCategories.filter(c => c._id !== req.params.id || !isInAdminWebsiteModule(req, c) || !canEditAdminWebsiteData(req, c));
   res.json({ message: 'Deleted' });
 });
 
 function simpleCrud(path, key, idField) {
-  router.get(`/${path}`, auth, (req, res) => res.json(store[key]));
+  router.get(`/${path}`, auth, (req, res) => res.json(store[key].filter(item => isInAdminWebsiteModule(req, item))));
   router.post(`/${path}`, auth, (req, res) => {
     const maxId = store[key].reduce((m, c) => Math.max(m, c[idField] || 0), 0);
-    const item = { _id: uuidv4(), [idField]: maxId + 1, name: req.body.name, nameEn: req.body.nameEn || '', nameHi: req.body.nameHi || '' };
+    const item = tagAdminWebsiteModule(req, { _id: uuidv4(), [idField]: maxId + 1, name: req.body.name, nameEn: req.body.nameEn || '', nameHi: req.body.nameHi || '' });
     store[key].push(item);
     res.status(201).json(item);
   });
   router.put(`/${path}/:id`, auth, (req, res) => {
-    const idx = store[key].findIndex(c => c._id === req.params.id);
+    const idx = store[key].findIndex(c => c._id === req.params.id && isInAdminWebsiteModule(req, c) && canEditAdminWebsiteData(req, c));
     if (idx === -1) return res.status(404).json({ message: 'Not found' });
-    store[key][idx] = { ...store[key][idx], ...req.body, _id: req.params.id };
+    store[key][idx] = { ...store[key][idx], ...req.body, _id: req.params.id, websiteModuleSlug: adminWebsiteModuleSlug(req), websiteId: store[key][idx].websiteId || '' };
     res.json(store[key][idx]);
   });
   router.delete(`/${path}/:id`, auth, (req, res) => {
-    store[key] = store[key].filter(c => c._id !== req.params.id);
+    store[key] = store[key].filter(c => c._id !== req.params.id || !isInAdminWebsiteModule(req, c) || !canEditAdminWebsiteData(req, c));
     res.json({ message: 'Deleted' });
   });
 }
@@ -267,48 +605,48 @@ function simpleCrud(path, key, idField) {
 simpleCrud('attributes', 'attributes', 'attributeId');
 simpleCrud('units', 'units', 'unitId');
 
-router.get('/brands', auth, (req, res) => res.json(store.brands));
+router.get('/brands', auth, (req, res) => res.json(store.brands.filter(item => isInAdminWebsiteModule(req, item))));
 router.post('/brands', auth, (req, res) => {
   const maxId = store.brands.reduce((m, c) => Math.max(m, c.brandId || 0), 0);
-  const item = {
+  const item = tagAdminWebsiteModule(req, {
     _id: uuidv4(), brandId: maxId + 1, name: req.body.name,
     nameEn: req.body.nameEn || '', nameHi: req.body.nameHi || '', image: req.body.image || ''
-  };
+  });
   store.brands.push(item);
   res.status(201).json(item);
 });
 router.put('/brands/:id', auth, (req, res) => {
-  const idx = store.brands.findIndex(c => c._id === req.params.id);
+  const idx = store.brands.findIndex(c => c._id === req.params.id && isInAdminWebsiteModule(req, c) && canEditAdminWebsiteData(req, c));
   if (idx === -1) return res.status(404).json({ message: 'Not found' });
-  store.brands[idx] = { ...store.brands[idx], ...req.body, _id: req.params.id };
+  store.brands[idx] = { ...store.brands[idx], ...req.body, _id: req.params.id, websiteModuleSlug: adminWebsiteModuleSlug(req), websiteId: store.brands[idx].websiteId || '' };
   res.json(store.brands[idx]);
 });
 router.delete('/brands/:id', auth, (req, res) => {
-  store.brands = store.brands.filter(c => c._id !== req.params.id);
+  store.brands = store.brands.filter(c => c._id !== req.params.id || !isInAdminWebsiteModule(req, c) || !canEditAdminWebsiteData(req, c));
   res.json({ message: 'Deleted' });
 });
 
 function categoryConfigRoutes(path, storeKey, dataField) {
   router.get(`/${path}`, auth, (req, res) => {
-    let list = [...store[storeKey]];
+    let list = store[storeKey].filter(item => isInAdminWebsiteModule(req, item));
     if (req.query.mainCategory) list = list.filter(c => c.mainCategory === req.query.mainCategory);
     res.json(list);
   });
   router.put(`/${path}`, auth, (req, res) => {
     const { mainCategory, [dataField]: data } = req.body;
     if (!mainCategory) return res.status(400).json({ message: 'mainCategory required' });
-    const idx = store[storeKey].findIndex(c => c.mainCategory === mainCategory);
+    const idx = store[storeKey].findIndex(c => c.mainCategory === mainCategory && isInAdminWebsiteModule(req, c) && canEditAdminWebsiteData(req, c));
     if (idx >= 0) {
-      store[storeKey][idx] = { ...store[storeKey][idx], [dataField]: data || [] };
+      store[storeKey][idx] = { ...store[storeKey][idx], [dataField]: data || [], websiteModuleSlug: adminWebsiteModuleSlug(req), websiteId: store[storeKey][idx].websiteId || '' };
       return res.json(store[storeKey][idx]);
     }
     const maxId = store[storeKey].reduce((m, c) => Math.max(m, c.configId || 0), 0);
-    const item = { _id: uuidv4(), configId: maxId + 1, mainCategory, [dataField]: data || [] };
+    const item = { _id: uuidv4(), configId: maxId + 1, mainCategory, [dataField]: data || [], websiteModuleSlug: adminWebsiteModuleSlug(req), ...(req.user?.role === 'website_user' && req.user.websiteId ? { websiteId: req.user.websiteId } : {}) };
     store[storeKey].push(item);
     res.status(201).json(item);
   });
   router.delete(`/${path}/:id`, auth, (req, res) => {
-    store[storeKey] = store[storeKey].filter(c => c._id !== req.params.id);
+    store[storeKey] = store[storeKey].filter(c => c._id !== req.params.id || !isInAdminWebsiteModule(req, c) || !canEditAdminWebsiteData(req, c));
     res.json({ message: 'Deleted' });
   });
 }
@@ -319,14 +657,28 @@ categoryConfigRoutes('category-variants', 'categoryVariants', 'attributes');
 router.get('/product-items', auth, (req, res) => {
   if (req.query.topSelling === 'true') {
     syncData(store);
-    return res.json(buildAllProductSales(store));
+    return res.json(buildAllProductSales(adminWebsiteModuleView(req)));
   }
-  let list = [...store.productItems];
+  let list = [...store.productItems].filter(item => isInAdminWebsiteModule(req, item));
+  const systemModuleId = String(req.query.systemModuleId || req.query.mainModuleId || '');
+  if (systemModuleId) {
+    const moduleCategories = (store.categories || []).filter(category =>
+      isInAdminWebsiteModule(req, category) && String(category.moduleId || '') === systemModuleId
+    );
+    const categoryIds = new Set(moduleCategories.flatMap(category => [category._id, category.categoryId].filter(Boolean).map(String)));
+    const categoryNames = new Set(moduleCategories.map(category => String(category.name || '').trim().toLowerCase()).filter(Boolean));
+    list = list.filter(product =>
+      String(product.systemModuleId || product.moduleId || '') === systemModuleId ||
+      categoryIds.has(String(product.categoryId || '')) ||
+      categoryNames.has(String(product.mainCategory || '').trim().toLowerCase())
+    );
+  }
   if (req.query.lowStock === 'true') list = list.filter(p => p.stock <= p.lowStockLimit);
   if (req.query.gallery === 'true') list = list.filter(p => p.inGallery);
   const storeFilter = req.query.storeId || req.query.store;
   if (storeFilter) {
-    const s = findStoreById(storeFilter, store.stores) || findStoreByName(storeFilter, store.stores);
+    const scopedStores = store.stores.filter(item => isInAdminWebsiteModule(req, item));
+    const s = findStoreById(storeFilter, scopedStores) || findStoreByName(storeFilter, scopedStores);
     list = s ? list.filter(p => belongsToStore(p, s)) : list.filter(p => p.store === storeFilter);
   }
   if (req.query.category) list = list.filter(p => p.mainCategory === req.query.category);
@@ -335,11 +687,11 @@ router.get('/product-items', auth, (req, res) => {
 
 router.get('/product-items/stats', auth, (req, res) => {
   res.json({
-    totalProducts: store.productItems.length,
-    totalCategories: store.categories.length,
-    totalStores: store.stores.length,
-    totalBrands: store.brands.length,
-    lowStockCount: store.productItems.filter(p => p.stock <= p.lowStockLimit).length,
+    totalProducts: store.productItems.filter(item => isInAdminWebsiteModule(req, item)).length,
+    totalCategories: store.categories.filter(item => isInAdminWebsiteModule(req, item)).length,
+    totalStores: store.stores.filter(item => isInAdminWebsiteModule(req, item)).length,
+    totalBrands: store.brands.filter(item => isInAdminWebsiteModule(req, item)).length,
+    lowStockCount: store.productItems.filter(p => isInAdminWebsiteModule(req, p) && p.stock <= p.lowStockLimit).length,
   });
 });
 
@@ -356,6 +708,8 @@ router.post('/product-items', auth, (req, res) => {
       ...req.body,
       createdAt: req.body?.createdAt || new Date().toISOString(),
       quickCommerce: true,
+      websiteModuleSlug: adminWebsiteModuleSlug(req),
+      ...(req.user?.role === 'website_user' && req.user.websiteId ? { websiteId: req.user.websiteId } : {}),
     }, store.stores),
     store.stores,
     { isCreate: true }
@@ -366,20 +720,20 @@ router.post('/product-items', auth, (req, res) => {
 });
 
 router.get('/product-items/:id/stats', auth, (req, res) => {
-  const item = store.productItems.find(p => p._id === req.params.id);
+  const item = store.productItems.find(p => p._id === req.params.id && isInAdminWebsiteModule(req, p));
   if (!item) return res.status(404).json({ message: 'Not found' });
   syncData(store);
-  res.json(getProductStats(store, item));
+  res.json(getProductStats(adminWebsiteModuleView(req), item));
 });
 
 router.get('/product-items/:id', auth, (req, res) => {
-  const item = store.productItems.find(p => p._id === req.params.id);
+  const item = store.productItems.find(p => p._id === req.params.id && isInAdminWebsiteModule(req, p));
   if (!item) return res.status(404).json({ message: 'Not found' });
   res.json(item);
 });
 
 router.put('/product-items/:id', auth, (req, res) => {
-  const idx = store.productItems.findIndex(p => p._id === req.params.id);
+  const idx = store.productItems.findIndex(p => p._id === req.params.id && isInAdminWebsiteModule(req, p) && canEditAdminWebsiteData(req, p));
   if (idx === -1) return res.status(404).json({ message: 'Not found' });
   store.productItems[idx] = applyQuickCommerceFlag(
     attachStoreRef({
@@ -387,6 +741,8 @@ router.put('/product-items/:id', auth, (req, res) => {
       ...req.body,
       _id: req.params.id,
       quickCommerce: true,
+      websiteModuleSlug: adminWebsiteModuleSlug(req),
+      websiteId: store.productItems[idx].websiteId || '',
       createdAt: store.productItems[idx].createdAt || req.body?.createdAt || new Date().toISOString(),
     }, store.stores),
     store.stores
@@ -396,13 +752,13 @@ router.put('/product-items/:id', auth, (req, res) => {
 });
 
 router.delete('/product-items/:id', auth, (req, res) => {
-  store.productItems = store.productItems.filter(p => p._id !== req.params.id);
+  store.productItems = store.productItems.filter(p => p._id !== req.params.id || !isInAdminWebsiteModule(req, p) || !canEditAdminWebsiteData(req, p));
   syncData(store);
   res.json({ message: 'Deleted' });
 });
 
 router.patch('/product-items/:id/stock', auth, (req, res) => {
-  const idx = store.productItems.findIndex(p => p._id === req.params.id);
+  const idx = store.productItems.findIndex(p => p._id === req.params.id && isInAdminWebsiteModule(req, p) && canEditAdminWebsiteData(req, p));
   if (idx === -1) return res.status(404).json({ message: 'Not found' });
   const item = store.productItems[idx];
   const body = req.body || {};
@@ -448,14 +804,39 @@ function mapRequestToProduct(req) {
   };
 }
 
-function approveProductRequest(id) {
-  const idx = store.productRequests.findIndex(r => r._id === id);
+function quickCommerceCatalogForLocation(latValue, lngValue, websiteId = '') {
+  if (latValue === undefined || latValue === null || latValue === '' || lngValue === undefined || lngValue === null || lngValue === '') {
+    return { zone: null, stores: [], storeIds: new Set(), products: [] };
+  }
+  const lat = Number(latValue);
+  const lng = Number(lngValue);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return { zone: null, stores: [], storeIds: new Set(), products: [] };
+  const zones = (store.deliveryZones || []).filter(zone => belongsToWebsite(zone, websiteId) && zone.status !== false && isQuickCommerceWebsiteRecord(zone) && zone.commerceType !== 'ecommerce');
+  const zone = zones.filter(item => isInsideDeliveryZone(item, lat, lng))
+    .sort((a, b) => (Number(a.radiusKm) || Infinity) - (Number(b.radiusKm) || Infinity))[0] || null;
+  if (!zone) return { zone: null, stores: [], storeIds: new Set(), products: [] };
+  const stores = (store.stores || []).filter(item => belongsToWebsite(item, websiteId) && isQuickCommerceWebsiteRecord(item) && item.status === 'active' && !item.isBlocked && (
+    String(item.zoneId || '') === String(zone._id)
+    || String(item.zoneId || '') === String(zone.zoneId)
+    || (item.lat != null && item.lng != null && isInsideDeliveryZone(zone, Number(item.lat), Number(item.lng)))
+  ));
+  const storeIds = new Set(stores.flatMap(item => [item._id, item.storeId].filter(Boolean).map(String)));
+  const products = stores.length ? qcCatalog().filter(product => belongsToWebsite(product, websiteId) && (() => {
+    if (product.storeId != null && product.storeId !== '') return storeIds.has(String(product.storeId));
+    return stores.some(item => item.name === product.store);
+  })()) : [];
+  return { zone, stores, storeIds, products };
+}
+
+function approveProductRequest(id, req) {
+  const idx = store.productRequests.findIndex(r => r._id === id && isInAdminWebsiteModule(req, r));
   if (idx === -1) return { error: { status: 404, message: 'Not found' } };
   const request = store.productRequests[idx];
   const product = applyQuickCommerceFlag(attachStoreRef({
     ...mapRequestToProduct(request),
     createdAt: new Date().toISOString(),
     quickCommerce: true,
+    websiteModuleSlug: request.websiteModuleSlug || adminWebsiteModuleSlug(req),
   }, store.stores), store.stores, { isCreate: true });
   store.productItems.unshift(product);
   store.productRequests.splice(idx, 1);
@@ -464,19 +845,19 @@ function approveProductRequest(id) {
 }
 
 router.get('/product-requests', auth, (req, res) => {
-  let list = [...store.productRequests];
+  let list = store.productRequests.filter(item => isInAdminWebsiteModule(req, item));
   if (req.query.status) list = list.filter(r => r.status === req.query.status);
   res.json(list);
 });
 
 router.post('/product-requests/:id/approve', auth, (req, res) => {
-  const result = approveProductRequest(req.params.id);
+  const result = approveProductRequest(req.params.id, req);
   if (result.error) return res.status(result.error.status).json({ message: result.error.message });
   res.json({ message: 'Approved and added to catalog', product: result.product });
 });
 
 router.post('/product-requests/:id/reject', auth, (req, res) => {
-  const idx = store.productRequests.findIndex(r => r._id === req.params.id);
+  const idx = store.productRequests.findIndex(r => r._id === req.params.id && isInAdminWebsiteModule(req, r));
   if (idx === -1) return res.status(404).json({ message: 'Not found' });
   store.productRequests[idx] = {
     ...store.productRequests[idx],
@@ -487,14 +868,14 @@ router.post('/product-requests/:id/reject', auth, (req, res) => {
 });
 
 router.put('/product-requests/:id', auth, (req, res) => {
-  const idx = store.productRequests.findIndex(r => r._id === req.params.id);
+  const idx = store.productRequests.findIndex(r => r._id === req.params.id && isInAdminWebsiteModule(req, r));
   if (idx === -1) return res.status(404).json({ message: 'Not found' });
   const current = store.productRequests[idx];
-  const merged = { ...current, ...req.body, _id: req.params.id };
+  const merged = { ...current, ...req.body, _id: req.params.id, websiteModuleSlug: adminWebsiteModuleSlug(req) };
 
   if (req.body.status === 'Approved' && current.status !== 'Approved') {
     store.productRequests[idx] = merged;
-    const result = approveProductRequest(req.params.id);
+    const result = approveProductRequest(req.params.id, req);
     if (result.error) return res.status(result.error.status).json({ message: result.error.message });
     return res.json({ moved: 'product', product: result.product });
   }
@@ -513,12 +894,12 @@ router.put('/product-requests/:id', auth, (req, res) => {
 });
 
 router.delete('/product-requests/:id', auth, (req, res) => {
-  store.productRequests = store.productRequests.filter(r => r._id !== req.params.id);
+  store.productRequests = store.productRequests.filter(r => r._id !== req.params.id || !isInAdminWebsiteModule(req, r));
   res.json({ message: 'Deleted' });
 });
 
 router.get('/product-reviews', auth, (req, res) => {
-  let list = store.productReviews.map(r => ({
+  let list = store.productReviews.filter(r => isInAdminWebsiteModule(req, r)).map(r => ({
     ...r,
     store: r.store || 'Krishiv Ethnic Wear',
     category: r.category || 'General',
@@ -527,7 +908,7 @@ router.get('/product-reviews', auth, (req, res) => {
     productCode: r.productCode || '',
   }));
   if (req.query.storeId) {
-    const s = findStoreById(req.query.storeId, store.stores);
+    const s = findStoreById(req.query.storeId, store.stores.filter(item => isInAdminWebsiteModule(req, item)));
     if (s) list = list.filter(r => belongsToStore(r, s));
   } else if (req.query.store) list = list.filter(r => r.store === req.query.store);
   if (req.query.category) list = list.filter(r => r.category === req.query.category);
@@ -553,7 +934,7 @@ router.get('/product-reviews', auth, (req, res) => {
 });
 
 router.get('/product-reviews/export', auth, (req, res) => {
-  const rows = store.productReviews.map(r => ({
+  const rows = store.productReviews.filter(r => isInAdminWebsiteModule(req, r)).map(r => ({
     Product: r.productName,
     SKU: r.productSku,
     'Product Code': r.productCode || '',
@@ -572,65 +953,105 @@ router.get('/product-reviews/export', auth, (req, res) => {
   res.send(csv);
 });
 router.put('/product-reviews/:id', auth, (req, res) => {
-  const idx = store.productReviews.findIndex(r => r._id === req.params.id);
+  const idx = store.productReviews.findIndex(r => r._id === req.params.id && isInAdminWebsiteModule(req, r));
   if (idx === -1) return res.status(404).json({ message: 'Not found' });
-  store.productReviews[idx] = { ...store.productReviews[idx], ...req.body, _id: req.params.id };
+  store.productReviews[idx] = { ...store.productReviews[idx], ...req.body, _id: req.params.id, websiteModuleSlug: adminWebsiteModuleSlug(req) };
   res.json(store.productReviews[idx]);
 });
 router.delete('/product-reviews/:id', auth, (req, res) => {
-  store.productReviews = store.productReviews.filter(r => r._id !== req.params.id);
+  store.productReviews = store.productReviews.filter(r => r._id !== req.params.id || !isInAdminWebsiteModule(req, r));
   res.json({ message: 'Deleted' });
 });
 
-router.get('/product-import-history', auth, (req, res) => res.json(store.productImportHistory));
-router.get('/product-export-history', auth, (req, res) => res.json(store.productExportHistory));
+router.get('/product-import-history', auth, (req, res) => res.json(store.productImportHistory.filter(item => isInAdminWebsiteModule(req, item))));
+router.get('/product-export-history', auth, (req, res) => res.json(store.productExportHistory.filter(item => isInAdminWebsiteModule(req, item))));
 
-router.get('/product-items/template', auth, (req, res) => {
-  const rows = [templateRow('products')];
-  const csv = toCsv(rows);
-  res.setHeader('Content-Type', 'text/csv');
-  res.setHeader('Content-Disposition', 'attachment; filename="products_template.csv"');
-  res.send(csv);
-});
-
-router.post('/product-items/bulk-import', auth, upload.single('file'), (req, res) => {
-  const fileName = req.file?.originalname || req.body.fileName || 'import.csv';
-  let success = 0;
-  let failed = 0;
-
-  if (req.file?.buffer) {
-    const text = req.file.buffer.toString('utf8');
-    const rows = parseCsv(text);
-    const result = importProductsFromRows(rows, store, uuidv4);
-    success = result.success;
-    failed = result.failed;
-    syncData(store);
-  } else {
-    success = 1;
-    failed = 0;
+router.get('/product-items/template', auth, async (req, res) => {
+  try {
+    const row = templateRow('products');
+    const headers = Object.keys(row);
+    const rows = [row];
+    if (String(req.query.format || 'xlsx').toLowerCase() === 'csv') {
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', 'attachment; filename="products_template.csv"');
+      return res.send(toCsv(rows, headers));
+    }
+    const buffer = await toExcelBuffer(rows, headers, 'Product Import');
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', 'attachment; filename="products_template.xlsx"');
+    res.send(buffer);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
   }
-
-  const record = {
-    _id: uuidv4(),
-    fileName,
-    totalProducts: success + failed,
-    success,
-    failed,
-    importedOn: new Date().toLocaleString('en-IN'),
-    status: 'Completed',
-  };
-  store.productImportHistory.unshift(record);
-  res.json({ message: 'Import completed', ...record });
 });
 
-router.get('/product-items/export', auth, (req, res) => {
-  const rows = productsToRows(store.productItems);
-  const csv = toCsv(rows);
-  const record = { _id: uuidv4(), fileName: `products_${new Date().toISOString().slice(0, 10)}.csv`, format: 'CSV', totalProducts: rows.length, fileSize: `${Math.round(csv.length / 1024)} KB`, generatedOn: new Date().toLocaleString('en-IN'), status: 'Completed' };
-  store.productExportHistory.unshift(record);
-  res.setHeader('Content-Type', 'text/csv');
-  res.setHeader('Content-Disposition', `attachment; filename="${record.fileName}"`);
-  res.send(csv);
+router.post('/product-items/bulk-import', auth, upload.single('file'), async (req, res) => {
+  const file = req.file;
+  if (!file?.buffer) return res.status(400).json({ message: 'Select a .xlsx or .csv file to import.' });
+
+  const fileName = file.originalname || 'products.xlsx';
+  const lowerName = fileName.toLowerCase();
+  try {
+    let rows;
+    if (lowerName.endsWith('.csv')) rows = parseCsv(file.buffer.toString('utf8'));
+    else if (lowerName.endsWith('.xlsx')) rows = await rowsFromExcel(file.buffer);
+    else return res.status(400).json({ message: 'Unsupported file type. Upload .xlsx or .csv.' });
+    if (!rows.length) return res.status(400).json({ message: 'The selected file has no product rows.' });
+
+    const existingProductIds = new Set(store.productItems.map(item => item._id));
+    const result = importProductsFromRows(rows, store, uuidv4);
+    store.productItems.forEach(item => {
+      if (!existingProductIds.has(item._id)) item.websiteModuleSlug = adminWebsiteModuleSlug(req);
+    });
+    syncData(store);
+    const record = {
+      _id: uuidv4(), websiteModuleSlug: adminWebsiteModuleSlug(req), fileName, totalProducts: rows.length,
+      success: result.success, failed: result.failed, errors: result.errors,
+      importedOn: new Date().toLocaleString('en-IN'),
+      status: result.failed ? (result.success ? 'Partial' : 'Failed') : 'Completed',
+    };
+    store.productImportHistory.unshift(record);
+    res.json({ message: 'Import completed', ...record });
+  } catch (err) {
+    res.status(400).json({ message: `Could not read import file: ${err.message}` });
+  }
+});
+
+router.get('/product-items/export', auth, async (req, res) => {
+  try {
+    const groups = String(req.query.groups || 'basic,price,store').split(',').filter(Boolean);
+    const headers = productHeaders(groups);
+    const same = (left, right) => String(left ?? '').trim().toLowerCase() === String(right ?? '').trim().toLowerCase();
+    let products = store.productItems.filter(item => isInAdminWebsiteModule(req, item));
+    if (req.query.storeId) products = products.filter(product => same(product.storeId, req.query.storeId));
+    if (req.query.category) products = products.filter(product => same(product.mainCategory, req.query.category));
+    if (req.query.subCategory) products = products.filter(product => same(product.subCategory, req.query.subCategory));
+    if (req.query.brand) products = products.filter(product => same(product.brand, req.query.brand));
+    if (req.query.status) products = products.filter(product => same(product.status === false ? 'inactive' : 'active', req.query.status));
+    if (req.query.stock === 'low') products = products.filter(product => Number(product.stock) > 0 && Number(product.stock) <= (Number(product.lowStockLimit) || 10));
+    if (req.query.stock === 'out') products = products.filter(product => Number(product.stock) <= 0);
+
+    const rows = productsToRows(products, groups);
+    const date = new Date().toISOString().slice(0, 10);
+    const format = String(req.query.format || 'xlsx').toLowerCase() === 'csv' ? 'csv' : 'xlsx';
+    const fileName = `products_${date}.${format}`;
+    let buffer;
+    if (format === 'csv') buffer = Buffer.from(toCsv(rows, headers), 'utf8');
+    else buffer = await toExcelBuffer(rows, headers, 'Products');
+
+    const query = { ...req.query, groups: groups.join(','), format };
+    const record = {
+      _id: uuidv4(), websiteModuleSlug: adminWebsiteModuleSlug(req), fileName, format: format === 'xlsx' ? 'Excel' : 'CSV',
+      totalProducts: rows.length, fileSize: `${Math.max(1, Math.round(buffer.length / 1024))} KB`,
+      generatedOn: new Date().toLocaleString('en-IN'), status: 'Completed', query,
+    };
+    store.productExportHistory.unshift(record);
+    res.setHeader('Content-Type', format === 'xlsx' ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' : 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${record.fileName}"`);
+    res.send(buffer);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
 });
 
 const STATUS_SLUGS = {
@@ -647,17 +1068,14 @@ const STATUS_SLUGS = {
 };
 
 function ensureOrders() {
-  if (!store.orders.length) {
-    const { seedOrders } = require('../lib/orderSeed');
-    store.orders = seedOrders();
-  }
+  if (!Array.isArray(store.orders)) store.orders = [];
 }
 
-function findOrderIndex(id) {
+function findOrderIndex(id, req) {
   ensureOrders();
-  return store.orders.findIndex(o =>
+  return store.orders.findIndex(o => isInAdminWebsiteData(req, o) && (
     o._id === id || String(o.orderNo) === String(id) || String(o.orderId) === String(id)
-  );
+  ));
 }
 
 function getNextStoreId() {
@@ -669,16 +1087,16 @@ function getNextStoreId() {
   return id;
 }
 
-function findStoreIndex(id) {
+function findStoreIndex(id, req) {
   if (id === undefined || id === null || id === '') return -1;
   const key = String(id);
-  return store.stores.findIndex(s =>
+  return store.stores.findIndex(s => (!req || isInAdminWebsiteModule(req, s)) && (
     String(s.storeId) === key ||
     String(s._id) === key ||
     s.slug === key ||
     s.subdomain === key ||
     key === `wepzo-store-${s.slug}`
-  );
+  ));
 }
 
 function formatNow() {
@@ -689,7 +1107,7 @@ function formatNow() {
 
 router.get('/orders', auth, (req, res) => {
   ensureOrders();
-  let list = [...store.orders];
+  let list = store.orders.filter(order => isInAdminWebsiteData(req, order));
   const slug = req.query.status;
   if (slug && STATUS_SLUGS[slug]) {
     list = list.filter(o => o.status === STATUS_SLUGS[slug]);
@@ -736,7 +1154,7 @@ function orderCreatedMs(o) {
 
 router.get('/orders/new-count', auth, (req, res) => {
   ensureOrders();
-  let list = [...store.orders];
+  let list = store.orders.filter(order => isInAdminWebsiteData(req, order));
   if (req.query.source) list = list.filter(o => o.source === req.query.source);
   if (req.query.since) {
     const since = Date.parse(req.query.since);
@@ -764,19 +1182,21 @@ router.get('/orders/new-count', auth, (req, res) => {
 
 router.get('/orders/stats', auth, (req, res) => {
   ensureOrders();
+  const scopedOrders = store.orders.filter(order => isInAdminWebsiteData(req, order));
+  const scopedFlashSales = store.flashSales.filter(sale => isInAdminWebsiteModule(req, sale));
   const counts = {};
-  Object.values(STATUS_SLUGS).forEach(s => { counts[s] = store.orders.filter(o => o.status === s).length; });
-  const refundRequests = store.orders.filter(o =>
+  Object.values(STATUS_SLUGS).forEach(s => { counts[s] = scopedOrders.filter(o => o.status === s).length; });
+  const refundRequests = scopedOrders.filter(o =>
     o.refundStatus === 'request' || (o.status === 'Returns/Refunds' && !['refunded', 'rejected', 'cancelled'].includes(o.refundStatus))
   ).length;
-  const refunded = store.orders.filter(o => o.refundStatus === 'refunded').length;
+  const refunded = scopedOrders.filter(o => o.refundStatus === 'refunded').length;
   res.json({
-    total: store.orders.length,
+    total: scopedOrders.length,
     byStatus: counts,
     refunds: { requests: refundRequests, refunded },
     flashSales: {
-      active: store.flashSales.filter(s => s.status === 'Active').length,
-      total: store.flashSales.length,
+      active: scopedFlashSales.filter(s => s.status === 'Active').length,
+      total: scopedFlashSales.length,
     },
   });
 });
@@ -784,9 +1204,7 @@ router.get('/orders/stats', auth, (req, res) => {
 router.get('/orders/detail/:id', auth, (req, res) => {
   ensureOrders();
   const id = req.params.id;
-  const order = store.orders.find(o =>
-    o._id === id || String(o.orderNo) === id || String(o.orderId) === id
-  );
+  const order = store.orders.find(o => isInAdminWebsiteData(req, o) && (o._id === id || String(o.orderNo) === id || String(o.orderId) === id));
   if (!order) return res.status(404).json({ message: 'Order not found' });
   res.json(order);
 });
@@ -805,7 +1223,7 @@ function matchOrderProductsToCatalog(orderProducts, catalog) {
 }
 
 router.get('/orders/:id/transfer-stores', auth, (req, res) => {
-  const idx = findOrderIndex(req.params.id);
+  const idx = findOrderIndex(req.params.id, req);
   if (idx === -1) return res.status(404).json({ message: 'Order not found' });
   const order = store.orders[idx];
   const orderProducts = order.products?.length
@@ -813,7 +1231,7 @@ router.get('/orders/:id/transfer-stores', auth, (req, res) => {
     : [{ name: 'Order Item', qty: order.items || 1 }];
   const search = (req.query.search || '').toLowerCase().trim();
 
-  let list = store.stores.filter(s => !belongsToStore(order, s) && s.status === 'active');
+  let list = store.stores.filter(s => isInAdminWebsiteModule(req, s) && !belongsToStore(order, s) && s.status === 'active');
   if (search) {
     list = list.filter(s =>
       s.name.toLowerCase().includes(search) ||
@@ -823,7 +1241,7 @@ router.get('/orders/:id/transfer-stores', auth, (req, res) => {
   }
 
   const enriched = list.map(s => {
-    const catalog = store.productItems.filter(p => belongsToStore(p, s) && p.status !== false);
+    const catalog = store.productItems.filter(p => isInAdminWebsiteModule(req, p) && belongsToStore(p, s) && p.status !== false);
     const matchedProducts = matchOrderProductsToCatalog(orderProducts, catalog);
     const total = orderProducts.length;
     const hasAllProducts = matchedProducts.length === total && total > 0;
@@ -854,22 +1272,22 @@ router.get('/orders/:id/transfer-stores', auth, (req, res) => {
 });
 
 router.get('/delivery-men', auth, (req, res) => {
-  if (!store.deliveryMen.length) {
-    const { seedDeliveryMen } = require('../lib/deliveryMenSeed');
-    store.deliveryMen = seedDeliveryMen();
-  }
   const { distanceMeters, formatDistance, isInsideDeliveryZone } = require('../lib/geoUtils');
-  const area = req.query.area;
-  const refLat = parseFloat(req.query.refLat);
-  const refLng = parseFloat(req.query.refLng);
+  const order = req.query.orderId
+    ? (store.orders || []).find(item => isInAdminWebsiteData(req, item) && (item._id === req.query.orderId || String(item.orderNo || item.orderId) === String(req.query.orderId)))
+    : null;
+  const area = order?.area || req.query.area;
+  const refLat = Number.parseFloat(order?.storeLat ?? req.query.refLat);
+  const refLng = Number.parseFloat(order?.storeLng ?? req.query.refLng);
+  const pickupRadiusKm = Number(order?.pickupRadiusKm ?? order?.bill?.pickupRadiusKm);
   const search = (req.query.search || '').toLowerCase().trim();
 
-  let list = store.deliveryMen.filter(d => d.online);
+  let list = store.deliveryMen.filter(d => d.online && isInAdminWebsiteModule(req, d));
   let zone = area
-    ? (store.deliveryZones || []).find(z => z.name === area || z.displayName === area)
+    ? (store.deliveryZones || []).find(z => isInAdminWebsiteModule(req, z) && (z.name === area || z.displayName === area))
     : null;
   if (!zone && !Number.isNaN(refLat) && !Number.isNaN(refLng)) {
-    zone = (store.deliveryZones || []).find(z => z.status !== false && isInsideDeliveryZone(z, refLat, refLng));
+    zone = (store.deliveryZones || []).find(z => isInAdminWebsiteModule(req, z) && z.status !== false && isInsideDeliveryZone(z, refLat, refLng));
   }
   if (zone) {
     list = list.filter(d => {
@@ -901,6 +1319,10 @@ router.get('/delivery-men', auth, (req, res) => {
     };
   });
 
+  if (Number.isFinite(pickupRadiusKm) && pickupRadiusKm > 0) {
+    list = list.filter(rider => rider.distanceM != null && rider.distanceM <= pickupRadiusKm * 1000);
+  }
+
   if (!Number.isNaN(refLat) && !Number.isNaN(refLng)) {
     list.sort((a, b) => {
       if (a.nearStore !== b.nearStore) return Number(b.nearStore) - Number(a.nearStore);
@@ -916,13 +1338,13 @@ const ASSIGN_ALLOWED_STATUSES = ['Accepted', 'Processing', 'Handover'];
 const TRANSFER_RIDER_STATUSES = ['Accepted', 'Processing', 'Handover', 'Out for Delivery'];
 
 router.put('/orders/:id/transfer-store', auth, (req, res) => {
-  const idx = findOrderIndex(req.params.id);
+  const idx = findOrderIndex(req.params.id, req);
   if (idx === -1) return res.status(404).json({ message: 'Not found' });
   const current = store.orders[idx];
   if (['Delivered', 'Cancelled'].includes(current.status)) {
     return res.status(400).json({ message: 'Delivered ya Cancelled order transfer nahi ho sakta' });
   }
-  const targetIdx = findStoreIndex(req.body.storeId);
+  const targetIdx = findStoreIndex(req.body.storeId, req);
   const target = targetIdx === -1 ? null : store.stores[targetIdx];
   if (!target) return res.status(404).json({ message: 'Store not found' });
   if (belongsToStore(current, target)) {
@@ -941,7 +1363,7 @@ router.put('/orders/:id/transfer-store', auth, (req, res) => {
 });
 
 router.put('/orders/:id/assign-rider', auth, (req, res) => {
-  const idx = findOrderIndex(req.params.id);
+  const idx = findOrderIndex(req.params.id, req);
   if (idx === -1) return res.status(404).json({ message: 'Not found' });
   const current = store.orders[idx];
   const isTransfer = !!(current.rider?.name && current.rider?.phone);
@@ -949,20 +1371,39 @@ router.put('/orders/:id/assign-rider', auth, (req, res) => {
   if (!allowedStatuses.includes(current.status)) {
     return res.status(400).json({ message: isTransfer ? 'Is status par rider transfer nahi ho sakta' : 'Pehle order Accept karein — Pending par rider assign nahi ho sakta' });
   }
-  if (!store.deliveryMen.length) {
-    const { seedDeliveryMen } = require('../lib/deliveryMenSeed');
-    store.deliveryMen = seedDeliveryMen();
-  }
-  const rider = store.deliveryMen.find(d => d._id === req.body.riderId);
+  const rider = store.deliveryMen.find(d => d._id === req.body.riderId && isInAdminWebsiteModule(req, d));
   if (!rider) return res.status(404).json({ message: 'Rider not found' });
-  const prevRider = isTransfer ? current.rider.name : null;
-  const shopStore = (store.stores || []).find(s =>
+  const shopStore = (store.stores || []).find(s => isInAdminWebsiteModule(req, s) && (
     s.name === current.store || String(s.storeId) === String(current.storeId)
-  );
+  ));
+  const storeLat = current.storeLat ?? shopStore?.lat;
+  const storeLng = current.storeLng ?? shopStore?.lng;
+  const { distanceMeters } = require('../lib/geoUtils');
+  const pickupRadiusKm = Number(current.pickupRadiusKm ?? current.bill?.pickupRadiusKm);
+  if (Number.isFinite(pickupRadiusKm) && pickupRadiusKm > 0) {
+    if (rider.lat == null || rider.lng == null || storeLat == null || storeLng == null) {
+      return res.status(400).json({ message: 'Pickup radius configured hai, rider/store location required hai.' });
+    }
+    const pickupKm = distanceMeters(Number(rider.lat), Number(rider.lng), Number(storeLat), Number(storeLng)) / 1000;
+    if (pickupKm > pickupRadiusKm) {
+      return res.status(400).json({ message: `Rider pickup location ${pickupKm.toFixed(1)} km dur hai; limit ${pickupRadiusKm} km hai.` });
+    }
+  }
+  const dropRadiusKm = Number(current.dropRadiusKm ?? current.bill?.dropRadiusKm);
+  if (Number.isFinite(dropRadiusKm) && dropRadiusKm > 0) {
+    if (storeLat == null || storeLng == null || current.lat == null || current.lng == null) {
+      return res.status(400).json({ message: 'Drop radius configured hai, store/customer location required hai.' });
+    }
+    const dropKm = distanceMeters(Number(storeLat), Number(storeLng), Number(current.lat), Number(current.lng)) / 1000;
+    if (dropKm > dropRadiusKm) {
+      return res.status(400).json({ message: `Customer drop location ${dropKm.toFixed(1)} km dur hai; limit ${dropRadiusKm} km hai.` });
+    }
+  }
+  const prevRider = isTransfer ? current.rider.name : null;
   store.orders[idx] = {
     ...current,
-    storeLat: current.storeLat ?? shopStore?.lat,
-    storeLng: current.storeLng ?? shopStore?.lng,
+    storeLat,
+    storeLng,
     rider: {
       name: rider.name,
       phone: rider.phone,
@@ -984,7 +1425,7 @@ router.put('/orders/:id/assign-rider', auth, (req, res) => {
 });
 
 router.put('/orders/:id', auth, (req, res) => {
-  const idx = findOrderIndex(req.params.id);
+  const idx = findOrderIndex(req.params.id, req);
   if (idx === -1) return res.status(404).json({ message: 'Order not found' });
   const updates = { ...req.body };
   const current = store.orders[idx];
@@ -1023,12 +1464,12 @@ router.put('/orders/:id', auth, (req, res) => {
     updates.refundAdmin = updates.refundAdmin || 'Admin';
     updates.refundCancelledAt = formatNow();
   }
-  store.orders[idx] = { ...current, ...updates, _id: current._id };
+  store.orders[idx] = { ...current, ...updates, websiteModuleSlug: adminWebsiteModuleSlug(req), _id: current._id };
   res.json(store.orders[idx]);
 });
 
 router.get('/orders/refunds', auth, (req, res) => {
-  let list = store.orders.filter(o => o.status === 'Returns/Refunds' || o.refundStatus);
+  let list = store.orders.filter(o => isInAdminWebsiteData(req, o) && (o.status === 'Returns/Refunds' || o.refundStatus));
   if (req.query.type === 'requests') {
     list = list.filter(o => o.refundStatus === 'request' || (o.status === 'Returns/Refunds' && !['refunded', 'rejected', 'cancelled'].includes(o.refundStatus)));
   } else if (req.query.type === 'refunded') {
@@ -1037,61 +1478,386 @@ router.get('/orders/refunds', auth, (req, res) => {
   res.json(list);
 });
 
-router.get('/flash-sales', auth, (req, res) => res.json(store.flashSales));
+router.get('/flash-sales', auth, (req, res) => {
+  const systemModuleId = String(req.query.systemModuleId || req.query.mainModuleId || '');
+  const sales = store.flashSales.filter(sale =>
+    isInAdminWebsiteModule(req, sale) &&
+    (!systemModuleId || String(sale.systemModuleId || '') === systemModuleId)
+  );
+  res.json(sales);
+});
+
+router.get('/flash-sales/export', auth, async (req, res) => {
+  try {
+    const systemModuleId = String(req.query.systemModuleId || req.query.mainModuleId || '');
+    const sales = store.flashSales.filter(sale =>
+      isInAdminWebsiteModule(req, sale) &&
+      (!systemModuleId || String(sale.systemModuleId || '') === systemModuleId)
+    );
+    const systemModule = (store.systemModules || []).find(module => String(module._id) === systemModuleId);
+    const moduleName = systemModule?.name || (store.websiteModules || []).find(module => String(module.slug).toLowerCase() === String(adminWebsiteModuleSlug(req)).toLowerCase())?.name || adminWebsiteModuleSlug(req);
+    const headers = ['Sale ID', 'Title', 'Module', 'Module Slug', 'Store', 'Store ID', 'Product Count', 'Sale Discount (%)', 'Start Date', 'End Date', 'Status', 'Product ID', 'Product Name', 'Product Store', 'Product Store ID', 'SKU', 'Product Code', 'Product Price', 'Discount (%)', 'Sale Price'];
+    const rows = sales.flatMap(sale => {
+      const products = Array.isArray(sale.productItems) ? sale.productItems : [];
+      const base = {
+        'Sale ID': sale._id,
+        Title: sale.title || '',
+        Module: sale.moduleName || moduleName,
+        'Module Slug': sale.systemModuleSlug || sale.websiteModuleSlug || adminWebsiteModuleSlug(req),
+        Store: sale.store || 'All Stores',
+        'Store ID': sale.storeId || '',
+        'Product Count': sale.products || products.length,
+        'Sale Discount (%)': sale.discount ?? '',
+        'Start Date': sale.startDate || '',
+        'End Date': sale.endDate || '',
+        Status: sale.status || '',
+      };
+      if (!products.length) return [{ ...base, 'Product ID': '', 'Product Name': '', 'Product Store': '', 'Product Store ID': '', SKU: '', 'Product Code': '', 'Product Price': '', 'Discount (%)': '', 'Sale Price': '' }];
+      return products.map(product => ({
+        ...base,
+        'Product ID': product.productId || '',
+        'Product Name': product.name || '',
+        'Product Store': product.store || '',
+        'Product Store ID': product.storeId || '',
+        SKU: product.sku || '',
+        'Product Code': product.productCode || '',
+        'Product Price': product.price ?? '',
+        'Discount (%)': product.discountPercent ?? sale.discount ?? '',
+        'Sale Price': product.salePrice ?? '',
+      }));
+    });
+    const buffer = await toExcelBuffer(rows, headers, 'Flash Sales');
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', 'attachment; filename="flash_sales_' + new Date().toISOString().slice(0, 10) + '.xlsx"');
+    res.send(buffer);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+router.get('/flash-sales/:id', auth, (req, res) => {
+  const sale = store.flashSales.find(item => item._id === req.params.id && isInAdminWebsiteModule(req, item));
+  if (!sale) return res.status(404).json({ message: 'Not found' });
+  res.json(sale);
+});
 
 router.post('/flash-sales', auth, (req, res) => {
-  const sale = { _id: uuidv4(), status: 'Scheduled', products: 0, ...req.body };
+  const sale = {
+    ...req.body,
+    _id: uuidv4(),
+    status: req.body.status || 'Scheduled',
+    websiteModuleSlug: adminWebsiteModuleSlug(req),
+    ...(req.user?.role === 'website_user' && req.user.websiteId ? { websiteId: req.user.websiteId } : {}),
+  };
+  sale.products = Array.isArray(sale.productItems) ? sale.productItems.length : Number(sale.products) || 0;
   store.flashSales.unshift(sale);
   res.status(201).json(sale);
 });
 
 router.put('/flash-sales/:id', auth, (req, res) => {
-  const idx = store.flashSales.findIndex(s => s._id === req.params.id);
+  const idx = store.flashSales.findIndex(s => s._id === req.params.id && isInAdminWebsiteModule(req, s) && canEditAdminWebsiteData(req, s));
   if (idx === -1) return res.status(404).json({ message: 'Not found' });
-  store.flashSales[idx] = { ...store.flashSales[idx], ...req.body, _id: req.params.id };
+  store.flashSales[idx] = {
+    ...store.flashSales[idx],
+    ...req.body,
+    _id: req.params.id,
+    websiteModuleSlug: adminWebsiteModuleSlug(req),
+    websiteId: store.flashSales[idx].websiteId || '',
+  };
+  if (Array.isArray(store.flashSales[idx].productItems)) store.flashSales[idx].products = store.flashSales[idx].productItems.length;
   res.json(store.flashSales[idx]);
 });
 
 router.delete('/flash-sales/:id', auth, (req, res) => {
-  store.flashSales = store.flashSales.filter(s => s._id !== req.params.id);
+  const sale = store.flashSales.find(s => s._id === req.params.id && isInAdminWebsiteModule(req, s) && canEditAdminWebsiteData(req, s));
+  if (!sale) return res.status(404).json({ message: 'Not found' });
+  store.flashSales = store.flashSales.filter(s => s._id !== req.params.id || !isInAdminWebsiteModule(req, s) || !canEditAdminWebsiteData(req, s));
   res.json({ message: 'Deleted' });
 });
 
-router.get('/components', auth, (req, res) => {
-  let list = store.components.filter(c => c.status === 'active');
-  if (req.query.moduleType) list = list.filter(c => c.moduleType === req.query.moduleType || c.moduleType === 'general');
+router.get('/components', auth, requireWebsiteBuilderAccess, (req, res) => {
+  const moduleType = req.user.role === 'website_user'
+    ? websiteBuilderType({
+        type: req.user.selectedModuleType,
+        slug: req.user.selectedModuleSlug || req.user.websiteModuleSlug,
+        name: req.user.selectedModuleName,
+      })
+    : (req.query.moduleType || websiteBuilderType(adminWebsiteModuleInfo(req).module));
+  const list = store.components.filter(component => component.status === 'active'
+    && isInAdminWebsiteModule(req, component, { includeShared: true })
+    && (!moduleType || component.moduleType === moduleType));
   res.json(list);
 });
 
-router.post('/components', auth, (req, res) => {
-  const c = { _id: uuidv4(), ...req.body, status: 'active' };
+router.post('/components', auth, requireWebsiteBuilderAccess, (req, res) => {
+  const c = { _id: uuidv4(), ...req.body, websiteModuleSlug: adminWebsiteModuleSlug(req), ...(req.user?.role === 'website_user' && req.user.websiteId ? { websiteId: req.user.websiteId } : {}), status: 'active' };
   store.components.push(c);
   res.status(201).json(c);
 });
 
-router.delete('/components/:id', auth, (req, res) => {
-  store.components = store.components.filter(c => c._id !== req.params.id);
+router.delete('/components/:id', auth, requireWebsiteBuilderAccess, (req, res) => {
+  store.components = store.components.filter(c => c._id !== req.params.id || !isInAdminWebsiteModule(req, c) || !canEditAdminWebsiteData(req, c));
   res.json({ message: 'Deleted' });
 });
 
 router.get('/modules', auth, (req, res) => {
-  const mods = store.modules.map(m => ({
-    ...m, components: m.components.map(id => store.components.find(c => c._id === id)).filter(Boolean)
+  const mods = (store.modules || []).filter(module => isInAdminWebsiteModule(req, module)).map(module => ({
+    ...module,
+    components: (module.components || []).map(id => store.components.find(component => component._id === id && isInAdminWebsiteModule(req, component))).filter(Boolean),
   }));
   res.json(mods);
 });
 
-router.get('/plans/all', auth, (req, res) => res.json(store.plans));
-router.get('/plans', auth, (req, res) => res.json(store.plans.filter(p => p.status === 'active')));
+router.get('/plans/all', auth, (req, res) => {
+  if (req.user.role !== 'main_admin') return res.status(403).json({ message: 'Main admin access required' });
+  res.json(store.plans.filter(plan => isInAdminWebsiteModule(req, plan)));
+});
+router.get('/plans', auth, (req, res) => res.json(store.plans.filter(plan => plan.status === 'active' && isInAdminWebsiteModule(req, plan))));
 
 router.post('/plans', auth, (req, res) => {
-  const p = { _id: uuidv4(), ...req.body, status: 'active' };
+  const p = { _id: uuidv4(), ...req.body, websiteModuleSlug: adminWebsiteModuleSlug(req), status: 'active' };
   store.plans.push(p);
   res.status(201).json(p);
 });
 
 router.get('/users', auth, (req, res) => {
-  res.json(store.users.map(({ password, ...u }) => u));
+  if (req.user.role !== 'main_admin') return res.status(403).json({ message: 'Main admin access required' });
+  const activeSlug = String(adminWebsiteModuleSlug(req)).toLowerCase();
+  const users = store.users.filter(user => user.role !== 'website_user' || String(user.selectedModuleSlug || user.websiteModuleSlug || '').toLowerCase() === activeSlug);
+  res.json(users.map(({ password, ...user }) => user));
+});
+
+router.get('/admin/users/:userId/websites', auth, (req, res) => {
+  if (req.user.role !== 'main_admin') return res.status(403).json({ message: 'Main admin access required' });
+  const target = store.users.find(user => String(user._id) === String(req.params.userId));
+  if (!target) return res.status(404).json({ message: 'User not found' });
+  const moduleSlug = String(target.selectedModuleSlug || target.websiteModuleSlug || '').toLowerCase();
+  if (target.role === 'website_user' && moduleSlug !== String(adminWebsiteModuleSlug(req)).toLowerCase()) return res.status(404).json({ message: 'User not found' });
+  const selectedModule = (store.websiteModules || []).find(module => String(module.slug || '').toLowerCase() === moduleSlug);
+  const moduleType = String(target.selectedModuleType || (selectedModule && websiteBuilderType(selectedModule)) || '').toLowerCase();
+  const list = store.websites.filter(website => String(website.userId) === String(target._id)
+    && (!moduleSlug
+      || (website.websiteModuleSlug && String(website.websiteModuleSlug).toLowerCase() === moduleSlug)
+      || (!website.websiteModuleSlug && [moduleSlug, moduleType].includes(String(website.moduleType || '').toLowerCase()))));
+  res.json(list.map(populateWebsite));
+});
+
+router.get('/admin/users/:userId/system-modules', auth, (req, res) => {
+  if (req.user.role !== 'main_admin') return res.status(403).json({ message: 'Main admin access required' });
+  const target = store.users.find(user => String(user._id) === String(req.params.userId));
+  if (!target) return res.status(404).json({ message: 'User not found' });
+  const website = findUserWebsite(target);
+  if (!website) return res.json([]);
+  const websiteModuleSlug = normalizeWebsiteModuleSlug(website.websiteModuleSlug || target.selectedModuleSlug || '');
+  const modules = (store.systemModules || []).filter(module =>
+    String(module.websiteId || '') === String(website._id)
+    && normalizeWebsiteModuleSlug(module.websiteModuleSlug || websiteModuleSlug) === websiteModuleSlug
+  );
+  res.json(modules);
+});
+
+router.get('/admin/users/:userId/tenant-summary', auth, (req, res) => {
+  if (req.user.role !== 'main_admin') return res.status(403).json({ message: 'Main admin access required' });
+  const target = store.users.find(user => String(user._id) === String(req.params.userId));
+  if (!target) return res.status(404).json({ message: 'User not found' });
+  const website = findUserWebsite(target);
+  const websiteId = String(website?._id || '');
+  const countOwned = key => websiteId
+    ? (store[key] || []).filter(item => String(item.websiteId || '') === websiteId).length
+    : 0;
+  res.json({
+    websiteId,
+    counts: {
+      categories: countOwned('categories'),
+      subCategories: countOwned('subCategories'),
+      childCategories: countOwned('childCategories'),
+      brands: countOwned('brands'),
+      products: countOwned('productItems'),
+      stores: countOwned('stores'),
+      orders: countOwned('orders'),
+      customers: countOwned('customers'),
+      deliveryZones: countOwned('deliveryZones'),
+    },
+  });
+});
+
+function ordersForCustomer(customer, req) {
+  const id = String(customer._id);
+  const email = String(customer.email || '').toLowerCase();
+  const name = String(customer.name || '').toLowerCase();
+  return (store.orders || []).filter(order => isInAdminWebsiteData(req, order) && (
+    String(order.customerId || '') === id
+    || (email && String(order.customerEmail || '').toLowerCase() === email)
+    || (!order.customerId && !order.customerEmail && name && String(order.customer || '').toLowerCase() === name)
+  ));
+}
+
+function findCustomerInAdminModule(id, req) {
+  const customer = (store.customers || []).find(item => String(item._id) === String(id));
+  if (!customer) return null;
+  return isInAdminWebsiteData(req, customer) || ordersForCustomer(customer, req).length ? customer : null;
+}
+
+function customerOrderContext(orders) {
+  const stores = new Map();
+  const zones = new Map();
+  orders.forEach(order => {
+    if (order.store || order.storeId) {
+      const id = order.storeId || order.store;
+      const key = String(id);
+      const current = stores.get(key) || { id, name: order.store || String(id), orders: 0 };
+      current.orders += 1;
+      stores.set(key, current);
+    }
+    if (order.zone || order.zoneId) {
+      const zone = typeof order.zone === 'object' ? order.zone : null;
+      const id = order.zoneId || zone?._id || zone?.zoneId || order.zone;
+      const key = String(id);
+      const current = zones.get(key) || { id, name: zone?.name || zone?.zoneId || String(id), orders: 0 };
+      current.orders += 1;
+      zones.set(key, current);
+    }
+  });
+  return {
+    modules: [...new Set(orders.map(order => order.moduleSlug || order.module).filter(Boolean))],
+    stores: [...stores.values()],
+    zones: [...zones.values()],
+    commerceTypes: [...new Set(orders.map(order => order.source === 'ecommerce' ? 'ecommerce' : 'quick_commerce'))],
+  };
+}
+
+router.get('/customers', auth, (req, res) => {
+  const query = String(req.query.search || '').trim().toLowerCase();
+  const status = String(req.query.status || 'all');
+  const moduleFilter = String(req.query.module || '').trim();
+  const storeFilter = String(req.query.storeId || '').trim();
+  const zoneFilter = String(req.query.zoneId || '').trim();
+  const commerceFilter = String(req.query.commerceType || '').trim();
+  const customers = (store.customers || []).map(customer => {
+    const orders = ordersForCustomer(customer, req);
+    return { customer, orders, ...customerOrderContext(orders) };
+  }).filter(({ customer, orders, modules, stores, zones, commerceTypes }) => {
+    if (!orders.length && !isInAdminWebsiteData(req, customer)) return false;
+    if (status === 'active' && customer.isBlocked) return false;
+    if (status === 'blocked' && !customer.isBlocked) return false;
+    if (query && ![customer.name, customer.email, customer.phone].some(value => String(value || '').toLowerCase().includes(query))) return false;
+    if (moduleFilter && !modules.includes(moduleFilter)) return false;
+    if (storeFilter && !stores.some(item => String(item.id) === storeFilter)) return false;
+    if (zoneFilter && !zones.some(item => String(item.id) === zoneFilter)) return false;
+    if (commerceFilter && !commerceTypes.includes(commerceFilter)) return false;
+    return true;
+  }).map(({ customer, orders, modules, stores, zones, commerceTypes }) => {
+    return {
+      ...publicCustomer(customer),
+      modules,
+      stores,
+      zones,
+      commerceTypes,
+      orderCount: orders.length,
+      totalSpent: orders.filter(order => order.status !== 'Cancelled' && order.status !== 'Failed')
+        .reduce((total, order) => total + (Number(order.amount) || 0), 0),
+      lastOrderAt: orders[0]?.createdAt || orders[0]?.orderDate || orders[0]?.date || null,
+    };
+  });
+  res.json(customers);
+});
+
+router.get('/customers/:id', auth, (req, res) => {
+  const customer = findCustomerInAdminModule(req.params.id, req);
+  if (!customer) return res.status(404).json({ message: 'Customer not found' });
+  const orders = ordersForCustomer(customer, req);
+  const context = customerOrderContext(orders);
+  res.json({
+    ...publicCustomer(customer),
+    ...context,
+    orderCount: orders.length,
+    totalSpent: orders.filter(order => order.status !== 'Cancelled' && order.status !== 'Failed')
+      .reduce((total, order) => total + (Number(order.amount) || 0), 0),
+    lastOrderAt: orders[0]?.createdAt || orders[0]?.orderDate || orders[0]?.date || null,
+  });
+});
+
+router.patch('/customers/:id', auth, (req, res) => {
+  const customer = findCustomerInAdminModule(req.params.id, req);
+  if (!customer) return res.status(404).json({ message: 'Customer not found' });
+  const name = String(req.body?.name || '').trim();
+  const email = String(req.body?.email || '').trim().toLowerCase();
+  const phone = String(req.body?.phone || '').replace(/\D/g, '');
+  if (!name) return res.status(400).json({ message: 'Name zaroori hai' });
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).json({ message: 'Valid email address bharo' });
+  if (phone && !/^[6-9]\d{9}$/.test(phone)) return res.status(400).json({ message: 'Valid 10 digit mobile number bharo' });
+  const duplicate = (store.customers || []).some(item => item._id !== customer._id
+    && (!req.user?.websiteId || String(item.websiteId || '') === String(req.user.websiteId))
+    && email && String(item.email || '').toLowerCase() === email);
+  if (duplicate) return res.status(409).json({ message: 'Email already registered' });
+  customer.name = name;
+  customer.email = email;
+  customer.phone = phone;
+  res.json(publicCustomer(customer));
+});
+
+router.get('/customers/:id/orders', auth, (req, res) => {
+  const customer = findCustomerInAdminModule(req.params.id, req);
+  if (!customer) return res.status(404).json({ message: 'Customer not found' });
+  res.json(ordersForCustomer(customer, req));
+});
+
+router.get('/customers/:id/wallet', auth, (req, res) => {
+  const customer = findCustomerInAdminModule(req.params.id, req);
+  if (!customer) return res.status(404).json({ message: 'Customer not found' });
+  res.json({
+    balance: Number(customer.walletByModule?.[adminWebsiteModuleSlug(req)]?.balance) || (adminWebsiteModuleInfo(req).quickCommerce ? (Number(customer.walletBalance ?? customer.wallet?.balance) || 0) : 0),
+    transactions: customer.walletByModule?.[adminWebsiteModuleSlug(req)]?.transactions || (Array.isArray(customer.walletTransactions) ? customer.walletTransactions : (Array.isArray(customer.wallet?.transactions) ? customer.wallet.transactions : [])).filter(transaction => isInAdminWebsiteModule(req, transaction)),
+  });
+});
+
+router.get('/customers/:id/addresses', auth, (req, res) => {
+  const customer = findCustomerInAdminModule(req.params.id, req);
+  if (!customer) return res.status(404).json({ message: 'Customer not found' });
+  const saved = (Array.isArray(customer.addresses) ? customer.addresses : []).filter(address => isInAdminWebsiteModule(req, address));
+  const fromOrders = ordersForCustomer(customer, req)
+    .filter(order => order.address || order.deliveryAddress)
+    .map(order => ({
+      _id: `order-address-${order._id}`,
+      label: 'Order address',
+      address: order.address || order.deliveryAddress,
+      createdAt: order.createdAt || order.orderDate || order.date || null,
+    }));
+  const seen = new Set();
+  res.json([...saved, ...fromOrders].filter(address => {
+    const key = String(address.address || address.fullAddress || address.line || '').trim().toLowerCase();
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  }));
+});
+
+router.get('/customers/:id/reviews', auth, (req, res) => {
+  const customer = findCustomerInAdminModule(req.params.id, req);
+  if (!customer) return res.status(404).json({ message: 'Customer not found' });
+  const email = String(customer.email || '').toLowerCase();
+  const name = String(customer.name || '').toLowerCase();
+  res.json((store.productReviews || []).filter(review => isInAdminWebsiteModule(req, review) && (
+    String(review.customerId || review.userId || '') === String(customer._id)
+    || (email && String(review.customerEmail || review.email || '').toLowerCase() === email)
+    || (name && String(review.customerName || review.customer || '').toLowerCase() === name)
+  )));
+});
+
+router.get('/customers/:id/support', auth, (req, res) => {
+  const customer = findCustomerInAdminModule(req.params.id, req);
+  if (!customer) return res.status(404).json({ message: 'Customer not found' });
+  const support = Array.isArray(store.customerSupport) ? store.customerSupport : [];
+  res.json(support.filter(ticket => String(ticket.customerId || '') === String(customer._id) && isInAdminWebsiteData(req, ticket)));
+});
+
+router.patch('/customers/:id/block', auth, (req, res) => {
+  const customer = findCustomerInAdminModule(req.params.id, req);
+  if (!customer) return res.status(404).json({ message: 'Customer not found' });
+  customer.isBlocked = req.body?.blocked === true;
+  customer.blockedAt = customer.isBlocked ? new Date().toISOString() : null;
+  customer.blockReason = customer.isBlocked ? String(req.body?.reason || '').trim() : '';
+  res.json(publicCustomer(customer));
 });
 
 const PROMOTION_KEYS = {
@@ -1103,14 +1869,14 @@ const PROMOTION_KEYS = {
   advertisements: 'advertisements',
 };
 
-function promotionList(type) {
+function promotionList(type, req) {
   const key = PROMOTION_KEYS[type];
-  return key ? store[key] : null;
+  return key ? store[key].filter(item => isInAdminWebsiteModule(req, item)) : null;
 }
 
 router.get('/stores', auth, (req, res) => {
   recomputeStoreCounts(store);
-  let list = [...store.stores];
+  let list = [...store.stores].filter(item => isInAdminWebsiteModule(req, item));
   const filter = req.query.filter;
   if (filter === 'new' || filter === 'pending') list = list.filter(s => s.status === 'pending' || (s.isNewRequest && s.status !== 'denied'));
   else if (filter === 'denied') list = list.filter(s => s.status === 'denied');
@@ -1129,29 +1895,30 @@ router.get('/stores', auth, (req, res) => {
 
 router.get('/stores/stats', auth, (req, res) => {
   recomputeStoreCounts(store);
-  const listed = store.stores.filter(s => ['active', 'inactive'].includes(s.status));
+  const stores = store.stores.filter(item => isInAdminWebsiteModule(req, item));
+  const listed = stores.filter(s => ['active', 'inactive'].includes(s.status));
   res.json({
     total: listed.length,
-    active: store.stores.filter(s => s.status === 'active').length,
-    inactive: store.stores.filter(s => s.status === 'inactive').length,
-    pending: store.stores.filter(s => s.isNewRequest || s.status === 'pending').length,
-    newlyJoined: store.stores.filter(s => s.isNewRequest || s.status === 'pending').length,
-    recommended: store.stores.filter(s => s.isRecommended).length,
-    totalTransactions: store.stores.reduce((s, x) => s + (x.transactions || 0), 0),
-    totalWithdraws: store.stores.reduce((s, x) => s + (x.withdraws || 0), 0),
-    totalSales: store.stores.reduce((s, x) => s + (x.totalSales || 0), 0),
-    totalProducts: store.productItems.length,
-    totalOrders: store.orders.length,
+    active: stores.filter(s => s.status === 'active').length,
+    inactive: stores.filter(s => s.status === 'inactive').length,
+    pending: stores.filter(s => s.isNewRequest || s.status === 'pending').length,
+    newlyJoined: stores.filter(s => s.isNewRequest || s.status === 'pending').length,
+    recommended: stores.filter(s => s.isRecommended).length,
+    totalTransactions: stores.reduce((s, x) => s + (x.transactions || 0), 0),
+    totalWithdraws: stores.reduce((s, x) => s + (x.withdraws || 0), 0),
+    totalSales: stores.reduce((s, x) => s + (x.totalSales || 0), 0),
+    totalProducts: store.productItems.filter(item => isInAdminWebsiteModule(req, item)).length,
+    totalOrders: store.orders.filter(item => isInAdminWebsiteData(req, item)).length,
   });
 });
 
-router.get('/stores/bulk/history/import', auth, (req, res) => res.json(store.storeImportHistory));
-router.get('/stores/bulk/history/export', auth, (req, res) => res.json(store.storeExportHistory));
+router.get('/stores/bulk/history/import', auth, (req, res) => res.json(store.storeImportHistory.filter(item => isInAdminWebsiteModule(req, item))));
+router.get('/stores/bulk/history/export', auth, (req, res) => res.json(store.storeExportHistory.filter(item => isInAdminWebsiteModule(req, item))));
 
 router.post('/stores/bulk/import', auth, (req, res) => {
   const count = Math.min(5, Math.max(1, parseInt(req.body?.count, 10) || 3));
   const entry = {
-    _id: uuidv4(), fileName: req.body?.fileName || 'stores_import.csv', type: 'New',
+    _id: uuidv4(), websiteModuleSlug: adminWebsiteModuleSlug(req), fileName: req.body?.fileName || 'stores_import.csv', type: 'New',
     totalRecords: count, success: count, failed: 0, uploadedBy: 'Admin', date: formatNow(), status: 'Completed',
   };
   store.storeImportHistory.unshift(entry);
@@ -1161,14 +1928,14 @@ router.post('/stores/bulk/import', auth, (req, res) => {
 router.post('/stores/bulk/export', auth, (req, res) => {
   const entry = {
     _id: uuidv4(), fileName: `stores_export_${Date.now()}.csv`, exportType: 'All Stores',
-    totalRecords: store.stores.length, exportedBy: 'Admin', date: formatNow(), status: 'Completed',
+    totalRecords: store.stores.filter(item => isInAdminWebsiteModule(req, item)).length, exportedBy: 'Admin', date: formatNow(), status: 'Completed',
   };
   store.storeExportHistory.unshift(entry);
   res.json(entry);
 });
 
-function getStoreRecord(id) {
-  const idx = findStoreIndex(id);
+function getStoreRecord(id, req) {
+  const idx = findStoreIndex(id, req);
   if (idx === -1) return null;
   return store.stores[idx];
 }
@@ -1178,43 +1945,43 @@ function promotionForStore(item, storeName) {
 }
 
 router.get('/stores/:id/products', auth, (req, res) => {
-  const s = getStoreRecord(req.params.id);
+  const s = getStoreRecord(req.params.id, req);
   if (!s) return res.status(404).json({ message: 'Store not found' });
-  const products = store.productItems.filter(p => belongsToStore(p, s));
+  const products = store.productItems.filter(p => isInAdminWebsiteModule(req, p) && belongsToStore(p, s));
   res.json(products);
 });
 
 router.get('/stores/:id/orders', auth, (req, res) => {
   ensureOrders();
-  const s = getStoreRecord(req.params.id);
+  const s = getStoreRecord(req.params.id, req);
   if (!s) return res.status(404).json({ message: 'Store not found' });
-  const orders = store.orders.filter(o => belongsToStore(o, s));
+  const orders = store.orders.filter(o => isInAdminWebsiteData(req, o) && belongsToStore(o, s));
   res.json(orders);
 });
 
 router.get('/stores/:id/reviews', auth, (req, res) => {
-  const s = getStoreRecord(req.params.id);
+  const s = getStoreRecord(req.params.id, req);
   if (!s) return res.status(404).json({ message: 'Store not found' });
-  const reviews = store.productReviews.filter(r => belongsToStore(r, s));
+  const reviews = store.productReviews.filter(r => isInAdminWebsiteModule(req, r) && belongsToStore(r, s));
   res.json(reviews);
 });
 
 router.get('/stores/:id/discounts', auth, (req, res) => {
-  const s = getStoreRecord(req.params.id);
+  const s = getStoreRecord(req.params.id, req);
   if (!s) return res.status(404).json({ message: 'Store not found' });
   res.json({
-    coupons: store.coupons.filter(c => promotionForStore(c, s.name)),
-    flashSales: store.flashSales.filter(f => promotionForStore(f, s.name)),
-    campaigns: store.campaigns.filter(c => promotionForStore(c, s.name)),
-    banners: store.banners.filter(b => promotionForStore(b, s.name)),
-    storeDiscounts: discountsForStore(store.storeDiscounts, s),
+    coupons: store.coupons.filter(c => isInAdminWebsiteModule(req, c) && promotionForStore(c, s.name)),
+    flashSales: store.flashSales.filter(f => isInAdminWebsiteModule(req, f) && promotionForStore(f, s.name)),
+    campaigns: store.campaigns.filter(c => isInAdminWebsiteModule(req, c) && promotionForStore(c, s.name)),
+    banners: store.banners.filter(b => isInAdminWebsiteModule(req, b) && promotionForStore(b, s.name)),
+    storeDiscounts: discountsForStore(store.storeDiscounts.filter(item => isInAdminWebsiteModule(req, item)), s),
   });
 });
 
 router.get('/stores/:id/store-discounts', auth, (req, res) => {
-  const s = getStoreRecord(req.params.id);
+  const s = getStoreRecord(req.params.id, req);
   if (!s) return res.status(404).json({ message: 'Store not found' });
-  const list = discountsForStore(store.storeDiscounts, s).map(d => ({
+  const list = discountsForStore(store.storeDiscounts.filter(item => isInAdminWebsiteModule(req, item)), s).map(d => ({
     ...d,
     status: getDiscountStatus(d),
   }));
@@ -1222,7 +1989,7 @@ router.get('/stores/:id/store-discounts', auth, (req, res) => {
 });
 
 router.post('/stores/:id/store-discounts', auth, (req, res) => {
-  const s = getStoreRecord(req.params.id);
+  const s = getStoreRecord(req.params.id, req);
   if (!s) return res.status(404).json({ message: 'Store not found' });
   const body = req.body || {};
   const percent = Number(body.discountPercent);
@@ -1234,6 +2001,8 @@ router.post('/stores/:id/store-discounts', auth, (req, res) => {
   }
   const item = {
     _id: uuidv4(),
+    websiteModuleSlug: adminWebsiteModuleSlug(req),
+    ...(req.user?.role === 'website_user' && req.user.websiteId ? { websiteId: req.user.websiteId } : {}),
     storeId: s.storeId,
     storeName: s.name,
     discountPercent: percent,
@@ -1251,10 +2020,10 @@ router.post('/stores/:id/store-discounts', auth, (req, res) => {
 });
 
 router.put('/stores/:id/store-discounts/:discountId', auth, (req, res) => {
-  const s = getStoreRecord(req.params.id);
+  const s = getStoreRecord(req.params.id, req);
   if (!s) return res.status(404).json({ message: 'Store not found' });
   const idx = store.storeDiscounts.findIndex(d =>
-    d._id === req.params.discountId && String(d.storeId) === String(s.storeId)
+    d._id === req.params.discountId && isInAdminWebsiteModule(req, d) && canEditAdminWebsiteData(req, d) && String(d.storeId) === String(s.storeId)
   );
   if (idx === -1) return res.status(404).json({ message: 'Discount not found' });
   const body = req.body || {};
@@ -1264,28 +2033,30 @@ router.put('/stores/:id/store-discounts/:discountId', auth, (req, res) => {
     _id: store.storeDiscounts[idx]._id,
     storeId: s.storeId,
     storeName: s.name,
+    websiteModuleSlug: adminWebsiteModuleSlug(req),
+    websiteId: store.storeDiscounts[idx].websiteId || '',
   };
   const item = store.storeDiscounts[idx];
   res.json({ ...item, status: getDiscountStatus(item) });
 });
 
 router.delete('/stores/:id/store-discounts/:discountId', auth, (req, res) => {
-  const s = getStoreRecord(req.params.id);
+  const s = getStoreRecord(req.params.id, req);
   if (!s) return res.status(404).json({ message: 'Store not found' });
   const before = store.storeDiscounts.length;
   store.storeDiscounts = store.storeDiscounts.filter(d =>
-    !(d._id === req.params.discountId && String(d.storeId) === String(s.storeId))
+    !(d._id === req.params.discountId && isInAdminWebsiteModule(req, d) && canEditAdminWebsiteData(req, d) && String(d.storeId) === String(s.storeId))
   );
   if (store.storeDiscounts.length === before) return res.status(404).json({ message: 'Discount not found' });
   res.json({ message: 'Deleted' });
 });
 
 router.post('/stores/:id/store-discounts/calculate', auth, (req, res) => {
-  const s = getStoreRecord(req.params.id);
+  const s = getStoreRecord(req.params.id, req);
   if (!s) return res.status(404).json({ message: 'Store not found' });
   const billAmount = Number(req.body?.billAmount) || 0;
   const at = req.body?.at ? new Date(req.body.at) : new Date();
-  const rules = discountsForStore(store.storeDiscounts, s);
+  const rules = discountsForStore(store.storeDiscounts.filter(item => isInAdminWebsiteModule(req, item)), s);
   const best = pickBestStoreDiscount(billAmount, rules, at);
   const breakdown = (rules || []).map(d => ({
     discount: d,
@@ -1303,9 +2074,9 @@ router.post('/stores/:id/store-discounts/calculate', auth, (req, res) => {
 
 router.get('/stores/:id/transactions', auth, (req, res) => {
   ensureOrders();
-  const s = getStoreRecord(req.params.id);
+  const s = getStoreRecord(req.params.id, req);
   if (!s) return res.status(404).json({ message: 'Store not found' });
-  const orders = store.orders.filter(o => belongsToStore(o, s));
+  const orders = store.orders.filter(o => isInAdminWebsiteData(req, o) && belongsToStore(o, s));
   const transactions = orders
     .filter(o => !['Cancelled', 'Failed'].includes(o.status))
     .map(o => ({
@@ -1335,7 +2106,7 @@ router.get('/stores/:id/transactions', auth, (req, res) => {
 });
 
 router.get('/stores/:id', auth, (req, res) => {
-  const idx = findStoreIndex(req.params.id);
+  const idx = findStoreIndex(req.params.id, req);
   if (idx === -1) return res.status(404).json({ message: 'Store not found' });
   recomputeStoreCounts(store);
   res.json(store.stores[idx]);
@@ -1349,6 +2120,8 @@ router.post('/stores', auth, (req, res) => {
     _id: String(storeId),
     storeId,
     name: body.name || 'New Store',
+    websiteModuleSlug: adminWebsiteModuleSlug(req),
+    ...(req.user?.role === 'website_user' && req.user.websiteId ? { websiteId: req.user.websiteId } : {}),
     slug,
     subdomain: slug,
     area: body.area || body.zone || 'Sitabuldi',
@@ -1389,15 +2162,16 @@ router.post('/stores', auth, (req, res) => {
 });
 
 router.get('/stores/:id/settings', auth, (req, res) => {
-  const s = getStoreRecord(req.params.id);
+  const s = getStoreRecord(req.params.id, req);
   if (!s) return res.status(404).json({ message: 'Store not found' });
   const { defaultStoreSettings } = require('../lib/defaultStoreSettings');
   res.json(s.storeSettings || defaultStoreSettings());
 });
 
 router.put('/stores/:id/settings', auth, (req, res) => {
-  const idx = findStoreIndex(req.params.id);
+  const idx = findStoreIndex(req.params.id, req);
   if (idx === -1) return res.status(404).json({ message: 'Store not found' });
+  if (!canEditAdminWebsiteData(req, store.stores[idx])) return res.status(404).json({ message: 'Store not found' });
   const { defaultStoreSettings } = require('../lib/defaultStoreSettings');
   const current = store.stores[idx].storeSettings || defaultStoreSettings();
   store.stores[idx].storeSettings = { ...current, ...(req.body || {}) };
@@ -1409,12 +2183,13 @@ router.put('/stores/:id/settings', auth, (req, res) => {
 });
 
 router.put('/stores/:id', auth, (req, res) => {
-  const idx = findStoreIndex(req.params.id);
+  const idx = findStoreIndex(req.params.id, req);
   if (idx === -1) return res.status(404).json({ message: 'Store not found' });
+  if (!canEditAdminWebsiteData(req, store.stores[idx])) return res.status(404).json({ message: 'Store not found' });
   const current = store.stores[idx];
   const oldName = current.name;
   const { _id: _omitId, storeId: _omitStoreId, storeSettings: _omitSettings, ...rest } = req.body || {};
-  store.stores[idx] = { ...current, ...rest, _id: current._id, storeId: current.storeId };
+  store.stores[idx] = { ...current, ...rest, websiteModuleSlug: adminWebsiteModuleSlug(req), websiteId: current.websiteId || '', _id: current._id, storeId: current.storeId };
   if (rest.name && rest.name !== oldName) {
     propagateStoreRename(store, current.storeId, oldName, rest.name);
   }
@@ -1423,15 +2198,17 @@ router.put('/stores/:id', auth, (req, res) => {
 });
 
 router.post('/stores/:id/approve', auth, (req, res) => {
-  const idx = findStoreIndex(req.params.id);
+  const idx = findStoreIndex(req.params.id, req);
   if (idx === -1) return res.status(404).json({ message: 'Store not found' });
+  if (!canEditAdminWebsiteData(req, store.stores[idx])) return res.status(404).json({ message: 'Store not found' });
   store.stores[idx] = { ...store.stores[idx], status: 'active', isNewRequest: false, approvedAt: formatNow() };
   res.json(store.stores[idx]);
 });
 
 router.post('/stores/:id/reject', auth, (req, res) => {
-  const idx = findStoreIndex(req.params.id);
+  const idx = findStoreIndex(req.params.id, req);
   if (idx === -1) return res.status(404).json({ message: 'Store not found' });
+  if (!canEditAdminWebsiteData(req, store.stores[idx])) return res.status(404).json({ message: 'Store not found' });
   store.stores[idx] = {
     ...store.stores[idx],
     status: 'denied',
@@ -1443,13 +2220,16 @@ router.post('/stores/:id/reject', auth, (req, res) => {
 });
 
 router.post('/stores/:id/toggle-recommend', auth, (req, res) => {
-  const idx = findStoreIndex(req.params.id);
+  const idx = findStoreIndex(req.params.id, req);
   if (idx === -1) return res.status(404).json({ message: 'Store not found' });
+  if (!canEditAdminWebsiteData(req, store.stores[idx])) return res.status(404).json({ message: 'Store not found' });
   store.stores[idx].isRecommended = !store.stores[idx].isRecommended;
   res.json(store.stores[idx]);
 });
 
 router.delete('/stores/:id', auth, (req, res) => {
+  const idx = findStoreIndex(req.params.id, req);
+  if (idx === -1 || !canEditAdminWebsiteData(req, store.stores[idx])) return res.status(404).json({ message: 'Store not found' });
   const result = cascadeDeleteStore(req.params.id, store);
   if (!result) return res.status(404).json({ message: 'Store not found' });
   res.json({
@@ -1461,15 +2241,15 @@ router.delete('/stores/:id', auth, (req, res) => {
 
 router.get('/promotions/stats', auth, (req, res) => {
   res.json({
-    campaigns: store.campaigns.filter(c => c.status === 'Active').length,
-    banners: store.banners.filter(b => b.status === 'Active').length,
-    coupons: store.coupons.filter(c => c.status === 'Active').length,
-    flashSales: store.flashSales.filter(f => f.status === 'Active').length,
+    campaigns: store.campaigns.filter(c => isInAdminWebsiteModule(req, c) && c.status === 'Active').length,
+    banners: store.banners.filter(b => isInAdminWebsiteModule(req, b) && b.status === 'Active').length,
+    coupons: store.coupons.filter(c => isInAdminWebsiteModule(req, c) && c.status === 'Active').length,
+    flashSales: store.flashSales.filter(f => isInAdminWebsiteModule(req, f) && f.status === 'Active').length,
   });
 });
 
 router.get('/promotions/:type', auth, (req, res) => {
-  const list = promotionList(req.params.type);
+  const list = promotionList(req.params.type, req);
   if (!list) return res.status(404).json({ message: 'Invalid promotion type' });
   res.json(list);
 });
@@ -1477,7 +2257,7 @@ router.get('/promotions/:type', auth, (req, res) => {
 router.post('/promotions/:type', auth, (req, res) => {
   const key = PROMOTION_KEYS[req.params.type];
   if (!key) return res.status(404).json({ message: 'Invalid promotion type' });
-  const item = { _id: uuidv4(), status: 'Active', ...req.body };
+  const item = tagAdminWebsiteModule(req, { _id: uuidv4(), status: 'Active', ...req.body });
   store[key].unshift(item);
   res.status(201).json(item);
 });
@@ -1485,30 +2265,32 @@ router.post('/promotions/:type', auth, (req, res) => {
 router.put('/promotions/:type/:id', auth, (req, res) => {
   const key = PROMOTION_KEYS[req.params.type];
   if (!key) return res.status(404).json({ message: 'Invalid promotion type' });
-  const idx = store[key].findIndex(i => i._id === req.params.id);
+  const idx = store[key].findIndex(i => i._id === req.params.id && isInAdminWebsiteModule(req, i) && canEditAdminWebsiteData(req, i));
   if (idx === -1) return res.status(404).json({ message: 'Not found' });
-  store[key][idx] = { ...store[key][idx], ...req.body, _id: req.params.id };
+  store[key][idx] = { ...store[key][idx], ...req.body, _id: req.params.id, websiteModuleSlug: adminWebsiteModuleSlug(req), websiteId: store[key][idx].websiteId || '' };
   res.json(store[key][idx]);
 });
 
 router.delete('/promotions/:type/:id', auth, (req, res) => {
   const key = PROMOTION_KEYS[req.params.type];
   if (!key) return res.status(404).json({ message: 'Invalid promotion type' });
-  store[key] = store[key].filter(i => i._id !== req.params.id);
+  store[key] = store[key].filter(i => i._id !== req.params.id || !isInAdminWebsiteModule(req, i) || !canEditAdminWebsiteData(req, i));
   res.json({ message: 'Deleted' });
 });
-router.get('/roles', auth, (req, res) => res.json(store.roles));
+router.get('/roles', auth, (req, res) => res.json((store.roles || []).filter(role => isInAdminWebsiteModule(req, role))));
 
 router.post('/roles', auth, (req, res) => {
   const body = req.body || {};
   const name = (body.name || '').trim();
   if (!name) return res.status(400).json({ message: 'Role name zaroori hai' });
   const slug = (body.slug || name).toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
-  if (store.roles.some(r => r.slug === slug)) {
+  if (store.roles.some(role => role.slug === slug && isInAdminWebsiteModule(req, role))) {
     return res.status(400).json({ message: 'Is slug ka role pehle se hai' });
   }
   const item = {
     _id: uuidv4(),
+    websiteModuleSlug: adminWebsiteModuleSlug(req),
+    ...(req.user?.role === 'website_user' && req.user.websiteId ? { websiteId: req.user.websiteId } : {}),
     name,
     slug,
     type: body.type || 'employee',
@@ -1522,7 +2304,7 @@ router.post('/roles', auth, (req, res) => {
 });
 
 router.put('/roles/:id', auth, (req, res) => {
-  const idx = store.roles.findIndex(r => r._id === req.params.id);
+  const idx = store.roles.findIndex(r => r._id === req.params.id && isInAdminWebsiteModule(req, r));
   if (idx === -1) return res.status(404).json({ message: 'Role not found' });
   const { accessSections, name, status, description, permissions } = req.body || {};
   store.roles[idx] = {
@@ -1537,12 +2319,12 @@ router.put('/roles/:id', auth, (req, res) => {
 });
 
 router.delete('/roles/:id', auth, (req, res) => {
-  const role = store.roles.find(r => r._id === req.params.id);
+  const role = store.roles.find(r => r._id === req.params.id && isInAdminWebsiteModule(req, r));
   if (!role) return res.status(404).json({ message: 'Role not found' });
   if (['main_admin'].includes(role.slug)) {
     return res.status(400).json({ message: 'Main Admin role delete nahi ho sakta' });
   }
-  store.roles = store.roles.filter(r => r._id !== req.params.id);
+  store.roles = store.roles.filter(r => r._id !== req.params.id || !isInAdminWebsiteModule(req, r));
   res.json({ message: 'Deleted' });
 });
 
@@ -1554,32 +2336,69 @@ router.get('/access', auth, (req, res) => {
   res.json(store.accessSections);
 });
 
-router.get('/settings/business', auth, (req, res) => res.json(store.businessSettings || {}));
+function businessSettingsModule(req) {
+  const info = adminWebsiteModuleInfo(req);
+  return { moduleSlug: info.slug, isQuickCommerce: info.quickCommerce, isEcommerce: info.ecommerce };
+}
 
-router.put('/settings/business', auth, (req, res) => {
-  store.businessSettings = { ...store.businessSettings, ...(req.body || {}) };
-  res.json(store.businessSettings);
+function businessSettingsScope(req) {
+  const info = businessSettingsModule(req);
+  if (req.user.role === 'website_user') return 'website-user:' + (req.user.websiteId || req.user._id) + ':' + info.moduleSlug;
+  if (info.isQuickCommerce) return 'quick-commerce';
+  return 'main-module:' + info.moduleSlug;
+}
+
+function quickCommerceBusinessSettings() {
+  const byModule = store.businessSettingsByModule || {};
+  return byModule['quick-commerce'] || byModule.qcommerce || byModule['main-module:qcommerce'] || store.businessSettings || {};
+}
+
+router.get('/settings/business', auth, (req, res) => {
+  const scope = businessSettingsScope(req);
+  const saved = store.businessSettingsByModule?.[scope];
+  if (saved) return res.json(saved);
+  if (req.user.role === 'website_user') return res.json({});
+  const info = businessSettingsModule(req);
+  if (info.isQuickCommerce) return res.json(quickCommerceBusinessSettings());
+  if (info.isEcommerce) return res.json(store.businessSettingsByModule?.[info.moduleSlug] || {});
+  res.json(store.businessSettingsByModule?.[info.moduleSlug] || {});
 });
 
-function enrichZone(z) {
+router.put('/settings/business', auth, (req, res) => {
+  const scope = businessSettingsScope(req);
+  const info = businessSettingsModule(req);
+  if (!store.businessSettingsByModule || Array.isArray(store.businessSettingsByModule)) store.businessSettingsByModule = {};
+  const existing = store.businessSettingsByModule[scope]
+    || (req.user.role === 'main_admin' ? store.businessSettingsByModule[info.moduleSlug] : null)
+    || (req.user.role === 'main_admin' && info.isQuickCommerce ? quickCommerceBusinessSettings() : {});
+  const updated = { ...existing, ...(req.body || {}) };
+  store.businessSettingsByModule[scope] = updated;
+  if (info.isQuickCommerce) store.businessSettings = updated;
+  syncData(store);
+  res.json(updated);
+});
+
+function enrichZone(z, req) {
   const { isInsideDeliveryZone } = require('../lib/geoUtils');
   const name = z.name;
-  const vendors = (store.stores || []).filter(s =>
+  const scopedStores = (store.stores || []).filter(item => !req || isInAdminWebsiteModule(req, item));
+  const scopedDeliveryMen = (store.deliveryMen || []).filter(item => !req || isInAdminWebsiteModule(req, item));
+  const vendors = scopedStores.filter(s =>
     s.zone === name || s.area === name || (s.lat && s.lng && isInsideDeliveryZone(z, s.lat, s.lng))
   ).length;
-  const deliveryMen = (store.deliveryMen || []).filter(d =>
+  const deliveryMen = scopedDeliveryMen.filter(d =>
     d.area === name || (d.lat && d.lng && isInsideDeliveryZone(z, d.lat, d.lng))
   ).length;
   return { ...z, vendors, deliveryMen };
 }
 
-function nextZoneNumericId() {
-  const max = (store.deliveryZones || []).reduce((m, z) => Math.max(m, Number(z.zoneId) || 0), 53);
-  store.nextZoneId = max + 1;
-  return store.nextZoneId++;
+function nextZoneNumericId(req) {
+  const max = (store.deliveryZones || []).filter(zone => isInAdminWebsiteModule(req, zone))
+    .reduce((m, z) => Math.max(m, Number(z.zoneId) || 0), 53);
+  return max + 1;
 }
 
-router.get('/zones', auth, (req, res) => res.json((store.deliveryZones || []).map(enrichZone)));
+router.get('/zones', auth, (req, res) => res.json((store.deliveryZones || []).filter(zone => isInAdminWebsiteModule(req, zone)).map(zone => enrichZone(zone, req))));
 
 router.post('/zones', auth, (req, res) => {
   const body = req.body || {};
@@ -1595,11 +2414,11 @@ router.post('/zones', auth, (req, res) => {
     return res.status(400).json({ message: 'E-Commerce: kam se kam 1 pin code select karo' });
   }
   if (body.isDefault) {
-    (store.deliveryZones || []).forEach(z => { z.isDefault = false; });
+    (store.deliveryZones || []).filter(zone => isInAdminWebsiteModule(req, zone)).forEach(z => { z.isDefault = false; });
   }
   const item = {
     _id: uuidv4(),
-    zoneId: nextZoneNumericId(),
+    zoneId: nextZoneNumericId(req),
     name,
     displayName: body.displayName || name,
     nameEn: body.nameEn || name,
@@ -1612,10 +2431,13 @@ router.post('/zones', auth, (req, res) => {
     lng: Number(body.lng) || 79.0882,
     radiusKm: Number(body.radiusKm) || 0,
     commerceType: body.commerceType === 'ecommerce' ? 'ecommerce' : 'quick_commerce',
+    websiteModuleSlug: adminWebsiteModuleSlug(req),
+    ...(req.user?.role === 'website_user' && req.user.websiteId ? { websiteId: req.user.websiteId } : {}),
     pincodes: Array.isArray(body.pincodes) ? body.pincodes : [],
     pinAreas: Array.isArray(body.pinAreas) ? body.pinAreas : [],
     polygon: Array.isArray(body.polygon) ? body.polygon : [],
-    modules: Array.isArray(body.modules) ? body.modules : [],
+    modules: Array.isArray(body.modules) ? body.modules.filter(value => typeof value === 'string') : [],
+    paymentMethods: Array.isArray(body.paymentMethods) ? body.paymentMethods.filter(value => ['cod', 'digital'].includes(value)) : [],
     searchCharges: [],
     deliveryRules: [],
     isDefault: !!body.isDefault,
@@ -1623,39 +2445,45 @@ router.post('/zones', auth, (req, res) => {
     createdAt: new Date().toISOString(),
   };
   store.deliveryZones.unshift(item);
-  res.status(201).json(enrichZone(item));
+  res.status(201).json(enrichZone(item, req));
 });
 
-function findZoneById(id) {
-  return (store.deliveryZones || []).find(z => z._id === id || String(z.zoneId) === String(id));
+function findZoneById(id, req) {
+  return (store.deliveryZones || []).find(z => isInAdminWebsiteModule(req, z) && (z._id === id || String(z.zoneId) === String(id)));
 }
 
 router.put('/zones/:id', auth, (req, res) => {
-  const idx = (store.deliveryZones || []).findIndex(z => z._id === req.params.id || String(z.zoneId) === String(req.params.id));
+  const idx = (store.deliveryZones || []).findIndex(z => isInAdminWebsiteModule(req, z) && (z._id === req.params.id || String(z.zoneId) === String(req.params.id)));
   if (idx === -1) return res.status(404).json({ message: 'Zone not found' });
   const body = req.body || {};
   if (body.isDefault) {
-    store.deliveryZones.forEach((z, i) => { if (i !== idx) z.isDefault = false; });
+    store.deliveryZones.forEach((z, i) => { if (i !== idx && isInAdminWebsiteModule(req, z)) z.isDefault = false; });
   }
   if (Array.isArray(body.polygon) && body.polygon.length > 0 && body.polygon.length < 3) {
     return res.status(400).json({ message: 'Map pe zone draw karo — kam se kam 3 points jodo' });
   }
   const existing = store.deliveryZones[idx];
-  const { searchCharges: _ignoreCharges, deliveryRules: incomingRules, ...rest } = body;
+  const { searchCharges: _ignoreCharges, deliveryRules: incomingRules, modules: incomingModules, paymentMethods: incomingPaymentMethods, ...rest } = body;
   store.deliveryZones[idx] = {
     ...existing,
     ...rest,
     _id: existing._id,
     zoneId: existing.zoneId,
+    modules: Array.isArray(incomingModules) ? incomingModules.filter(value => typeof value === 'string') : (existing.modules || []),
+    paymentMethods: Array.isArray(incomingPaymentMethods)
+      ? incomingPaymentMethods.filter(value => ['cod', 'digital'].includes(value))
+      : (existing.paymentMethods || []),
     searchCharges: existing.searchCharges || [],
     deliveryRules: Array.isArray(incomingRules) ? incomingRules : (existing.deliveryRules || []),
+    websiteModuleSlug: adminWebsiteModuleSlug(req),
+    websiteId: existing.websiteId || '',
   };
-  res.json(enrichZone(store.deliveryZones[idx]));
+  res.json(enrichZone(store.deliveryZones[idx], req));
 });
 
 router.get('/zones/delivery-rules', auth, (req, res) => {
   const city = String(req.query.city || '').trim();
-  const rules = (store.deliveryZones || []).filter(zone => !city || zone.city === city).flatMap(zone => (zone.deliveryRules || []).map(rule => ({
+  const rules = (store.deliveryZones || []).filter(zone => isInAdminWebsiteModule(req, zone) && (!city || zone.city === city)).flatMap(zone => (zone.deliveryRules || []).map(rule => ({
     ...rule,
     _zoneId: zone._id,
     zoneId: zone.zoneId,
@@ -1666,7 +2494,7 @@ router.get('/zones/delivery-rules', auth, (req, res) => {
 });
 
 router.get('/zones/:id/search-charges', auth, (req, res) => {
-  const zone = findZoneById(req.params.id);
+  const zone = findZoneById(req.params.id, req);
   if (!zone) return res.status(404).json({ message: 'Zone not found' });
   res.json({
     zone: { _id: zone._id, name: zone.name, zoneId: zone.zoneId, city: zone.city, modules: zone.modules || [] },
@@ -1675,44 +2503,76 @@ router.get('/zones/:id/search-charges', auth, (req, res) => {
 });
 
 router.get('/zones/:id/delivery-rules', auth, (req, res) => {
-  const zone = findZoneById(req.params.id);
+  const zone = findZoneById(req.params.id, req);
   if (!zone) return res.status(404).json({ message: 'Zone not found' });
   res.json(zone.deliveryRules || []);
 });
 
 router.post('/zones/:id/delivery-rules', auth, (req, res) => {
-  const zone = findZoneById(req.params.id);
+  const zone = findZoneById(req.params.id, req);
   if (!zone) return res.status(404).json({ message: 'Zone not found' });
   const body = req.body || {};
-  const scope = body.scope === 'category' ? 'category' : 'zone';
   const categories = Array.isArray(body.categories) ? body.categories : [];
   const amount = Number(body.amount);
   const modules = Array.isArray(body.modules) ? body.modules : [];
+  const moduleId = typeof body.moduleId === 'string' ? body.moduleId : '';
+  const scope = moduleId || modules.length ? 'module' : (body.scope === 'category' ? 'category' : 'zone');
+  const pickupRadiusKm = body.pickupRadiusKm == null || body.pickupRadiusKm === '' ? null : Number(body.pickupRadiusKm);
+  const dropRadiusKm = body.dropRadiusKm == null || body.dropRadiusKm === '' ? null : Number(body.dropRadiusKm);
   if (!Number.isFinite(amount) || amount < 0) return res.status(400).json({ message: 'Valid charge zaroori hai' });
   if (scope === 'category' && !categories.length) return res.status(400).json({ message: 'Category select karo' });
-  const item = { _id: uuidv4(), modules, module: modules[0], scope, categories, chargeMode: body.chargeMode === 'per_km' ? 'per_km' : 'fixed', amount, perKmCharge: Number(body.perKmCharge) || 0, minimumKm: Number(body.minimumKm) || 0, minimumDeliveryCharge: Number(body.minimumDeliveryCharge) || 0, pickupRadiusKm: body.pickupRadiusKm == null ? null : Number(body.pickupRadiusKm), dropRadiusKm: body.dropRadiusKm == null ? null : Number(body.dropRadiusKm), freeAbove: body.freeAbove == null ? null : Number(body.freeAbove), deliveryFree: body.deliveryFree === true, freeDeliveryPayer: ['customer', 'vendor', 'company'].includes(body.freeDeliveryPayer) ? body.freeDeliveryPayer : 'customer', createdAt: new Date().toISOString() };
+  if (scope === 'module' && !modules.length) return res.status(400).json({ message: 'Module select karo' });
+  const existingRules = zone.deliveryRules || [];
+  const duplicate = existingRules.find(rule => {
+    if (moduleId && rule.moduleId === moduleId) return true;
+    if (modules.length && (rule.modules || (rule.module ? [rule.module] : [])).some(module => modules.includes(module))) return true;
+    if (rule.scope !== scope) return false;
+    if (scope === 'category') {
+      const existingCategories = rule.categories || [];
+      return existingCategories.includes('all') || categories.includes('all') || existingCategories.some(category => categories.includes(category));
+    }
+    return false;
+  });
+  if (duplicate) return res.status(409).json({ message: scope === 'module' ? 'Is module ka delivery rule pehle se hai. Edit karein.' : 'Is category ka delivery rule pehle se hai. Edit karein.' });
+  if ([pickupRadiusKm, dropRadiusKm].some(value => value != null && (!Number.isFinite(value) || value < 0))) return res.status(400).json({ message: 'Pickup aur drop radius valid non-negative KM hone chahiye' });
+  const item = { _id: uuidv4(), modules, module: modules[0], moduleId, scope, categories, chargeMode: body.chargeMode === 'per_km' ? 'per_km' : 'fixed', amount, perKmCharge: Number(body.perKmCharge) || 0, minimumKm: Number(body.minimumKm) || 0, minimumDeliveryCharge: Number(body.minimumDeliveryCharge) || 0, pickupRadiusKm, dropRadiusKm, freeAbove: body.freeAbove == null ? null : Number(body.freeAbove), deliveryFree: body.deliveryFree === true, freeDeliveryPayer: ['customer', 'vendor', 'company'].includes(body.freeDeliveryPayer) ? body.freeDeliveryPayer : 'customer', createdAt: new Date().toISOString() };
   zone.deliveryRules = [item, ...(zone.deliveryRules || [])];
   res.status(201).json(item);
 });
 
 router.put('/zones/:id/delivery-rules/:ruleId', auth, (req, res) => {
-  const zone = findZoneById(req.params.id);
+  const zone = findZoneById(req.params.id, req);
   if (!zone) return res.status(404).json({ message: 'Zone not found' });
   const index = (zone.deliveryRules || []).findIndex(rule => rule._id === req.params.ruleId);
   if (index === -1) return res.status(404).json({ message: 'Delivery rule not found' });
   const body = req.body || {};
-  const scope = body.scope === 'category' ? 'category' : 'zone';
   const categories = Array.isArray(body.categories) ? body.categories : [];
   const amount = Number(body.amount);
   const modules = Array.isArray(body.modules) ? body.modules : [];
+  const moduleId = typeof body.moduleId === 'string' ? body.moduleId : '';
+  const scope = moduleId || modules.length ? 'module' : (body.scope === 'category' ? 'category' : 'zone');
+  const pickupRadiusKm = body.pickupRadiusKm == null || body.pickupRadiusKm === '' ? null : Number(body.pickupRadiusKm);
+  const dropRadiusKm = body.dropRadiusKm == null || body.dropRadiusKm === '' ? null : Number(body.dropRadiusKm);
   if (!Number.isFinite(amount) || amount < 0) return res.status(400).json({ message: 'Valid charge zaroori hai' });
   if (scope === 'category' && !categories.length) return res.status(400).json({ message: 'Category select karo' });
-  zone.deliveryRules[index] = { ...zone.deliveryRules[index], modules, module: modules[0], scope, categories, chargeMode: body.chargeMode === 'per_km' ? 'per_km' : 'fixed', amount, perKmCharge: Number(body.perKmCharge) || 0, minimumKm: Number(body.minimumKm) || 0, minimumDeliveryCharge: Number(body.minimumDeliveryCharge) || 0, pickupRadiusKm: body.pickupRadiusKm == null ? null : Number(body.pickupRadiusKm), dropRadiusKm: body.dropRadiusKm == null ? null : Number(body.dropRadiusKm), freeAbove: body.freeAbove == null ? null : Number(body.freeAbove), deliveryFree: body.deliveryFree === true, freeDeliveryPayer: ['customer', 'vendor', 'company'].includes(body.freeDeliveryPayer) ? body.freeDeliveryPayer : 'customer' };
+  if (scope === 'module' && !modules.length) return res.status(400).json({ message: 'Module select karo' });
+  const duplicate = (zone.deliveryRules || []).some((rule, ruleIndex) => {
+    if (ruleIndex === index) return false;
+    if (moduleId && rule.moduleId === moduleId) return true;
+    if (modules.length && (rule.modules || (rule.module ? [rule.module] : [])).some(module => modules.includes(module))) return true;
+    if (rule.scope !== scope) return false;
+    if (scope !== 'category') return false;
+    const existingCategories = rule.categories || [];
+    return existingCategories.includes('all') || categories.includes('all') || existingCategories.some(category => categories.includes(category));
+  });
+  if (duplicate) return res.status(409).json({ message: modules.length ? 'Is module ka delivery rule pehle se hai. Edit karein.' : 'Is category ka delivery rule pehle se hai. Edit karein.' });
+  if ([pickupRadiusKm, dropRadiusKm].some(value => value != null && (!Number.isFinite(value) || value < 0))) return res.status(400).json({ message: 'Pickup aur drop radius valid non-negative KM hone chahiye' });
+  zone.deliveryRules[index] = { ...zone.deliveryRules[index], modules, module: modules[0], moduleId, scope, categories, chargeMode: body.chargeMode === 'per_km' ? 'per_km' : 'fixed', amount, perKmCharge: Number(body.perKmCharge) || 0, minimumKm: Number(body.minimumKm) || 0, minimumDeliveryCharge: Number(body.minimumDeliveryCharge) || 0, pickupRadiusKm, dropRadiusKm, freeAbove: body.freeAbove == null ? null : Number(body.freeAbove), deliveryFree: body.deliveryFree === true, freeDeliveryPayer: ['customer', 'vendor', 'company'].includes(body.freeDeliveryPayer) ? body.freeDeliveryPayer : 'customer' };
   res.json(zone.deliveryRules[index]);
 });
 
 router.delete('/zones/:id/delivery-rules/:ruleId', auth, (req, res) => {
-  const zone = findZoneById(req.params.id);
+  const zone = findZoneById(req.params.id, req);
   if (!zone) return res.status(404).json({ message: 'Zone not found' });
   const before = (zone.deliveryRules || []).length;
   zone.deliveryRules = (zone.deliveryRules || []).filter(rule => rule._id !== req.params.ruleId);
@@ -1721,7 +2581,7 @@ router.delete('/zones/:id/delivery-rules/:ruleId', auth, (req, res) => {
 });
 
 router.post('/zones/:id/search-charges', auth, (req, res) => {
-  const zone = findZoneById(req.params.id);
+  const zone = findZoneById(req.params.id, req);
   if (!zone) return res.status(404).json({ message: 'Zone not found' });
   const body = req.body || {};
   const amount = Number(body.amount);
@@ -1748,7 +2608,7 @@ router.post('/zones/:id/search-charges', auth, (req, res) => {
 });
 
 router.put('/zones/:id/search-charges/:chargeId', auth, (req, res) => {
-  const zone = findZoneById(req.params.id);
+  const zone = findZoneById(req.params.id, req);
   if (!zone) return res.status(404).json({ message: 'Zone not found' });
   const index = (zone.searchCharges || []).findIndex(c => c._id === req.params.chargeId);
   if (index === -1) return res.status(404).json({ message: 'Charge not found' });
@@ -1765,7 +2625,7 @@ router.put('/zones/:id/search-charges/:chargeId', auth, (req, res) => {
 });
 
 router.delete('/zones/:id/search-charges/:chargeId', auth, (req, res) => {
-  const zone = findZoneById(req.params.id);
+  const zone = findZoneById(req.params.id, req);
   if (!zone) return res.status(404).json({ message: 'Zone not found' });
   const before = (zone.searchCharges || []).length;
   zone.searchCharges = (zone.searchCharges || []).filter(c => c._id !== req.params.chargeId);
@@ -1774,9 +2634,9 @@ router.delete('/zones/:id/search-charges/:chargeId', auth, (req, res) => {
 });
 
 router.delete('/zones/:id', auth, (req, res) => {
-  const before = (store.deliveryZones || []).length;
-  store.deliveryZones = (store.deliveryZones || []).filter(z => z._id !== req.params.id);
-  if (store.deliveryZones.length === before) return res.status(404).json({ message: 'Zone not found' });
+  const zone = findZoneById(req.params.id, req);
+  if (!zone) return res.status(404).json({ message: 'Zone not found' });
+  store.deliveryZones = (store.deliveryZones || []).filter(item => item._id !== zone._id);
   res.json({ message: 'Deleted' });
 });
 
@@ -1795,31 +2655,38 @@ router.post('/zones/import', auth, (req, res) => {
       lng: Number(row.lng || row.Lng) || 79.0882,
       radiusKm: Number(row.radiusKm || row.RadiusKm) || 2,
       status: String(row.status || 'true').toLowerCase() !== 'false',
+      zoneId: nextZoneNumericId(req),
+      commerceType: adminWebsiteModuleInfo(req).ecommerce ? 'ecommerce' : 'quick_commerce',
+      websiteModuleSlug: adminWebsiteModuleSlug(req),
+      pincodes: Array.isArray(row.pincodes) ? row.pincodes : [], pinAreas: [], polygon: [], deliveryRules: [], searchCharges: [],
       createdAt: new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }),
     };
     store.deliveryZones.unshift(item);
-    created.push(item);
+    created.push(enrichZone(item, req));
   });
   res.json({ imported: created.length, items: created });
 });
 
-router.get('/system-modules', auth, (req, res) => res.json(store.systemModules || []));
+router.get('/system-modules', auth, (req, res) => res.json((store.systemModules || []).filter(module => isInAdminWebsiteModule(req, module))));
 
-router.get('/modules', auth, (req, res) => res.json((store.modules || []).filter(m => m.status === 'active')));
+router.get('/modules', auth, (req, res) => res.json((store.modules || []).filter(module => module.status === 'active' && isInAdminWebsiteModule(req, module))));
 
 router.post('/system-modules', auth, (req, res) => {
   const body = req.body || {};
   const name = (body.name || '').trim();
   if (!name) return res.status(400).json({ message: 'Module name zaroori hai' });
   const slug = (body.slug || name).toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
-  if ((store.systemModules || []).some(m => m.slug === slug)) {
+  if ((store.systemModules || []).some(module => module.slug === slug && isInAdminWebsiteModule(req, module))) {
     return res.status(400).json({ message: 'Is slug ka module pehle se hai' });
   }
   const item = {
     _id: uuidv4(),
+    websiteModuleSlug: adminWebsiteModuleSlug(req),
+    ...(req.user?.role === 'website_user' && req.user.websiteId ? { websiteId: req.user.websiteId } : {}),
     name,
     slug,
     description: body.description || '',
+    image: body.image || '',
     status: body.status !== false,
   };
   store.systemModules.unshift(item);
@@ -1827,37 +2694,180 @@ router.post('/system-modules', auth, (req, res) => {
 });
 
 router.put('/system-modules/:id', auth, (req, res) => {
-  const idx = (store.systemModules || []).findIndex(m => m._id === req.params.id);
+  const idx = (store.systemModules || []).findIndex(m => m._id === req.params.id && isInAdminWebsiteModule(req, m));
   if (idx === -1) return res.status(404).json({ message: 'Module not found' });
-  store.systemModules[idx] = { ...store.systemModules[idx], ...req.body, _id: store.systemModules[idx]._id };
+  const body = req.body || {};
+  const current = store.systemModules[idx];
+  const name = body.name === undefined ? current.name : String(body.name).trim();
+  if (!name) return res.status(400).json({ message: 'Module name zaroori hai' });
+  const slug = body.slug === undefined
+    ? current.slug
+    : (String(body.slug).trim() || name).toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+  if ((store.systemModules || []).some((module, moduleIdx) => moduleIdx !== idx && module.slug === slug && isInAdminWebsiteModule(req, module))) {
+    return res.status(400).json({ message: 'Is slug ka module pehle se hai' });
+  }
+  store.systemModules[idx] = {
+    ...current,
+    ...body,
+    name,
+    slug,
+    websiteModuleSlug: adminWebsiteModuleSlug(req),
+    websiteId: current.websiteId || '',
+    image: body.image === undefined ? (current.image || '') : body.image,
+    _id: current._id,
+  };
   res.json(store.systemModules[idx]);
 });
 
 router.delete('/system-modules/:id', auth, (req, res) => {
-  store.systemModules = (store.systemModules || []).filter(m => m._id !== req.params.id);
+  store.systemModules = (store.systemModules || []).filter(m => m._id !== req.params.id || !isInAdminWebsiteModule(req, m));
+  res.json({ message: 'Deleted' });
+});
+router.get('/public/website-modules', (req, res) => res.json((store.websiteModules || []).filter(module => module.status !== false && module.status !== 'false' && module.status !== 'inactive').map(({ _id, name, slug, type, image, images, videoUrl, description }) => {
+  const canonicalSlug = normalizeWebsiteModuleSlug(slug || type || '');
+  return { _id, name, slug: canonicalSlug || slug, type: normalizeWebsiteModuleSlug(type || slug || '') || type, image, images: Array.isArray(images) ? images : (image ? [image] : []), videoUrl, description };
+})));
+router.get('/website-modules', auth, (req, res) => {
+  if (req.user.role === 'website_user' || req.user.employeeId) {
+    const moduleSlug = normalizeWebsiteModuleSlug(req.user.selectedModuleSlug || req.user.websiteModuleSlug || '');
+    const ownModule = (store.websiteModules || []).find(module => normalizeWebsiteModuleSlug(module.slug || '') === moduleSlug);
+    return res.json(ownModule ? [{ ...ownModule, slug: normalizeWebsiteModuleSlug(ownModule.slug || ownModule.type || ''), type: normalizeWebsiteModuleSlug(ownModule.type || ownModule.slug || '') || ownModule.type }] : []);
+  }
+  if (req.user.role !== 'main_admin') return res.status(403).json({ message: 'Only Main Admin can manage Website Modules' });
+  res.json(store.websiteModules || []);
+});
+router.get('/my-website-access', auth, (req, res) => {
+  if (req.user.role !== 'website_user') return res.status(403).json({ message: 'Website account zaroori hai' });
+  const module = (store.websiteModules || []).find(item =>
+    String(item._id) === String(req.user.selectedModuleId || req.user.websiteModuleId || '')
+  ) || (store.websiteModules || []).find(item => item.slug === req.user.selectedModuleSlug);
+  if (!module) return res.json({ moduleSlug: req.user.selectedModuleSlug, moduleName: req.user.selectedModuleName || '', header: [], sidebar: [] });
+  const access = module.access || { header: [], sidebar: [] };
+  const moduleSlug = normalizeWebsiteModuleSlug(module.slug || module.type || '');
+  const moduleName = String(module.name || '').toLowerCase();
+  const isQuickCommerce = ['quick-commerce', 'qcommerce', 'quick_commerce'].includes(moduleSlug) || moduleName.includes('quick commerce');
+  let changed = false;
+  if (isQuickCommerce && !access.header?.includes('/quick-commerce')) {
+    access.header = [...new Set([...(access.header || []), '/quick-commerce'])];
+    changed = true;
+  }
+  if (isQuickCommerce && !access.sidebar?.includes('/quick-commerce')) {
+    access.sidebar = [...new Set([...(access.sidebar || []), '/quick-commerce'])];
+    changed = true;
+  }
+  if (changed) {
+    module.access = access;
+    schedulePersist();
+  }
+  res.json({ moduleSlug: req.user.selectedModuleSlug, moduleName: module?.name || req.user.selectedModuleName || '', header: Array.isArray(access.header) ? access.header : [], sidebar: Array.isArray(access.sidebar) ? access.sidebar : [] });
+});
+
+router.post('/website-modules/:id/media', auth, (req, res, next) => {
+  if (req.user.role !== 'main_admin') return res.status(403).json({ message: 'Only Main Admin can upload Website Module media' });
+  if (!(store.websiteModules || []).some(module => module._id === req.params.id)) return res.status(404).json({ message: 'Website Module not found' });
+  websiteModuleMediaUpload.fields([{ name: 'images', maxCount: 10 }, { name: 'video', maxCount: 1 }])(req, res, error => {
+    if (error) return next(error);
+    const item = (store.websiteModules || []).find(module => module._id === req.params.id);
+    if (!item) return res.status(404).json({ message: 'Website Module not found' });
+    const imageUrls = (req.files?.images || []).map(file => `/api/uploads/website-modules/${file.filename}`);
+    if (imageUrls.length) {
+      const existingImages = Array.isArray(item.images) ? item.images : (item.image ? [item.image] : []);
+      item.images = [...existingImages, ...imageUrls];
+      item.image = item.images[0] || '';
+    }
+    const video = req.files?.video?.[0];
+    if (video) item.videoUrl = `/api/uploads/website-modules/${video.filename}`;
+    schedulePersist();
+    res.json({ images: item.images || [], image: item.image || '', videoUrl: item.videoUrl || '' });
+  });
+});
+router.post('/website-modules', auth, (req, res) => {
+  if (req.user.role !== 'main_admin') return res.status(403).json({ message: 'Only Main Admin can manage Website Modules' });
+  const body = req.body || {};
+  const name = String(body.name || '').trim();
+  if (!name) return res.status(400).json({ message: 'Module name zaroori hai' });
+  const slug = String(body.slug || name).toLowerCase().trim().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+  if (!slug) return res.status(400).json({ message: 'Valid module slug zaroori hai' });
+  if ((store.websiteModules || []).some(module => module.slug === slug)) {
+    return res.status(409).json({ message: 'Is slug ka Website Module pehle se hai' });
+  }
+  const item = {
+    _id: uuidv4(), name, slug,
+    images: Array.isArray(body.images) ? body.images.filter(image => typeof image === 'string') : (typeof body.image === 'string' && body.image ? [body.image] : []),
+    image: typeof body.image === 'string' ? body.image : (Array.isArray(body.images) && body.images[0] || ''),
+    videoUrl: typeof body.videoUrl === 'string' ? body.videoUrl.trim() : '',
+    description: typeof body.description === 'string' ? body.description.trim() : '',
+    status: body.status !== false,
+    access: { header: [], sidebar: [] },
+  };
+  if (!Array.isArray(store.websiteModules)) store.websiteModules = [];
+  store.websiteModules.unshift(item);
+  res.status(201).json(item);
+});
+
+router.put('/website-modules/:id', auth, (req, res) => {
+  if (req.user.role !== 'main_admin') return res.status(403).json({ message: 'Only Main Admin can manage Website Modules' });
+  const modules = store.websiteModules || [];
+  const index = modules.findIndex(module => module._id === req.params.id);
+  if (index === -1) return res.status(404).json({ message: 'Website Module not found' });
+  const current = modules[index];
+  const body = req.body || {};
+  const name = body.name === undefined ? current.name : String(body.name || '').trim();
+  if (!name) return res.status(400).json({ message: 'Module name zaroori hai' });
+  const slug = body.slug === undefined
+    ? current.slug
+    : String(body.slug || name).toLowerCase().trim().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+  if (!slug) return res.status(400).json({ message: 'Valid module slug zaroori hai' });
+  if (modules.some((module, moduleIndex) => moduleIndex !== index && module.slug === slug)) {
+    return res.status(409).json({ message: 'Is slug ka Website Module pehle se hai' });
+  }
+  if (body.access !== undefined && req.user.role !== 'main_admin') return res.status(403).json({ message: 'Only Main Admin can change Website Module access' });
+  const access = body.access && typeof body.access === 'object' ? {
+    header: Array.isArray(body.access.header) ? [...new Set(body.access.header.filter(value => typeof value === 'string'))] : (current.access?.header || []),
+    sidebar: Array.isArray(body.access.sidebar) ? [...new Set(body.access.sidebar.filter(value => typeof value === 'string'))] : (current.access?.sidebar || []),
+  } : (current.access || { header: [], sidebar: [] });
+  modules[index] = {
+    ...current,
+    name,
+    slug,
+    access,
+    images: body.images === undefined ? (Array.isArray(current.images) ? current.images : (current.image ? [current.image] : [])) : (Array.isArray(body.images) ? body.images.filter(image => typeof image === 'string') : []),
+    image: body.images === undefined && body.image === undefined ? current.image || '' : (Array.isArray(body.images) ? (body.images[0] || '') : (typeof body.image === 'string' ? body.image : '')),
+    videoUrl: body.videoUrl === undefined ? current.videoUrl || '' : (typeof body.videoUrl === 'string' ? body.videoUrl.trim() : ''),
+    description: body.description === undefined ? current.description || '' : (typeof body.description === 'string' ? body.description.trim() : ''),
+    status: body.status === undefined ? current.status !== false : body.status !== false,
+    _id: current._id,
+  };
+  res.json(modules[index]);
+});
+
+router.delete('/website-modules/:id', auth, (req, res) => {
+  if (req.user.role !== 'main_admin') return res.status(403).json({ message: 'Only Main Admin can manage Website Modules' });
+  store.websiteModules = (store.websiteModules || []).filter(module => module._id !== req.params.id);
   res.json({ message: 'Deleted' });
 });
 
 router.get('/employees', auth, (req, res) => {
   const { storeId, status } = req.query;
-  let list = store.employees || [];
+  let list = (store.employees || []).filter(employee => isInAdminWebsiteModule(req, employee));
   if (storeId) list = list.filter(e => String(e.storeId) === String(storeId));
   if (status) list = list.filter(e => e.status === status);
   res.json(list.map(publicEmployee));
 });
 
 router.get('/employees/:id', auth, (req, res) => {
-  const emp = (store.employees || []).find(e => e._id === req.params.id);
+  const emp = (store.employees || []).find(e => e._id === req.params.id && isInAdminWebsiteModule(req, e));
   if (!emp) return res.status(404).json({ message: 'Employee not found' });
   res.json(publicEmployee(emp));
 });
 
 router.post('/employees', auth, async (req, res) => {
   const body = req.body || {};
-  const role = store.roles.find(r => r._id === body.roleId || r.slug === body.roleSlug);
+  const role = store.roles.find(r => isInAdminWebsiteModule(req, r) && (r._id === body.roleId || r.slug === body.roleSlug));
   const password = (body.password || 'emp123').trim() || 'emp123';
   const item = {
     _id: uuidv4(),
+    websiteModuleSlug: adminWebsiteModuleSlug(req),
     name: body.name || 'Employee',
     email: body.email || '',
     phone: body.phone || '',
@@ -1878,11 +2888,11 @@ router.post('/employees', auth, async (req, res) => {
 });
 
 router.put('/employees/:id', auth, async (req, res) => {
-  const idx = (store.employees || []).findIndex(e => e._id === req.params.id);
+  const idx = (store.employees || []).findIndex(e => e._id === req.params.id && isInAdminWebsiteModule(req, e));
   if (idx === -1) return res.status(404).json({ message: 'Employee not found' });
   const body = { ...(req.body || {}) };
   if (body.roleId || body.roleSlug) {
-    const role = store.roles.find(r => r._id === body.roleId || r.slug === body.roleSlug);
+    const role = store.roles.find(r => isInAdminWebsiteModule(req, r) && (r._id === body.roleId || r.slug === body.roleSlug));
     if (role) {
       body.roleId = role._id;
       body.roleSlug = role.slug;
@@ -1895,18 +2905,19 @@ router.put('/employees/:id', auth, async (req, res) => {
   }
   delete body._id;
   delete body.hasPassword;
-  store.employees[idx] = { ...store.employees[idx], ...body, _id: store.employees[idx]._id };
+  store.employees[idx] = { ...store.employees[idx], ...body, websiteModuleSlug: adminWebsiteModuleSlug(req), _id: store.employees[idx]._id };
   res.json(publicEmployee(store.employees[idx]));
 });
 
 router.delete('/employees/:id', auth, (req, res) => {
-  store.employees = (store.employees || []).filter(e => e._id !== req.params.id);
+  store.employees = (store.employees || []).filter(e => e._id !== req.params.id || !isInAdminWebsiteModule(req, e));
   res.json({ message: 'Deleted' });
 });
 
 router.get('/employee-login-history', auth, (req, res) => {
   const { employeeId, status, q } = req.query;
-  let list = store.employeeLoginHistory || [];
+  const employeeIds = new Set((store.employees || []).filter(employee => isInAdminWebsiteModule(req, employee)).map(employee => String(employee._id)));
+  let list = (store.employeeLoginHistory || []).filter(row => isInAdminWebsiteModule(req, row) && employeeIds.has(String(row.employeeId)));
   if (employeeId) list = list.filter(r => r.employeeId === employeeId);
   if (status) list = list.filter(r => r.status === status);
   if (q) {
@@ -1920,58 +2931,485 @@ router.get('/employee-login-history', auth, (req, res) => {
   res.json(list);
 });
 
-router.get('/websites', auth, (req, res) => {
-  const list = req.user.role === 'main_admin' ? store.websites : store.websites.filter(w => w.userId === req.user._id);
+function findAccessibleWebsite(req, id) {
+  const website = (store.websites || []).find(item => String(item._id) === String(id));
+  if (!website) return null;
+  const owner = (store.users || []).find(user => String(user._id) === String(website.userId));
+  const moduleInfo = adminWebsiteModuleInfo(req);
+  const activeSlug = normalizeWebsiteModuleSlug(moduleInfo.slug);
+  const activeModuleId = String(moduleInfo.module?._id || req.user?.selectedModuleId || req.user?.websiteModuleId || '');
+  const assignedSlug = normalizeWebsiteModuleSlug(website.websiteModuleSlug || owner?.selectedModuleSlug || '');
+  const assignedModuleId = String(website.websiteModuleId || '');
+  const websiteKey = String(website.websiteKey || '').trim();
+  const expectedKeys = [buildWebsiteIdentity(website.userId, activeSlug)];
+  if (activeModuleId) expectedKeys.unshift(buildWebsiteIdentity(website.userId, activeModuleId));
+  if (websiteKey && !expectedKeys.includes(websiteKey)) return null;
+  if (assignedModuleId && activeModuleId
+    ? assignedModuleId !== activeModuleId
+    : (!assignedSlug || assignedSlug !== activeSlug)) return null;
+  if (req.user?.role !== 'main_admin' && String(website.userId) !== String(req.user?._id)) return null;
+  return website;
+}
+
+function razorpayRequest(pathname, payload) {
+  const keyId = String(process.env.RAZORPAY_KEY_ID || '').trim();
+  const keySecret = String(process.env.RAZORPAY_KEY_SECRET || '').trim();
+  if (!keyId || !keySecret) {
+    const error = new Error('Payment gateway is not configured. Set RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET.');
+    error.status = 503;
+    return Promise.reject(error);
+  }
+  const body = JSON.stringify(payload);
+  return new Promise((resolve, reject) => {
+    const request = https.request({
+      hostname: 'api.razorpay.com',
+      path: pathname,
+      method: 'POST',
+      auth: `${keyId}:${keySecret}`,
+      headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) },
+    }, response => {
+      let raw = '';
+      response.setEncoding('utf8');
+      response.on('data', chunk => { raw += chunk; });
+      response.on('end', () => {
+        let data;
+        try { data = JSON.parse(raw); } catch { data = {}; }
+        if (response.statusCode < 200 || response.statusCode >= 300) {
+          const error = new Error(data.error?.description || 'Payment gateway request failed');
+          error.status = 502;
+          return reject(error);
+        }
+        resolve(data);
+      });
+    });
+    request.on('error', error => reject(Object.assign(new Error('Payment gateway is unavailable'), { status: 502, cause: error })));
+    request.write(body);
+    request.end();
+  });
+}
+
+function verifyRazorpaySignature(orderId, paymentId, signature) {
+  const secret = String(process.env.RAZORPAY_KEY_SECRET || '').trim();
+  if (!secret || !orderId || !paymentId || !signature) return false;
+  const expected = crypto.createHmac('sha256', secret).update(`${orderId}|${paymentId}`).digest();
+  let received;
+  try { received = Buffer.from(signature, 'hex'); } catch { return false; }
+  return received.length === expected.length && crypto.timingSafeEqual(received, expected);
+}
+
+router.get('/website-subscription-plans', auth, (req, res) => {
+  const plans = store.websiteSubscriptionPlans || [];
+  if (req.user.role === 'main_admin') return res.json(plans);
+  if (req.user.role !== 'website_user') return res.status(403).json({ message: 'Website account required' });
+  res.json(plans.filter(plan => plan.status !== false));
+});
+
+router.post('/website-subscription-plans', auth, (req, res) => {
+  if (req.user.role !== 'main_admin') return res.status(403).json({ message: 'Main admin access required' });
+  const name = String(req.body?.name || '').trim();
+  const priceMode = String(req.body?.priceMode || 'percent');
+  const percent = Number(req.body?.percent);
+  const fixedAmount = Number(req.body?.fixedAmount);
+  const durationValue = Number(req.body?.durationValue || 30);
+  const durationUnit = String(req.body?.durationUnit || 'day');
+  if (!name) return res.status(400).json({ message: 'Plan name is required' });
+  if (!['percent', 'fixed'].includes(priceMode)) return res.status(400).json({ message: 'Choose percentage or fixed amount pricing.' });
+  if (priceMode === 'percent' && (!Number.isFinite(percent) || percent <= 0 || percent > 100)) return res.status(400).json({ message: 'Subscription percentage must be between 1 and 100' });
+  if (priceMode === 'fixed' && (!Number.isFinite(fixedAmount) || fixedAmount <= 0)) return res.status(400).json({ message: 'Fixed subscription amount must be greater than zero.' });
+  if (!Number.isInteger(durationValue) || durationValue < 1 || durationValue > 3650) return res.status(400).json({ message: 'Subscription duration must be between 1 and 3650.' });
+  if (!['day', 'month', 'year'].includes(durationUnit)) return res.status(400).json({ message: 'Duration unit must be day, month or year.' });
+  store.websiteSubscriptionPlans = store.websiteSubscriptionPlans || [];
+  if (req.body?.isDefault) store.websiteSubscriptionPlans.forEach(plan => { plan.isDefault = false; });
+  const plan = {
+    _id: uuidv4(),
+    name,
+    description: String(req.body?.description || '').trim(),
+    priceMode,
+    percent,
+    fixedAmount: priceMode === 'fixed' ? fixedAmount : 0,
+    durationValue,
+    durationUnit,
+    isDefault: !!req.body?.isDefault,
+    status: req.body?.status !== false,
+    createdAt: new Date().toISOString(),
+  };
+  store.websiteSubscriptionPlans.unshift(plan);
+  res.status(201).json(plan);
+});
+
+router.put('/website-subscription-plans/:id', auth, (req, res) => {
+  if (req.user.role !== 'main_admin') return res.status(403).json({ message: 'Main admin access required' });
+  const plans = store.websiteSubscriptionPlans || [];
+  const index = plans.findIndex(plan => String(plan._id) === String(req.params.id));
+  if (index === -1) return res.status(404).json({ message: 'Subscription plan not found' });
+  const current = plans[index];
+  const priceMode = req.body?.priceMode === undefined ? (current.priceMode || 'percent') : String(req.body.priceMode);
+  const percent = req.body?.percent === undefined ? Number(current.percent || 0) : Number(req.body.percent);
+  const fixedAmount = req.body?.fixedAmount === undefined ? Number(current.fixedAmount || 0) : Number(req.body.fixedAmount);
+  const durationValue = req.body?.durationValue === undefined ? Number(current.durationValue || 30) : Number(req.body.durationValue);
+  const durationUnit = req.body?.durationUnit === undefined ? (current.durationUnit || 'day') : String(req.body.durationUnit);
+  if (!['percent', 'fixed'].includes(priceMode)) return res.status(400).json({ message: 'Choose percentage or fixed amount pricing.' });
+  if (priceMode === 'percent' && (!Number.isFinite(percent) || percent <= 0 || percent > 100)) return res.status(400).json({ message: 'Subscription percentage must be between 1 and 100' });
+  if (priceMode === 'fixed' && (!Number.isFinite(fixedAmount) || fixedAmount <= 0)) return res.status(400).json({ message: 'Fixed subscription amount must be greater than zero.' });
+  if (!Number.isInteger(durationValue) || durationValue < 1 || durationValue > 3650) return res.status(400).json({ message: 'Subscription duration must be between 1 and 3650.' });
+  if (!['day', 'month', 'year'].includes(durationUnit)) return res.status(400).json({ message: 'Duration unit must be day, month or year.' });
+  if (req.body?.isDefault === true) plans.forEach((plan, planIndex) => { if (planIndex !== index) plan.isDefault = false; });
+  plans[index] = {
+    ...current,
+    name: req.body?.name === undefined ? current.name : String(req.body.name || '').trim(),
+    description: req.body?.description === undefined ? current.description || '' : String(req.body.description || '').trim(),
+    priceMode,
+    percent,
+    fixedAmount: priceMode === 'fixed' ? fixedAmount : 0,
+    durationValue,
+    durationUnit,
+    isDefault: req.body?.isDefault === undefined ? !!current.isDefault : !!req.body.isDefault,
+    status: req.body?.status === undefined ? current.status !== false : req.body.status !== false,
+  };
+  if (!plans[index].name) return res.status(400).json({ message: 'Plan name is required' });
+  res.json(plans[index]);
+});
+
+router.delete('/website-subscription-plans/:id', auth, (req, res) => {
+  if (req.user.role !== 'main_admin') return res.status(403).json({ message: 'Main admin access required' });
+  const plans = store.websiteSubscriptionPlans || [];
+  const exists = plans.some(plan => String(plan._id) === String(req.params.id));
+  if (!exists) return res.status(404).json({ message: 'Subscription plan not found' });
+  store.websiteSubscriptionPlans = plans.filter(plan => String(plan._id) !== String(req.params.id));
+  res.json({ message: 'Subscription plan deleted' });
+});
+
+router.get('/published-websites/:websiteId', auth, (req, res) => {
+  const website = findAccessibleWebsite(req, req.params.websiteId);
+  if (!website || website.status !== 'published') return res.status(404).json({ message: 'Published website not found' });
+  res.json(populateWebsite(website));
+});
+
+router.get('/websites/:websiteId/admin-access', auth, (req, res) => {
+  const website = (store.websites || []).find(item =>
+    String(item._id) === String(req.params.websiteId) && item.status === 'published'
+  );
+  if (!website || req.user?.role !== 'website_user' || String(website.userId) !== String(req.user._id)) {
+    return res.status(404).json({ message: 'Website not found' });
+  }
+  const module = (store.websiteModules || []).find(item =>
+    (website.websiteModuleId && String(item._id) === String(website.websiteModuleId))
+    || normalizeWebsiteModuleSlug(item.slug || item.type || '') === normalizeWebsiteModuleSlug(website.websiteModuleSlug || website.moduleType || '')
+  );
+  const access = module?.access || {};
+  const owner = (store.users || []).find(item => String(item._id) === String(req.user._id));
+  req.user.websiteId = website._id;
+  if (owner && owner.websiteId !== website._id) {
+    owner.websiteId = website._id;
+    schedulePersist();
+  }
+  res.json({
+    websiteId: website._id,
+    websiteModuleId: website.websiteModuleId || module?._id || '',
+    websiteModuleSlug: website.websiteModuleSlug || module?.slug || '',
+    moduleName: module?.name || req.user.selectedModuleName || '',
+    header: Array.isArray(access.header) ? access.header : [],
+    sidebar: Array.isArray(access.sidebar) ? access.sidebar : [],
+  });
+});
+
+router.get('/public/published-websites/:websiteId', (req, res) => {
+  const website = (store.websites || []).find(item =>
+    String(item._id) === String(req.params.websiteId) && item.status === 'published'
+  );
+  if (!website) return res.status(404).json({ message: 'Published website not found' });
+  const { userId, ...publicWebsite } = populateWebsite(website);
+  res.json(publicWebsite);
+});
+
+router.get('/websites', auth, requireWebsiteBuilderAccess, (req, res) => {
+  const moduleInfo = adminWebsiteModuleInfo(req);
+  const moduleSlug = normalizeWebsiteModuleSlug(moduleInfo.slug);
+  const moduleId = String(moduleInfo.module?._id || req.user?.selectedModuleId || req.user?.websiteModuleId || '');
+  const expectedKeysFor = userId => [
+    buildWebsiteIdentity(userId, moduleSlug),
+    ...(moduleId ? [buildWebsiteIdentity(userId, moduleId)] : []),
+  ];
+  const belongsToModule = website => website.websiteModuleId && moduleId
+    ? String(website.websiteModuleId) === moduleId
+    : normalizeWebsiteModuleSlug(website.websiteModuleSlug || website.moduleType || '') === moduleSlug;
+  const list = req.user.role === 'main_admin'
+    ? store.websites.filter(belongsToModule)
+    : store.websites.filter(website => {
+        const sameUser = String(website.userId) === String(req.user._id);
+        const sameModule = belongsToModule(website);
+        const sameIdentity = !website.websiteKey || expectedKeysFor(req.user._id).includes(website.websiteKey);
+        return sameUser && sameModule && sameIdentity;
+      });
+  let migratedIdentity = false;
+  list.forEach(website => {
+      if (!website.websiteModuleId && moduleId) {
+        website.websiteModuleId = moduleId;
+        website.websiteModuleSlug = moduleSlug;
+        website.websiteKey = buildWebsiteIdentity(website.userId, moduleId);
+        migratedIdentity = true;
+      }
+      if (req.user.role === 'website_user' && req.user.websiteId !== website._id) {
+        req.user.websiteId = website._id;
+        const owner = (store.users || []).find(user => String(user._id) === String(req.user._id));
+        if (owner && owner.websiteId !== website._id) owner.websiteId = website._id;
+        migratedIdentity = true;
+      }
+  });
+  if (migratedIdentity) schedulePersist();
   res.json(list.map(populateWebsite));
 });
 
-router.post('/websites', auth, (req, res) => {
-  const w = { _id: uuidv4(), name: req.body.name || 'Untitled', moduleType: req.body.moduleType || 'general', userId: req.user._id, components: [], totalAmount: 0, domain: null, status: 'draft' };
+router.post('/websites', auth, requireWebsiteBuilderAccess, (req, res) => {
+  const moduleType = req.user.role === 'website_user' ? (req.user.selectedModuleType || 'general') : (req.body.moduleType || 'general');
+  const moduleInfo = adminWebsiteModuleInfo(req);
+  const moduleSlug = normalizeWebsiteModuleSlug(moduleInfo.slug);
+  const moduleId = String(moduleInfo.module?._id || req.user?.selectedModuleId || req.user?.websiteModuleId || '');
+  const websiteKey = buildWebsiteIdentity(req.user._id, moduleId || moduleSlug);
+  const existing = (store.websites || []).find(item =>
+    String(item.userId) === String(req.user._id)
+    && (item.websiteModuleId && moduleId
+      ? String(item.websiteModuleId) === moduleId
+      : !item.websiteModuleId && normalizeWebsiteModuleSlug(item.websiteModuleSlug || item.moduleType || '') === moduleSlug)
+  );
+  if (existing) {
+    existing.websiteModuleId = moduleId || existing.websiteModuleId || '';
+    existing.websiteModuleSlug = moduleSlug;
+    existing.websiteKey = websiteKey;
+    req.user.websiteId = existing._id;
+    return res.status(200).json(existing);
+  }
+
+  const w = {
+    _id: uuidv4(),
+    websiteKey,
+    websiteModuleId: moduleId,
+    name: req.body.name || 'Untitled',
+    moduleType,
+    websiteModuleSlug: moduleSlug,
+    userId: req.user._id,
+    components: [],
+    totalAmount: 0,
+    domain: null,
+    status: 'draft'
+  };
   store.websites.push(w);
+  req.user.websiteId = w._id;
   res.status(201).json(w);
 });
 
-router.post('/websites/:id/components', auth, (req, res) => {
-  const w = store.websites.find(x => x._id === req.params.id);
-  if (!w) return res.status(404).json({ message: 'Not found' });
-  const comp = store.components.find(c => c._id === req.body.componentId);
+router.post('/websites/:id/components', auth, requireWebsiteBuilderAccess, (req, res) => {
+  const w = findAccessibleWebsite(req, req.params.id);
+  if (!w) return res.status(404).json({ message: 'Website not found' });
+  const comp = store.components.find(c => c._id === req.body.componentId && isInAdminWebsiteModule(req, c, { includeShared: true }));
   if (!comp) return res.status(404).json({ message: 'Component not found' });
   w.components.push({ componentId: comp._id, config: {}, order: w.components.length, price: comp.price });
   w.totalAmount = w.components.reduce((s, c) => s + c.price, 0) + (w.domain?.price || 0);
   res.json(populateWebsite(w));
 });
 
-router.delete('/websites/:id/components/:idx', auth, (req, res) => {
-  const w = store.websites.find(x => x._id === req.params.id);
-  if (!w) return res.status(404).json({ message: 'Not found' });
+router.delete('/websites/:id/components/:idx', auth, requireWebsiteBuilderAccess, (req, res) => {
+  const w = findAccessibleWebsite(req, req.params.id);
+  if (!w) return res.status(404).json({ message: 'Website not found' });
   w.components.splice(parseInt(req.params.idx), 1);
   w.totalAmount = w.components.reduce((s, c) => s + c.price, 0) + (w.domain?.price || 0);
   res.json(populateWebsite(w));
 });
 
-router.post('/websites/:id/domain', auth, (req, res) => {
-  const w = store.websites.find(x => x._id === req.params.id);
-  if (!w) return res.status(404).json({ message: 'Not found' });
+function normalizeWebsiteDomain(value) {
+  return String(value || '').trim().toLowerCase()
+    .replace(/^https?:\/\//, '').split(/[/?#]/)[0].replace(/\.$/, '');
+}
+
+function websiteDomainAvailability(domainName, type, websiteId = '') {
+  const baseDomain = normalizeWebsiteDomain(process.env.BASE_DOMAIN || 'wepzo.com');
+  const cleanName = String(domainName || '').trim();
+  if (type === 'none') return { available: true, fullDomain: '', baseDomain, message: '' };
+  if (!cleanName) return { available: false, fullDomain: '', baseDomain, message: 'Enter a domain name.' };
+  if (!['subdomain', 'custom'].includes(type)) return { available: false, fullDomain: '', baseDomain, message: 'Choose a valid domain type.' };
+  const normalizedName = normalizeWebsiteDomain(cleanName);
+  const valid = type === 'subdomain'
+    ? /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(normalizedName)
+    : /^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/.test(normalizedName) && normalizedName.includes('.');
+  if (!valid) return { available: false, fullDomain: '', baseDomain, message: 'Enter a valid domain name.' };
+  const fullDomain = type === 'subdomain' ? `${normalizedName}.${baseDomain}` : normalizedName;
+  const inUse = (store.websites || []).some(website => String(website._id) !== String(websiteId || '')
+    && normalizeWebsiteDomain(website.domain?.fullDomain || website.domain?.name) === fullDomain);
+  return {
+    available: !inUse,
+    fullDomain,
+    baseDomain,
+    message: inUse ? 'Domain not available. Choose another name.' : '',
+  };
+}
+
+router.get('/domains/availability', auth, requireWebsiteBuilderAccess, (req, res) => {
+  const websiteId = String(req.query.websiteId || req.user.websiteId || '').trim();
+  if (websiteId && !findAccessibleWebsite(req, websiteId)) return res.status(404).json({ message: 'Website not found' });
+  const result = websiteDomainAvailability(req.query.name, String(req.query.type || 'subdomain'), websiteId);
+  res.json(result);
+});
+
+router.post('/websites/:id/domain', auth, requireWebsiteBuilderAccess, (req, res) => {
+  const w = findAccessibleWebsite(req, req.params.id);
+  if (!w) return res.status(404).json({ message: 'Website not found' });
   const { domainName, type } = req.body;
-  const price = type === 'subdomain' ? 500 : type === 'custom' ? 2000 : 0;
-  w.domain = { type, name: domainName, fullDomain: type === 'subdomain' ? `${domainName}.wepzo.com` : domainName, price, status: 'pending' };
-  w.totalAmount = w.components.reduce((s, c) => s + c.price, 0) + price;
-  res.json(w);
+  const domainType = type || 'subdomain';
+  const availability = websiteDomainAvailability(domainName, domainType, w._id);
+  if (!availability.available) return res.status(domainName ? 409 : 400).json({ message: availability.message });
+  const cleanName = domainType === 'none' ? '' : normalizeWebsiteDomain(domainName);
+  const fullDomain = availability.fullDomain;
+  const price = domainType === 'subdomain' ? 500 : domainType === 'custom' ? 2000 : 0;
+  w.domain = { websiteId: w._id, type: domainType, name: cleanName, fullDomain, price, status: domainType === 'none' ? 'active' : 'pending' };
+  w.totalAmount = w.components.reduce((sum, component) => sum + component.price, 0) + price;
+  res.json(populateWebsite(w));
 });
 
-router.post('/websites/:id/publish', auth, (req, res) => {
-  const w = store.websites.find(x => x._id === req.params.id);
-  if (!w) return res.status(404).json({ message: 'Not found' });
+router.post('/websites/:id/checkout', auth, requireWebsiteBuilderAccess, async (req, res) => {
+  const website = findAccessibleWebsite(req, req.params.id);
+  if (!website) return res.status(404).json({ message: 'Website not found' });
+  if (website.purchase?.status === 'paid') return res.status(409).json({ message: 'This website has already been paid for.' });
+  if (!website.domain) return res.status(400).json({ message: 'Choose and save a domain before checkout.' });
+  const purchaseType = String(req.body?.purchaseType || '');
+  if (!['full', 'subscription'].includes(purchaseType)) return res.status(400).json({ message: 'Choose full purchase or subscription.' });
+
+  const totalAmount = Math.max(0, Number(website.totalAmount) || 0);
+  let plan = null;
+  let percent = 100;
+  if (purchaseType === 'subscription') {
+    plan = (store.websiteSubscriptionPlans || []).find(item => String(item._id) === String(req.body?.planId) && item.status !== false);
+    if (!plan) return res.status(400).json({ message: 'Choose an active subscription plan.' });
+    percent = plan.priceMode === 'fixed' ? 0 : Number(plan.percent);
+  }
+  const amount = purchaseType === 'full'
+    ? totalAmount
+    : plan.priceMode === 'fixed'
+      ? Math.min(totalAmount, Number(plan.fixedAmount) || 0)
+      : Math.round(totalAmount * percent) / 100;
+  const amountPaise = Math.round(amount * 100);
+  if (amountPaise <= 0) return res.status(400).json({ message: 'Website total must be greater than zero.' });
+
+  try {
+    const order = await razorpayRequest('/v1/orders', {
+      amount: amountPaise,
+      currency: 'INR',
+      receipt: `wz-${String(website._id).replace(/-/g, '').slice(0, 28)}`,
+      notes: { websiteId: String(website._id), purchaseType, planId: String(plan?._id || '') },
+    });
+    website.purchase = {
+      type: purchaseType,
+      status: 'pending',
+      amount,
+      totalAmount,
+      balanceDue: Math.max(0, Math.round((totalAmount - amount) * 100) / 100),
+      percent,
+      priceMode: purchaseType === 'full' ? 'full' : (plan.priceMode || 'percent'),
+      subscriptionDurationValue: purchaseType === 'subscription' ? Number(plan.durationValue) || 30 : 0,
+      subscriptionDurationUnit: purchaseType === 'subscription' ? (plan.durationUnit || 'day') : '',
+      planId: plan?._id || '',
+      planName: plan?.name || 'Full purchase',
+      orderId: order.id,
+      createdAt: new Date().toISOString(),
+    };
+    res.json({
+      keyId: process.env.RAZORPAY_KEY_ID,
+      orderId: order.id,
+      amount: amountPaise,
+      currency: 'INR',
+      name: website.name,
+      description: purchaseType === 'full' ? 'Full website purchase' : `${plan.name} subscription`,
+      totalAmount,
+      payableAmount: amount,
+      balanceDue: website.purchase.balanceDue,
+      purchaseType,
+      planName: website.purchase.planName,
+    });
+  } catch (error) {
+    res.status(error.status || 502).json({ message: error.message || 'Payment order could not be created.' });
+  }
+});
+
+router.post('/websites/:id/checkout/verify', auth, requireWebsiteBuilderAccess, (req, res) => {
+  const website = findAccessibleWebsite(req, req.params.id);
+  if (!website) return res.status(404).json({ message: 'Website not found' });
+  const purchase = website.purchase;
+  const orderId = String(req.body?.razorpay_order_id || '');
+  const paymentId = String(req.body?.razorpay_payment_id || '');
+  const signature = String(req.body?.razorpay_signature || '');
+  if (!purchase || purchase.status !== 'pending' || purchase.orderId !== orderId) {
+    return res.status(409).json({ message: 'No matching pending payment was found.' });
+  }
+  if (!verifyRazorpaySignature(orderId, paymentId, signature)) {
+    return res.status(400).json({ message: 'Payment verification failed.' });
+  }
+  purchase.status = 'paid';
+  purchase.paymentId = paymentId;
+  purchase.paidAt = new Date().toISOString();
+  if (purchase.type === 'subscription') {
+    const expiresAt = new Date(purchase.paidAt);
+    const duration = Number(purchase.subscriptionDurationValue) || 30;
+    if (purchase.subscriptionDurationUnit === 'year') expiresAt.setFullYear(expiresAt.getFullYear() + duration);
+    else if (purchase.subscriptionDurationUnit === 'month') expiresAt.setMonth(expiresAt.getMonth() + duration);
+    else expiresAt.setDate(expiresAt.getDate() + duration);
+    purchase.expiresAt = expiresAt.toISOString();
+  }
+  res.json(populateWebsite(website));
+});
+
+router.post('/websites/:id/publish', auth, requireWebsiteBuilderAccess, (req, res) => {
+  const w = findAccessibleWebsite(req, req.params.id);
+  if (!w) return res.status(404).json({ message: 'Website not found' });
+  if (req.user.role === 'website_user' && w.status !== 'published' && w.purchase?.status !== 'paid') {
+    return res.status(402).json({ message: 'Complete and verify payment before publishing this website.' });
+  }
   w.status = 'published';
+  w.publishedAt = new Date().toISOString();
   if (w.domain) w.domain.status = 'active';
-  res.json(w);
+  res.json(populateWebsite(w));
 });
 
-router.get('/export/:id/zip', auth, (req, res) => {
-  const w = store.websites.find(x => x._id === req.params.id);
-  if (!w) return res.status(404).json({ message: 'Not found' });
+router.post('/websites/:id/stop-service', auth, requireWebsiteBuilderAccess, (req, res) => {
+  if (req.user.role !== 'website_user') return res.status(403).json({ message: 'Website account required' });
+  const website = findAccessibleWebsite(req, req.params.id);
+  if (!website) return res.status(404).json({ message: 'Website not found' });
+  website.status = 'draft';
+  website.serviceStoppedAt = new Date().toISOString();
+  res.json(populateWebsite(website));
+});
+
+router.delete('/account/me', auth, (req, res) => {
+  if (req.user.role !== 'website_user') return res.status(403).json({ message: 'Website account required' });
+  const userId = String(req.user._id);
+  const websiteIds = new Set((store.websites || [])
+    .filter(website => String(website.userId) === userId)
+    .map(website => String(website._id)));
+  if (req.user.websiteId) websiteIds.add(String(req.user.websiteId));
+  const employeeIds = new Set((store.employees || [])
+    .filter(employee => String(employee.createdBy || '') === userId
+      || websiteIds.has(String(employee.websiteId || '')))
+    .map(employee => String(employee._id)));
+
+  Object.keys(store).forEach(key => {
+    if (!Array.isArray(store[key]) || ['users', 'websites', 'websiteModules', 'plans', 'websiteSubscriptionPlans'].includes(key)) return;
+    store[key] = store[key].filter(item => !websiteIds.has(String(item.websiteId || ''))
+      && !(key === 'employees' && String(item.createdBy || '') === userId)
+      && !(key === 'roles' && String(item.createdBy || '') === userId)
+      && !(key === 'employeeLoginHistory' && employeeIds.has(String(item.employeeId || ''))));
+  });
+  store.websites = (store.websites || []).filter(website => String(website.userId) !== userId);
+  store.users = (store.users || []).filter(user => String(user._id) !== userId);
+  Object.keys(store.businessSettingsByModule || {}).forEach(key => {
+    if ([...websiteIds].some(websiteId => key.startsWith(`website-user:${websiteId}:`))) delete store.businessSettingsByModule[key];
+  });
+  schedulePersist();
+  res.json({ message: 'Account and tenant website data permanently deleted' });
+});
+
+router.get('/export/:id/zip', auth, requireWebsiteBuilderAccess, (req, res) => {
+  const w = findAccessibleWebsite(req, req.params.id);
+  if (!w) return res.status(404).json({ message: 'Website not found' });
   const html = w.components.sort((a,b) => a.order - b.order).map(c => {
-    const comp = store.components.find(x => x._id === c.componentId);
+    const comp = store.components.find(x => x._id === c.componentId && isInAdminWebsiteModule(req, x));
     return comp?.htmlTemplate || '';
   }).join('\n');
   const fullHtml = `<!DOCTYPE html><html><head><title>${w.name}</title></head><body>${html}</body></html>`;
@@ -1984,16 +3422,16 @@ router.get('/export/:id/zip', auth, (req, res) => {
 });
 
 const bulkTypes = {
-  categories: { list: () => store.categories, rows: categoriesToRows, import: importCategories, label: 'Category' },
-  'sub-categories': { list: () => store.subCategories, rows: subToRows, import: importSubCategories, label: 'Sub Category' },
-  'child-categories': { list: () => store.childCategories, rows: childToRows, import: importChildCategories, label: 'Child Category' },
+  categories: { list: req => store.categories.filter(item => isInAdminWebsiteModule(req, item)), rows: categoriesToRows, import: importCategories, label: 'Category' },
+  'sub-categories': { list: req => store.subCategories.filter(item => isInAdminWebsiteModule(req, item)), rows: subToRows, import: importSubCategories, label: 'Sub Category' },
+  'child-categories': { list: req => store.childCategories.filter(item => isInAdminWebsiteModule(req, item)), rows: childToRows, import: importChildCategories, label: 'Child Category' },
 };
 
 router.get('/bulk/:type/template', auth, (req, res) => {
   const cfg = bulkTypes[req.params.type];
   if (!cfg) return res.status(400).json({ message: 'Invalid type' });
   const withData = req.query.withData === 'true';
-  const rows = withData ? cfg.rows(cfg.list()) : [templateRow(req.params.type)];
+  const rows = withData ? cfg.rows(cfg.list(req)) : [templateRow(req.params.type)];
   const csv = toCsv(rows);
   const name = `${req.params.type}_${withData ? 'with_data' : 'template'}.csv`;
   res.setHeader('Content-Type', 'text/csv');
@@ -2004,14 +3442,14 @@ router.get('/bulk/:type/template', auth, (req, res) => {
 router.get('/bulk/:type/export', auth, (req, res) => {
   const cfg = bulkTypes[req.params.type];
   if (!cfg) return res.status(400).json({ message: 'Invalid type' });
-  const rows = cfg.rows(cfg.list());
+  const rows = cfg.rows(cfg.list(req));
   const csv = toCsv(rows);
   const date = new Date().toISOString().slice(0, 10);
   const fileName = `${req.params.type}_${date}.csv`;
   store.exportHistory.unshift({
     _id: uuidv4(), fileName, exportType: req.query.exportType || 'All Data',
     totalRecords: rows.length, exportedBy: 'Admin', date: new Date().toLocaleString('en-IN'),
-    status: 'Completed', dataType: req.params.type
+    status: 'Completed', dataType: req.params.type, websiteModuleSlug: adminWebsiteModuleSlug(req)
   });
   res.setHeader('Content-Type', 'text/csv');
   res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
@@ -2024,13 +3462,18 @@ router.post('/bulk/:type/import', auth, upload.single('file'), (req, res) => {
   if (!req.file) return res.status(400).json({ message: 'No file uploaded' });
   const mode = req.body.mode === 'update' ? 'update' : 'new';
   const text = req.file.buffer.toString('utf-8');
-  const result = cfg.import(store, text, mode);
+  const collectionKey = { categories: 'categories', 'sub-categories': 'subCategories', 'child-categories': 'childCategories' }[req.params.type];
+  const beforeIds = new Set(store[collectionKey].map(item => item._id));
+  const result = cfg.import(store, text, mode, { moduleSlug: adminWebsiteModuleSlug(req), isInModule: item => isInAdminWebsiteModule(req, item) });
+  store[collectionKey].forEach(item => {
+    if (!beforeIds.has(item._id)) item.websiteModuleSlug = adminWebsiteModuleSlug(req);
+  });
   const record = {
     _id: uuidv4(), fileName: req.file.originalname, type: mode === 'update' ? 'Update' : 'New',
     totalRecords: result.total, success: result.success, failed: result.failed,
     uploadedBy: 'Admin', date: new Date().toLocaleString('en-IN'),
     status: result.failed === 0 ? 'Completed' : (result.success > 0 ? 'Completed' : 'Failed'),
-    dataType: req.params.type
+    dataType: req.params.type, websiteModuleSlug: adminWebsiteModuleSlug(req)
   };
   store.importHistory.unshift(record);
   res.json({ message: 'Import completed', ...result, record });
@@ -2038,22 +3481,54 @@ router.post('/bulk/:type/import', auth, upload.single('file'), (req, res) => {
 
 router.get('/bulk/history/import', auth, (req, res) => {
   const type = req.query.type;
-  const list = type ? store.importHistory.filter(h => h.dataType === type) : store.importHistory;
+  const scoped = store.importHistory.filter(history => isInAdminWebsiteModule(req, history));
+  const list = type ? scoped.filter(history => history.dataType === type) : scoped;
   res.json(list);
 });
 
 router.get('/bulk/history/export', auth, (req, res) => {
   const type = req.query.type;
-  const list = type ? store.exportHistory.filter(h => h.dataType === type) : store.exportHistory;
+  const scoped = store.exportHistory.filter(history => isInAdminWebsiteModule(req, history));
+  const list = type ? scoped.filter(history => history.dataType === type) : scoped;
   res.json(list);
 });
 
 function populateWebsite(w) {
+  const websiteModuleSlug = normalizeWebsiteModuleSlug(w.websiteModuleSlug || w.moduleType || '');
+  const websiteModule = (store.websiteModules || []).find(module =>
+    (w.websiteModuleId && String(module._id) === String(w.websiteModuleId))
+    || normalizeWebsiteModuleSlug(module.slug || module.type || '') === websiteModuleSlug
+  );
+  const moduleName = String(websiteModule?.name || '').toLowerCase();
+  const quickCommerce = ['quick-commerce', 'quick_commerce', 'qcommerce'].includes(websiteModuleSlug)
+    || moduleName.includes('quick commerce')
+    || (!websiteModule && websiteModuleSlug === 'ecommerce');
+  const ecommerce = !quickCommerce
+    && ['e-commerce', 'e_commerce', 'ecommerce'].includes(websiteModuleSlug);
+  const websiteType = websiteBuilderType(websiteModule || { slug: websiteModuleSlug, type: w.moduleType });
+  const componentBelongsToWebsite = component => {
+    const componentModuleSlug = normalizeWebsiteModuleSlug(component.websiteModuleSlug || '');
+    if (componentModuleSlug) return componentModuleSlug === websiteModuleSlug;
+    if (component.commerceType === 'quick_commerce') return quickCommerce;
+    if (component.commerceType === 'ecommerce') return ecommerce;
+
+    const componentSlug = String(component.slug || '').toLowerCase();
+    const componentType = normalizeWebsiteModuleSlug(component.moduleType || '');
+    if (componentType === 'ecommerce') {
+      if (quickCommerce) return componentSlug.startsWith('quick-commerce-');
+      if (ecommerce) return componentSlug.startsWith('e-commerce-') || componentSlug.startsWith('ecommerce-');
+      return false;
+    }
+    if (componentType) return componentType === websiteType;
+    if (componentSlug.startsWith('quick-commerce-')) return quickCommerce;
+    return quickCommerce;
+  };
   return {
     ...w,
     components: w.components.map(c => ({
       ...c,
-      componentId: store.components.find(x => x._id === c.componentId) || c.componentId
+      componentId: store.components.find(x => x._id === c.componentId
+        && componentBelongsToWebsite(x)) || c.componentId
     }))
   };
 }
@@ -2131,6 +3606,33 @@ function shopVariants(p) {
   });
 }
 
+function shopModuleSlug(product) {
+  const category = String(product?.mainCategory || '').trim().toLowerCase();
+  const legacyCategoryModules = {
+    groceries: 'grocery', 'grocery & staples': 'grocery', 'fruits & vegetables': 'grocery',
+    'dairy & bakery': 'grocery', 'snacks & beverages': 'grocery', 'home care': 'grocery',
+    'baby care': 'grocery', 'personal care': 'grocery', 'beauty & health': 'grocery',
+    'beauty & wellness': 'grocery', electronics: 'electronics', 'mobiles & tablets': 'electronics',
+    'computers & laptops': 'electronics', accessories: 'fashion', "kids' fashion": 'fashion',
+    'kids wear': 'fashion', "men's fashion": 'fashion', "men's wear": 'fashion', 'mens wear': 'fashion',
+    "women's fashion": 'fashion', "women's wear": 'fashion', 'womens wear': 'fashion',
+    footwear: 'fashion', 'ethnic wear': 'ethnic-wear',
+  };
+  const matchedStore = (store.stores || []).find(item =>
+    (product?.storeId && String(item.storeId) === String(product.storeId)) || item.name === product?.store
+  );
+  const linkedCategory = (store.categories || []).find(item => String(item.name || '').trim().toLowerCase() === category);
+  const linkedModule = linkedCategory?.moduleId
+    ? (store.systemModules || []).find(item => String(item._id) === String(linkedCategory.moduleId))
+    : null;
+  const value = product?.moduleSlug || product?.module || linkedModule?.slug || legacyCategoryModules[category] || matchedStore?.module || 'grocery';
+  const normalized = String(value).trim().toLowerCase().replace(/\s+/g, '-');
+  const matchedModule = (store.systemModules || []).find(item =>
+    item.slug === normalized || String(item.name || '').trim().toLowerCase() === String(value).trim().toLowerCase()
+  );
+  return matchedModule?.slug || normalized;
+}
+
 function toShopProduct(p) {
   const mrp = Number(p.price) || 0;
   const price = shopPrice(p);
@@ -2153,6 +3655,7 @@ function toShopProduct(p) {
     stock: p.stock,
     store: p.store,
     storeId: p.storeId,
+    moduleSlug: shopModuleSlug(p),
     rating: p.rating || Number((4.1 + ((p.productId || 1) % 8) * 0.1).toFixed(1)),
     reviews: 80 + ((p.productId || 1) * 7) % 400,
     description: p.description || p.shortDesc || `${p.name} — delivered fast from ${p.store || 'nearby store'}.`,
@@ -2169,10 +3672,11 @@ function toShopProduct(p) {
   };
 }
 
-function qcCatalog() {
+function qcCatalog(websiteId = '') {
   const seen = new Set();
   const out = [];
   const push = (p) => {
+    if (!belongsToWebsite(p, websiteId) || !isQuickCommerceWebsiteRecord(p)) return;
     if (!shouldListOnQuickCommerce(p)) return;
     const key = p._id || `pid-${p.productId}-${p.name}`;
     if (seen.has(key)) return;
@@ -2180,12 +3684,11 @@ function qcCatalog() {
     out.push(p);
   };
   (store.productItems || []).forEach(push);
-  (store.products || []).forEach(push);
   return sortNewestFirst(out);
 }
 
-function buildShopLines(rawItems) {
-  const catalog = qcCatalog();
+function buildShopLines(rawItems, websiteId = '') {
+  const catalog = qcCatalog(websiteId);
   const details = [];
   let itemsTotal = 0;
   (Array.isArray(rawItems) ? rawItems : []).forEach(line => {
@@ -2201,7 +3704,7 @@ function buildShopLines(rawItems) {
     } : p;
     const unit = shopPrice(pricedProduct);
     const variantLabel = variant
-      ? Object.entries(variant.attributes || {}).map(([key, value]) => `${key}: ${value}`).join(' � ') || variant.sku || ''
+      ? Object.entries(variant.attributes || {}).map(([key, value]) => `${key}: ${value}`).join(' � ') || variant.sku || ''
       : '';
     itemsTotal += unit * qty;
     details.push({
@@ -2214,6 +3717,7 @@ function buildShopLines(rawItems) {
       image: variant?.image || p.image,
       store: p.store,
       storeId: p.storeId,
+      moduleSlug: shopModuleSlug(p),
       productId: p.productId,
       category: p.mainCategory,
     });
@@ -2248,19 +3752,30 @@ function calculateShopCoupon(coupon, itemsTotal, storeName) {
   return { discount: Math.min(itemsTotal, Math.round(isPercent ? itemsTotal * amount / 100 : amount)) };
 }
 
-function shopQuoteFor(body) {
+function shopQuoteFor(body, websiteId = '') {
   const { quoteDelivery } = require('../lib/shopQuote');
-  const { details, itemsTotal } = buildShopLines(body.items);
+  const websiteStore = websiteId ? {
+    ...store,
+    stores: (store.stores || []).filter(item => belongsToWebsite(item, websiteId)),
+    deliveryZones: (store.deliveryZones || []).filter(item => belongsToWebsite(item, websiteId)),
+  } : store;
+  const { details, itemsTotal } = buildShopLines(body.items, websiteId);
   const firstStore = details[0]?.store;
-  const st = (store.stores || []).find(s => s.name === firstStore);
+  const firstStoreId = details[0]?.storeId;
+  const st = websiteStore.stores.find(s => isQuickCommerceWebsiteRecord(s) && ((firstStoreId && (String(s._id) === String(firstStoreId) || String(s.storeId) === String(firstStoreId))) || s.name === firstStore));
+  const moduleSlug = String(body.moduleSlug || details[0]?.moduleSlug || 'grocery');
   const result = {
     details,
-    quote: quoteDelivery({ store, lat: body.lat, lng: body.lng, itemsTotal, storeLat: st?.lat, storeLng: st?.lng }),
+    quote: {
+      ...quoteDelivery({ store: websiteStore, lat: body.lat, lng: body.lng, itemsTotal, storeId: firstStoreId || st?.storeId || st?._id, storeLat: st?.lat, storeLng: st?.lng, moduleSlug }),
+      moduleSlug,
+    },
     storeRef: st,
+    moduleSlug,
   };
   const couponCode = String(body.couponCode || '').trim().toUpperCase();
   if (!couponCode) return result;
-  const coupon = (store.coupons || []).find(item => String(item.code || '').trim().toUpperCase() === couponCode);
+  const coupon = (store.coupons || []).find(item => belongsToWebsite(item, websiteId) && isQuickCommerceWebsiteRecord(item) && String(item.code || '').trim().toUpperCase() === couponCode);
   if (!coupon) {
     result.quote = { ...result.quote, couponError: 'Coupon code not found' };
     return result;
@@ -2284,13 +3799,25 @@ router.post('/shop/auth/register', async (req, res) => {
   if (!name || !password || (!email && !phone)) {
     return res.status(400).json({ message: 'Name, password aur email/phone zaroori hai' });
   }
+  const websiteContext = websiteContextForRequest(req, { requirePublished: true });
+  if (websiteContext.error) return res.status(websiteContext.error.status).json({ message: websiteContext.error.message });
+  const websiteId = websiteContext.websiteId;
   const em = String(email || '').toLowerCase().trim();
-  const ph = String(phone || '').trim();
-  if (em && store.customers.some(c => (c.email || '').toLowerCase() === em)) {
+  const ph = String(phone || '').replace(/\D/g, '');
+  if (em && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(em)) return res.status(400).json({ message: 'Valid email address bharo' });
+  if (ph && !/^[6-9]\d{9}$/.test(ph)) return res.status(400).json({ message: 'Valid 10 digit mobile number bharo' });
+  const sameWebsite = customer => websiteId
+    ? String(customer.websiteId || '') === websiteId
+    : !customer.websiteId;
+  if ((em && store.customers.some(c => sameWebsite(c) && (c.email || '').toLowerCase() === em))
+    || (ph && store.customers.some(c => sameWebsite(c) && String(c.phone || '') === ph))) {
     return res.status(400).json({ message: 'Email already registered' });
   }
   const customer = {
     _id: uuidv4(),
+    websiteId,
+    websiteModuleId: websiteContext.moduleId,
+    websiteModuleSlug: websiteContext.website?.websiteModuleSlug || quickCommerceWebsiteModuleSlug(),
     name: String(name).trim(),
     email: em,
     phone: ph,
@@ -2300,30 +3827,39 @@ router.post('/shop/auth/register', async (req, res) => {
   };
   store.customers.unshift(customer);
   res.status(201).json({
-    token: token(customer._id, { kind: 'shop', email: customer.email }),
+    token: token(customer._id, { kind: 'shop', email: customer.email, websiteId, websiteModuleId: websiteContext.moduleId }),
     user: publicCustomer(customer),
   });
 });
 
 router.post('/shop/auth/login', async (req, res) => {
   const { email, phone, password } = req.body || {};
+  const websiteContext = websiteContextForRequest(req, { requirePublished: true });
+  if (websiteContext.error) return res.status(websiteContext.error.status).json({ message: websiteContext.error.message });
+  const websiteId = websiteContext.websiteId;
   const em = String(email || '').toLowerCase().trim();
-  const ph = String(phone || '').trim();
+  const ph = String(phone || '').replace(/\D/g, '');
   const user = (store.customers || []).find(c =>
-    (em && (c.email || '').toLowerCase() === em) || (ph && String(c.phone || '') === ph)
+    (websiteId ? String(c.websiteId || '') === websiteId : !c.websiteId)
+    && ((em && (c.email || '').toLowerCase() === em) || (ph && String(c.phone || '') === ph))
   );
+  if (user?.isBlocked) return res.status(403).json({ message: 'Customer account blocked hai' });
   if (!user || !user.password) return res.status(401).json({ message: 'Invalid login' });
   if (!(await bcrypt.compare(String(password || ''), user.password))) {
     return res.status(401).json({ message: 'Invalid login' });
   }
-  res.json({ token: token(user._id, { kind: 'shop', email: user.email }), user: publicCustomer(user) });
+  user.lastLoginAt = new Date().toISOString();
+  user.loginCount = (Number(user.loginCount) || 0) + 1;
+  res.json({ token: token(user._id, { kind: 'shop', email: user.email, websiteId, websiteModuleId: websiteContext.moduleId }), user: publicCustomer(user) });
 });
 
 router.get('/shop/auth/me', shopAuth, (req, res) => res.json({ user: publicCustomer(req.customer) }));
 
 router.post('/shop/quote', (req, res) => {
   const body = req.body || {};
-  const { details, quote } = shopQuoteFor(body);
+  const websiteContext = websiteContextForRequest(req);
+  if (websiteContext.error) return res.status(websiteContext.error.status).json({ message: websiteContext.error.message });
+  const { details, quote } = shopQuoteFor(body, websiteContext.websiteId);
   if (!details.length && (body.items || []).length) {
     return res.status(400).json({ message: 'Valid items nahi mile' });
   }
@@ -2331,20 +3867,27 @@ router.post('/shop/quote', (req, res) => {
 });
 
 router.get('/shop/coupons', (req, res) => {
-  const coupons = (store.coupons || []).filter(coupon => !couponAvailability(coupon));
+  const websiteContext = websiteContextForRequest(req);
+  if (websiteContext.error) return res.status(websiteContext.error.status).json({ message: websiteContext.error.message });
+  const coupons = (store.coupons || []).filter(coupon => belongsToWebsite(coupon, websiteContext.websiteId) && isQuickCommerceWebsiteRecord(coupon) && !couponAvailability(coupon));
   res.json(coupons.map(({ _id, code, title, discount, discountType, minOrder, store: storeName, expiry }) => ({
     _id, code, title, discount, discountType, minOrder: Number(minOrder) || 0, store: storeName, expiry,
   })));
 });
 router.get('/shop/home', (req, res) => {
+  const websiteContext = websiteContextForRequest(req);
+  if (websiteContext.error) return res.status(websiteContext.error.status).json({ message: websiteContext.error.message });
+  const websiteId = websiteContext.websiteId;
   const legacyModuleByCategory = {
     groceries: 'grocery', 'grocery & staples': 'grocery',
     'fruits & vegetables': 'grocery', 'dairy & bakery': 'grocery',
     'snacks & beverages': 'grocery', 'home care': 'grocery', 'baby care': 'grocery',
     'personal care': 'grocery', 'beauty & health': 'grocery', 'beauty & wellness': 'grocery',
     electronics: 'electronics', 'mobiles & tablets': 'electronics', 'computers & laptops': 'electronics',
-    accessories: 'fashion', "kids' fashion": 'fashion', "men's fashion": 'fashion',
-    "women's fashion": 'fashion', footwear: 'fashion', 'ethnic wear': 'ethnic-wear',
+    accessories: 'fashion', "kids' fashion": 'fashion', 'kids wear': 'fashion',
+    "men's fashion": 'fashion', "men's wear": 'fashion', 'mens wear': 'fashion',
+    "women's fashion": 'fashion', "women's wear": 'fashion', 'womens wear': 'fashion',
+    footwear: 'fashion', 'ethnic wear': 'ethnic-wear',
   };
   let linkedLegacyCategory = false;
   (store.categories || []).forEach(category => {
@@ -2355,35 +3898,87 @@ router.get('/shop/home', (req, res) => {
   });
   if (linkedLegacyCategory) schedulePersist();
 
-  const list = qcCatalog().map(toShopProduct);
+  const catalog = quickCommerceCatalogForLocation(req.query.lat, req.query.lng, websiteId);
+  const activeStores = catalog.stores;
+  const requestedModule = String(req.query.module || '').trim().toLowerCase();
+  const list = qcCatalog(websiteId)
+    .filter(product => !requestedModule || shopModuleSlug(product) === requestedModule)
+    .map(toShopProduct);
+  const activeBrands = (store.brands || []).filter(b => belongsToWebsite(b, websiteId) && isQuickCommerceWebsiteRecord(b) && b.status !== false);
+  const homeBanners = (store.banners || [])
+    .filter(banner => belongsToWebsite(banner, websiteId)
+      && isQuickCommerceWebsiteRecord(banner)
+      && String(banner.status || '').toLowerCase() === 'active'
+      && ['home top', 'home hero', 'home'].includes(String(banner.placement || '').trim().toLowerCase())
+      && banner.image)
+    .sort((a, b) => (Number(a.priority) || 0) - (Number(b.priority) || 0))
+    .map(({ _id, title, subtitle, image, link, cta, buttonText }) => ({
+      id: _id,
+      title: title || '',
+      subtitle: subtitle || '',
+      image,
+      link: link || '',
+      cta: cta || buttonText || '',
+    }));
   const flash = [...list].sort((a, b) => b.discount - a.discount).slice(0, 6);
   const best = [...list].sort((a, b) => b.rating - a.rating).slice(0, 8);
   const newest = list.slice(0, 12);
+  const settingsScope = websiteContext.websiteId
+    ? `website-user:${websiteContext.websiteId}:${normalizeWebsiteModuleSlug(websiteContext.website?.websiteModuleSlug || '')}`
+    : '';
+  const settings = settingsScope
+    ? (store.businessSettingsByModule?.[settingsScope] || {})
+    : (store.businessSettings || {});
   res.json({
-    city: 'Nagpur',
-    pincode: '440001',
-    eta: '15-20 Minutes',
-    pickup: (() => {
-      const st = (store.stores || []).find(s => s.name === 'FreshMart Sitabuldi') || (store.stores || [])[0];
-      return st ? { name: st.name, lat: st.lat, lng: st.lng } : { name: 'WEPZO Store', lat: 21.1458, lng: 79.0882 };
-    })(),
-    flashEndsAt: Date.now() + 2 * 3600000 + 18 * 60000 + 30 * 1000,
-    categories: (store.categories || []).filter(category => category.status !== false),
-    subCategories: (store.subCategories || []).filter(category => category.status !== false),
-    childCategories: (store.childCategories || []).filter(category => category.status !== false),
-    modules: (store.systemModules || []).filter(module => module.status !== false)
+    business: {
+      businessName: settings.businessName || settings.platformName || settings.siteTitle || websiteContext.website?.name || 'WEPZO',
+      businessLogo: settings.businessLogo || settings.logo || settings.logoUrl || '',
+      favicon: settings.favicon || '',
+      businessEmail: settings.businessEmail || settings.supportEmail || '',
+      businessPhone: settings.businessPhone || settings.supportPhone || '',
+      businessAddress: settings.businessAddress || settings.address || '',
+      copyrightText: settings.copyrightText || '',
+      currency: settings.currency || settings.paymentCurrency || 'INR',
+      currencySymbol: settings.currencySymbol || '₹',
+      currencyPosition: settings.currencyPosition || 'left',
+      decimalDigits: Number(settings.decimalDigits) || 0,
+    },
+    city: settingsScope ? (settings.city || '') : (store.businessSettings?.city || ''),
+    pincode: settingsScope ? (settings.pincode || '') : (store.businessSettings?.pincode || ''),
+    eta: activeStores[0]?.deliveryMin && activeStores[0]?.deliveryMax
+      ? `${activeStores[0].deliveryMin}-${activeStores[0].deliveryMax} Minutes`
+      : '',
+    pickup: activeStores[0] ? {
+      name: activeStores[0].name,
+      lat: activeStores[0].lat,
+      lng: activeStores[0].lng,
+    } : null,
+    stores: activeStores.map(s => ({
+      id: s._id,
+      name: s.name,
+      image: s.coverImage || s.logoImage || '',
+      area: s.area || (typeof s.location === 'string' ? s.location : '') || s.address || '',
+      deliveryMin: Number(s.deliveryMin) || null,
+      deliveryMax: Number(s.deliveryMax) || null,
+    })),
+    brands: activeBrands.map(b => ({ id: b._id, name: b.name, image: b.image || '' })),
+    banners: homeBanners,
+    categories: (store.categories || []).filter(category => belongsToWebsite(category, websiteId) && isQuickCommerceWebsiteRecord(category) && category.status !== false),
+    subCategories: (store.subCategories || []).filter(category => belongsToWebsite(category, websiteId) && isQuickCommerceWebsiteRecord(category) && category.status !== false),
+    childCategories: (store.childCategories || []).filter(category => belongsToWebsite(category, websiteId) && isQuickCommerceWebsiteRecord(category) && category.status !== false),
+    modules: (store.systemModules || []).filter(module => belongsToWebsite(module, websiteId) && module.status !== false && isQuickCommerceWebsiteRecord(module))
       .map(({ _id, name, slug, image }) => ({ _id, name, slug, image: image || '' })),
     flash,
     newest,
     bestsellers: best,
-    banners: [
-      { id: 1, title: 'Everything You Need Delivered Fast', subtitle: 'Fresh Produce · Daily Essentials · Personal Care', cta: 'Shop Now' },
-      { id: 2, title: 'Big Savings Everyday', subtitle: 'Up to 35% off on daily brands', cta: 'Shop Deals' },
-    ],
   });
 });
 router.get('/shop/products', (req, res) => {
-  let list = qcCatalog();
+  const websiteContext = websiteContextForRequest(req);
+  if (websiteContext.error) return res.status(websiteContext.error.status).json({ message: websiteContext.error.message });
+  let list = qcCatalog(websiteContext.websiteId);
+  const requestedModule = String(req.query.module || '').trim().toLowerCase();
+  if (requestedModule) list = list.filter(product => shopModuleSlug(product) === requestedModule);
   const cat = req.query.category;
   const q = (req.query.q || '').toLowerCase().trim();
   if (cat) list = list.filter(p => p.mainCategory === cat || (p.subCategory || '') === cat || (p.childCategory || '') === cat);
@@ -2402,21 +3997,24 @@ router.get('/shop/products', (req, res) => {
 });
 
 router.get('/shop/products/:id', (req, res) => {
+  const websiteContext = websiteContextForRequest(req);
+  if (websiteContext.error) return res.status(websiteContext.error.status).json({ message: websiteContext.error.message });
   const id = req.params.id;
-  const item = qcCatalog().find(product => product._id === id || String(product.productId) === id);
+  const products = qcCatalog(websiteContext.websiteId);
+  const item = products.find(product => product._id === id || String(product.productId) === id);
   if (!item) return res.status(404).json({ message: 'Product not found' });
-  const related = qcCatalog()
+  const related = products
     .filter(product => product._id !== item._id && product.mainCategory === item.mainCategory)
     .slice(0, 6)
     .map(toShopProduct);
-  const approvedRatings = (store.productReviews || []).filter(review => {
+  const approvedRatings = (store.productReviews || []).filter(review => belongsToWebsite(review, websiteContext.websiteId) && isQuickCommerceWebsiteRecord(review) && (() => {
     if (String(review.status || '').toLowerCase() !== 'approved') return false;
     const sameId = review.productId && String(review.productId) === String(item._id);
     const sameName = String(review.productName || '').trim().toLowerCase() === String(item.name || '').trim().toLowerCase();
     const reviewSku = String(review.productSku || review.sku || '').trim().toLowerCase();
     const itemSku = String(item.sku || item.productSku || '').trim().toLowerCase();
     return sameId || sameName || (itemSku && reviewSku === itemSku);
-  });
+  })());
   const rating = approvedRatings.length
     ? Number((approvedRatings.reduce((total, review) => total + (Number(review.rating) || 0), 0) / approvedRatings.length).toFixed(1))
     : Number(item.rating) || 0;
@@ -2426,7 +4024,7 @@ router.get('/shop/products/:id', (req, res) => {
 router.post('/shop/orders', shopAuth, (req, res) => {
   ensureOrders();
   const body = req.body || {};
-  const { details, quote, storeRef } = shopQuoteFor(body);
+  const { details, quote, storeRef } = shopQuoteFor(body, req.customer.websiteId || '');
   if (!details.length) return res.status(400).json({ message: 'Cart empty hai' });
   if (quote.couponError) return res.status(400).json({ message: quote.couponError });
   if (!quote.deliverable) return res.status(400).json({ message: quote.message || 'Is location par delivery nahi' });
@@ -2446,6 +4044,9 @@ router.post('/shop/orders', shopAuth, (req, res) => {
     lng: body.lng,
     store: firstStore,
     storeId: storeRef?.storeId,
+    moduleSlug: quote.moduleSlug || details[0]?.moduleSlug || 'grocery',
+    pickupRadiusKm: quote.pickupRadiusKm ?? null,
+    dropRadiusKm: quote.dropRadiusKm ?? null,
     storeLat: storeRef?.lat,
     storeLng: storeRef?.lng,
     status: 'Pending',
@@ -2470,6 +4071,9 @@ router.post('/shop/orders', shopAuth, (req, res) => {
     orderDate: formatNow(),
     date: formatNow(),
     source: 'quick_commerce',
+    websiteId: req.customer.websiteId || '',
+    websiteModuleId: req.customer.websiteModuleId || '',
+    websiteModuleSlug: req.customer.websiteModuleSlug || quickCommerceWebsiteModuleSlug(),
     rider: null,
     timeline: [
       { key: 'placed', label: 'Order Placed', at: formatNow(), done: true },
@@ -2482,7 +4086,7 @@ router.post('/shop/orders', shopAuth, (req, res) => {
   };
   store.orders.unshift(order);
   if (quote.couponCode) {
-    const coupon = store.coupons.find(item => String(item.code || '').trim().toUpperCase() === quote.couponCode);
+    const coupon = store.coupons.find(item => isQuickCommerceWebsiteRecord(item) && String(item.code || '').trim().toUpperCase() === quote.couponCode);
     if (coupon) coupon.usedCount = (Number(coupon.usedCount) || 0) + 1;
   }
   res.status(201).json(order);
@@ -2492,14 +4096,18 @@ router.get('/shop/orders/:id', (req, res) => {
   // Public track-by-id — do not use admin `auth` (shop JWT would look like Invalid token).
   ensureOrders();
   const { simulateRiderOnOrder, enrichOrderEta } = require('../lib/shopQuote');
+  const websiteContext = websiteContextForRequest(req, { requirePublished: !!(req.get('X-Website-Id') || req.query?.websiteId) });
+  if (websiteContext.error) return res.status(websiteContext.error.status).json({ message: websiteContext.error.message });
   const id = req.params.id;
   const idx = store.orders.findIndex(o =>
-    o._id === id || String(o.orderNo) === id || String(o.orderId) === id
+    isQuickCommerceWebsiteRecord(o)
+    && (websiteContext.websiteId ? String(o.websiteId || '') === websiteContext.websiteId : !o.websiteId)
+    && (o._id === id || String(o.orderNo) === id || String(o.orderId) === id)
   );
   if (idx === -1) return res.status(404).json({ message: 'Order not found' });
   let order = store.orders[idx];
   if ((order.storeLat == null || order.storeLng == null) && order.store) {
-    const st = (store.stores || []).find(s => s.name === order.store || String(s.storeId) === String(order.storeId));
+    const st = (store.stores || []).find(s => isQuickCommerceWebsiteRecord(s) && (s.name === order.store || String(s.storeId) === String(order.storeId)));
     if (st) {
       order.storeLat = st.lat;
       order.storeLng = st.lng;

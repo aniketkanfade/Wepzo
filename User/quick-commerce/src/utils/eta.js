@@ -13,7 +13,7 @@ export function haversineKm(lat1, lng1, lat2, lng2) {
 
 export function etaMinutesFromKm(km) {
   if (km == null || Number.isNaN(Number(km))) return null;
-  return Math.max(1, Math.round((Number(km) / BIKE_KMH) * 60));
+  return Math.max(10, Math.round((Number(km) / BIKE_KMH) * 60));
 }
 
 export function formatEta(minutes) {

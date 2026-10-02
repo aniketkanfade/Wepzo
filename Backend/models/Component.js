@@ -13,6 +13,7 @@ const componentSchema = new mongoose.Schema({
     enum: ['ecommerce', 'marketing', 'portfolio', 'blog', 'general'],
     required: true
   },
+  group: { type: String, default: 'Storefront' },
   price: { type: Number, required: true, default: 0 },
   description: String,
   previewImage: String,

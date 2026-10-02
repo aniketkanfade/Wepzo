@@ -6,11 +6,13 @@ import { useLocationStore } from '../store/location';
 import { useAuthStore } from '../store/auth';
 import { shop } from '../api';
 import BillBreakdown from '../components/BillBreakdown';
+import { formatMoney, useSiteSettings } from '../store/siteSettings';
 
 export default function CartPage() {
   const { items, setQty, remove, clear, subtotal } = useCart();
   const loc = useLocationStore(s => s.current);
   const user = useAuthStore(s => s.user);
+  const business = useSiteSettings(s => s.business);
   const navigate = useNavigate();
   const [quote, setQuote] = useState(null);
 
@@ -19,6 +21,7 @@ export default function CartPage() {
     shop.quote({
       lat: loc?.lat,
       lng: loc?.lng,
+      moduleSlug: items[0]?.moduleSlug,
       items: items.map(i => ({ id: i.id, productId: i.productId, variantId: i.variantId, qty: i.qty })),
     }).then(setQuote).catch(() => setQuote(null));
   }, [items, loc?.lat, loc?.lng, subtotal()]);
@@ -51,7 +54,7 @@ export default function CartPage() {
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-semibold line-clamp-2">{it.name}</p>
                 <p className="text-xs text-slate-400">{it.unit}</p>
-                <p className="text-sm font-bold mt-1">₹{it.price}</p>
+                <p className="text-sm font-bold mt-1">{formatMoney(it.price, business)}</p>
               </div>
               <div className="flex items-center gap-2">
                 <div className="flex items-center border rounded-lg">

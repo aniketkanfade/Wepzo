@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Receipt, Save, RotateCcw } from 'lucide-react';
 import api from '../../api/axios';
-import NavyToggle from '../../components/NavyToggle';
+import NavyToggle from '../../WebAdmin/Qucik commerce/components/NavyToggle';
 import { LIST_NAVY as NAVY, LIST_CARD_BORDER as CARD_BORDER, listBtnNavy, listBtnOutline } from '../../constants/listTheme';
 
 export default function SettingsTaxPage() {

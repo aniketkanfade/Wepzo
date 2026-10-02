@@ -43,16 +43,16 @@ export const ORDER_STATUS_SLUGS = {
 };
 
 export const ORDER_STATUS_STYLE = {
-  Scheduled: 'bg-cyan-100 text-cyan-700',
-  Pending: 'bg-slate-100 text-slate-600',
-  Accepted: 'bg-indigo-100 text-indigo-700',
-  Processing: 'bg-blue-100 text-blue-700',
-  Handover: 'bg-violet-100 text-violet-700',
-  'Out for Delivery': 'bg-orange-100 text-orange-700',
-  Delivered: 'bg-green-100 text-green-700',
-  Cancelled: 'bg-pink-100 text-pink-700',
-  'Returns/Refunds': 'bg-orange-100 text-orange-700',
-  Failed: 'bg-red-100 text-red-700',
+  Scheduled: 'bg-cyan-50 text-cyan-700 border border-cyan-200',
+  Pending: 'bg-amber-50 text-amber-700 border border-amber-200',
+  Accepted: 'bg-blue-50 text-blue-700 border border-blue-200',
+  Processing: 'bg-indigo-50 text-indigo-700 border border-indigo-200',
+  Handover: 'bg-violet-50 text-violet-700 border border-violet-200',
+  'Out for Delivery': 'bg-orange-50 text-orange-700 border border-orange-200',
+  Delivered: 'bg-emerald-50 text-emerald-700 border border-emerald-200',
+  Cancelled: 'bg-rose-50 text-rose-700 border border-rose-200',
+  'Returns/Refunds': 'bg-purple-50 text-purple-700 border border-purple-200',
+  Failed: 'bg-red-50 text-red-700 border border-red-200',
 };
 
 export const ORDER_MENU = [

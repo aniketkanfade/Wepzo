@@ -5,8 +5,7 @@ import { useCart } from '../store/cart';
 import { useLocationStore } from '../store/location';
 import { useAuthStore } from '../store/auth';
 import { shop } from '../api';
-
-const money = value => `₹${Number(value || 0).toLocaleString('en-IN')}`;
+import { formatMoney, useSiteSettings } from '../store/siteSettings';
 
 export default function CartDrawer({ onClose }) {
   const items = useCart(s => s.items);
@@ -17,6 +16,7 @@ export default function CartDrawer({ onClose }) {
   const subtotal = useCart(s => s.subtotal());
   const location = useLocationStore(s => s.current);
   const user = useAuthStore(s => s.user);
+  const business = useSiteSettings(s => s.business);
   const navigate = useNavigate();
   const [quote, setQuote] = useState(null);
   const [couponOpen, setCouponOpen] = useState(false);
@@ -31,12 +31,13 @@ export default function CartDrawer({ onClose }) {
     shop.quote({
       lat: location?.lat,
       lng: location?.lng,
+      moduleSlug: items[0]?.moduleSlug,
       couponCode,
       items: items.map(item => ({ id: item.id, productId: item.productId, variantId: item.variantId, qty: item.qty })),
     }).then(result => { if (!cancelled) setQuote(result); })
       .catch(() => { if (!cancelled) setQuote(null); });
     return () => { cancelled = true; };
-  }, [items, location?.lat, location?.lng, couponCode, setCouponCode]);
+  }, [items, items[0]?.moduleSlug, location?.lat, location?.lng, couponCode, setCouponCode]);
 
   const openCoupons = () => {
     setCouponOpen(true);
@@ -54,6 +55,7 @@ export default function CartDrawer({ onClose }) {
       const result = await shop.quote({
         lat: location?.lat,
         lng: location?.lng,
+        moduleSlug: items[0]?.moduleSlug,
         couponCode: code,
         items: items.map(item => ({ id: item.id, productId: item.productId, variantId: item.variantId, qty: item.qty })),
       });
@@ -110,10 +112,10 @@ export default function CartDrawer({ onClose }) {
             <div className="shrink-0 px-4 pt-3">
               <div className="rounded-xl bg-emerald-50 px-4 py-3 text-emerald-700">
                 <div className="flex items-center gap-2 text-sm font-semibold"><Truck size={19} />
-                  {remainingForFreeDelivery > 0 ? `Add ${money(remainingForFreeDelivery)} more for FREE delivery` : 'You have unlocked FREE delivery'}
+                  {remainingForFreeDelivery > 0 ? `Add ${formatMoney(remainingForFreeDelivery, business)} more for FREE delivery` : 'You have unlocked FREE delivery'}
                 </div>
                 <div className="mt-2.5 h-1.5 overflow-hidden rounded-full bg-emerald-200"><div className="h-full rounded-full bg-emerald-500 transition-all" style={{ width: `${progress}%` }} /></div>
-                <div className="mt-1 flex justify-between text-[10px] text-emerald-700/70"><span>{money(subtotal)}</span><span>{money(freeDeliveryAt)}</span></div>
+                <div className="mt-1 flex justify-between text-[10px] text-emerald-700/70"><span>{formatMoney(subtotal, business)}</span><span>{formatMoney(freeDeliveryAt, business)}</span></div>
               </div>
             </div>
 
@@ -127,7 +129,7 @@ export default function CartDrawer({ onClose }) {
                     <div className="min-w-0 flex-1">
                       <p className="line-clamp-2 text-[13px] font-semibold leading-snug text-slate-800">{item.name}</p>
                       <p className="mt-0.5 text-xs text-slate-400">{item.unit}</p>
-                      <div className="mt-1.5 flex items-baseline gap-2"><strong className="text-base text-slate-900">{money(item.price)}</strong>{item.mrp > item.price && <del className="text-xs text-slate-400">{money(item.mrp)}</del>}</div>
+                      <div className="mt-1.5 flex items-baseline gap-2"><strong className="text-base text-slate-900">{formatMoney(item.price, business)}</strong>{item.mrp > item.price && <del className="text-xs text-slate-400">{formatMoney(item.mrp, business)}</del>}</div>
                       <div className="mt-2 flex items-center justify-between">
                         <div className="flex h-8 items-center overflow-hidden rounded-full bg-slate-100">
                           <button type="button" aria-label={`Decrease ${item.name} quantity`} onClick={() => setQty(item.cartKey || item.id, item.qty - 1)} className="grid h-8 w-9 place-items-center text-slate-600 hover:bg-slate-200"><Minus size={14} /></button>
@@ -147,14 +149,14 @@ export default function CartDrawer({ onClose }) {
                 <span className="flex items-center gap-2"><Tag size={17} className="text-brand-600" /> {couponCode ? `Applied: ${couponCode}` : 'Apply Coupon'}</span><span className="text-lg leading-none">›</span>
               </button>
               <div className="space-y-1.5 px-1 text-[13px]">
-                <div className="flex justify-between text-slate-600"><span>Item Total</span><span className="font-semibold text-slate-900">{money(quote?.itemsTotal ?? subtotal)}</span></div>
-                {quote?.couponDiscount > 0 && <div className="flex justify-between text-emerald-600"><span>Coupon Discount</span><span>− {money(quote.couponDiscount)}</span></div>}
-                <div className="flex justify-between text-slate-600"><span>Delivery Charge</span><span className={quote?.freeDelivery || quote?.deliveryCharge === 0 ? 'font-medium text-emerald-600' : 'font-semibold text-slate-900'}>{quote ? (quote.freeDelivery || !quote.deliveryCharge ? 'FREE' : money(quote.deliveryCharge)) : 'Calculated at checkout'}</span></div>
-                {quote?.platformFee > 0 && <div className="flex justify-between text-slate-600"><span>Platform Fee</span><span>{money(quote.platformFee)}</span></div>}
+                <div className="flex justify-between text-slate-600"><span>Item Total</span><span className="font-semibold text-slate-900">{formatMoney(quote?.itemsTotal ?? subtotal, business)}</span></div>
+                {quote?.couponDiscount > 0 && <div className="flex justify-between text-emerald-600"><span>Coupon Discount</span><span>− {formatMoney(quote.couponDiscount, business)}</span></div>}
+                <div className="flex justify-between text-slate-600"><span>Delivery Charge</span><span className={quote?.freeDelivery || quote?.deliveryCharge === 0 ? 'font-medium text-emerald-600' : 'font-semibold text-slate-900'}>{quote ? (quote.freeDelivery || !quote.deliveryCharge ? 'FREE' : formatMoney(quote.deliveryCharge, business)) : 'Calculated at checkout'}</span></div>
+                {quote?.platformFee > 0 && <div className="flex justify-between text-slate-600"><span>Platform Fee</span><span>{formatMoney(quote.platformFee, business)}</span></div>}
               </div>
               <div className="mt-2.5 flex items-center justify-between rounded-xl bg-slate-50 px-3 py-2.5">
                 <div><p className="font-bold text-slate-900">Total Amount</p><p className="text-[10px] text-slate-500">Inclusive of all taxes</p></div>
-                <strong className="text-xl font-extrabold text-slate-900">{money(total)}</strong>
+                <strong className="text-xl font-extrabold text-slate-900">{formatMoney(total, business)}</strong>
               </div>
               {quote?.deliverable === false && quote?.message && <p className="mt-2 text-xs text-rose-600">{quote.message}</p>}
               <button type="button" onClick={goCheckout} disabled={quote?.deliverable === false} className="mt-2.5 flex w-full items-center justify-between rounded-xl bg-brand-600 px-4 py-3 text-sm font-bold text-white shadow-lg shadow-orange-500/15 transition hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-50">
@@ -184,7 +186,7 @@ export default function CartDrawer({ onClose }) {
                 return <article key={coupon._id || coupon.code} className="rounded-xl border border-slate-200 p-3.5">
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0"><p className="font-extrabold tracking-wide text-brand-700">{coupon.code}</p><p className="mt-0.5 text-sm font-semibold text-slate-800">{coupon.title || `${coupon.discount} off`}</p>
-                      <p className="mt-1 text-xs text-slate-500">{coupon.minOrder ? `Minimum order ${money(coupon.minOrder)}` : 'No minimum order'}{coupon.store && coupon.store !== 'All Stores' ? ` · ${coupon.store}` : ''}</p>
+                      <p className="mt-1 text-xs text-slate-500">{coupon.minOrder ? `Minimum order ${formatMoney(coupon.minOrder, business)}` : 'No minimum order'}{coupon.store && coupon.store !== 'All Stores' ? ` · ${coupon.store}` : ''}</p>
                       {coupon.expiry && <p className="mt-1 text-[11px] text-slate-400">Valid till {coupon.expiry}</p>}
                     </div>
                     <button type="button" disabled={!eligible} onClick={() => applyCoupon(coupon.code)} className="shrink-0 rounded-lg border border-brand-500 px-3 py-1.5 text-xs font-bold text-brand-600 hover:bg-orange-50 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-400">{eligible ? (couponCode === coupon.code ? 'Applied' : 'Apply') : 'Add items'}</button>

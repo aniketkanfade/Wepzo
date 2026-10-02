@@ -38,6 +38,7 @@ export default function CheckoutPage() {
       lat: loc?.lat,
       lng: loc?.lng,
       couponCode,
+      moduleSlug: items[0]?.moduleSlug,
       items: items.map(i => ({ id: i.id, productId: i.productId, variantId: i.variantId, qty: i.qty })),
     }).then(setQuote).catch(() => setQuote(null));
   }, [items, loc?.lat, loc?.lng, subtotal(), couponCode]);
@@ -55,6 +56,7 @@ export default function CheckoutPage() {
         lat: loc?.lat,
         lng: loc?.lng,
         couponCode,
+        moduleSlug: items[0]?.moduleSlug,
         items: items.map(i => ({ id: i.id, productId: i.productId, variantId: i.variantId, qty: i.qty })),
       });
       clear();

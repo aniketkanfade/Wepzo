@@ -1,0 +1,8 @@
+@import "tailwindcss/theme.css" layer(theme) prefix(tw);
+@import "tailwindcss/utilities.css" layer(utilities) prefix(tw);
+
+@source "./components/AdminSettings.jsx";
+
+@theme {
+  --breakpoint-admin: 47.5625rem;
+}

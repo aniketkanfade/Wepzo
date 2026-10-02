@@ -10,6 +10,7 @@ import { shop } from '../api';
 import { nearestCity } from '../constants/geo';
 import { etaMinutesFromKm, haversineKm } from '../utils/eta';
 import CartDrawer from './CartDrawer';
+import { useSiteSettings } from '../store/siteSettings';
 
 function locationSubtitle(current) {
   if (!current) return 'Select location';
@@ -20,7 +21,7 @@ function locationSubtitle(current) {
   return `${area} - ${place}`;
 }
 
-export default function Header() {
+export default function Header({ componentEnabled = () => true }) {
   const navigate = useNavigate();
   const location = useLocation();
   const searchParams = new URLSearchParams(location.search);
@@ -33,6 +34,8 @@ export default function Header() {
   const current = useLocationStore(s => s.current);
   const pickup = useLocationStore(s => s.pickup);
   const setPickup = useLocationStore(s => s.setPickup);
+  const business = useSiteSettings(s => s.business);
+  const setBusiness = useSiteSettings(s => s.setBusiness);
   const user = useAuthStore(s => s.user);
   const logout = useAuthStore(s => s.logout);
   const [q, setQ] = useState('');
@@ -52,6 +55,11 @@ export default function Header() {
     const openLocation = () => setOpen(true);
     window.addEventListener('wepzo:open-location', openLocation);
     return () => window.removeEventListener('wepzo:open-location', openLocation);
+  }, []);
+  useEffect(() => {
+    const openCart = () => setCartOpen(true);
+    window.addEventListener('wepzo:open-cart', openCart);
+    return () => window.removeEventListener('wepzo:open-cart', openCart);
   }, []);
   useEffect(() => {
     let previousY = window.scrollY;
@@ -75,11 +83,24 @@ export default function Header() {
     return () => window.removeEventListener('scroll', onScroll);
   }, []);
   useEffect(() => {
-    shop.home().then((d) => {
+    shop.home({ lat: current?.lat, lng: current?.lng }).then((d) => {
+      setBusiness(d?.business || {});
       if (!pickup?.lat && d?.pickup) setPickup(d.pickup);
       setCatalog({ modules: d?.modules || [], categories: d?.categories || [], subCategories: d?.subCategories || [], childCategories: d?.childCategories || [] });
     }).catch(() => {});
-  }, [pickup, setPickup]);
+  }, [current?.lat, current?.lng, pickup, setPickup, setBusiness]);
+
+  useEffect(() => {
+    const name = business.businessName || 'WEPZO';
+    document.title = name;
+    let icon = document.querySelector('link[rel~="icon"]');
+    if (!icon) {
+      icon = document.createElement('link');
+      icon.rel = 'icon';
+      document.head.appendChild(icon);
+    }
+    if (business.favicon) icon.href = business.favicon;
+  }, [business.businessName, business.favicon]);
 
   useEffect(() => {
     const onDoc = (e) => {
@@ -99,13 +120,13 @@ export default function Header() {
     }
     setSuggesting(true);
     timerRef.current = setTimeout(() => {
-      shop.products({ q: query })
+      shop.products({ q: query, lat: current?.lat, lng: current?.lng })
         .then((list) => setSuggests(Array.isArray(list) ? list.slice(0, 8) : []))
         .catch(() => setSuggests([]))
         .finally(() => setSuggesting(false));
     }, 200);
     return () => clearTimeout(timerRef.current);
-  }, [q]);
+  }, [q, current?.lat, current?.lng]);
 
   const goSearch = (query) => {
     const term = (query ?? q).trim();
@@ -123,11 +144,11 @@ export default function Header() {
     let cancelled = false;
     setProductContext(null);
     if (!productId) return () => { cancelled = true; };
-    shop.product(decodeURIComponent(productId))
+    shop.product(decodeURIComponent(productId), { lat: current?.lat, lng: current?.lng })
       .then(product => { if (!cancelled) setProductContext(product); })
       .catch(() => { if (!cancelled) setProductContext(null); });
     return () => { cancelled = true; };
-  }, [productId]);
+  }, [productId, current?.lat, current?.lng]);
 
   const queryCategoryName = searchParams.get('category') || '';
   const queryMatchesCategory = catalog.categories.some(item => item.name === queryCategoryName);
@@ -185,6 +206,9 @@ export default function Header() {
     if (navigationLevel === 'category') return String(item._id) === String(activeCategory?._id);
     return String(item._id) === String(activeSubCategory?._id);
   };  const placeLine = locationSubtitle(current);
+  const compactPlaceLine = current
+    ? [current.area || current.city, current.city && current.city !== (current.area || current.city) ? current.city : ''].filter(Boolean).join(', ')
+    : 'Select location';
   const fullLine = current?.line || placeLine;
   const storeLat = pickup?.lat ?? 21.1458;
   const storeLng = pickup?.lng ?? 79.0882;
@@ -192,25 +216,32 @@ export default function Header() {
   const mins = etaMinutesFromKm(km);
   const etaLabel = mins != null ? `${mins} minutes` : '— minutes';
   const firstName = user?.name?.split(' ')[0] || user?.name;
+  const hasHeaderComponents = [
+    'quick-commerce-header', 'quick-commerce-location', 'quick-commerce-search',
+    'quick-commerce-categories', 'quick-commerce-favorites', 'quick-commerce-cart', 'quick-commerce-profile',
+  ].some(componentEnabled);
 
   return (
-    <header className="sticky top-0 z-40 bg-white border-b border-slate-100 shadow-[0_1px_8px_rgba(15,23,42,0.04)]">
-      <div className="max-w-[1280px] mx-auto px-4 min-h-[68px] py-2.5 flex items-center gap-3">
-        <Link to="/" className="qc-header-logo shrink-0 font-extrabold text-xl tracking-tight text-slate-900"><span><ShoppingCart size={17}/></span> WEPZO</Link>
-        <button type="button" onClick={() => setOpen(true)}
+    <>
+    {hasHeaderComponents && <header className="sticky top-0 z-40 bg-white border-b border-slate-100 shadow-[0_1px_8px_rgba(15,23,42,0.04)]">
+      <div className="qc-header-main max-w-[1280px] mx-auto px-4 min-h-[68px] py-2.5 flex items-center gap-3">
+        {componentEnabled('quick-commerce-header') && <Link to="/" className="qc-header-logo shrink-0 font-extrabold text-xl tracking-tight text-slate-900" aria-label={business.businessName || 'WEPZO'}>
+          {business.businessLogo ? <img src={business.businessLogo} alt={business.businessName || 'Business logo'} className="qc-header-brand-image" /> : <span><ShoppingCart size={17}/></span>}
+        </Link>}
+        {componentEnabled('quick-commerce-location') && <button type="button" onClick={() => setOpen(true)}
           title={fullLine}
-          className="flex flex-col items-start text-left max-w-[min(100%,24rem)] hover:bg-slate-50 rounded-lg px-1 py-0.5">
+          className="qc-header-location flex flex-col items-start text-left max-w-[min(100%,24rem)] hover:bg-slate-50 rounded-lg px-1 py-0.5">
           <span className="inline-flex items-center gap-0.5 text-[#dc2626] font-bold text-sm leading-tight">
             <Zap size={14} className="shrink-0 fill-[#dc2626]" strokeWidth={0} />
             {etaLabel}
           </span>
           <span className="inline-flex items-start gap-0.5 text-xs text-slate-700 leading-snug">
-            <span className="whitespace-normal break-words font-medium">{placeLine}</span>
+            <span className="qc-location-compact font-medium">{compactPlaceLine}</span>
             <ChevronDown size={14} className="shrink-0 mt-0.5 text-slate-500" />
           </span>
-        </button>
+        </button>}
 
-        <div ref={boxRef} className="flex-1 relative min-w-0">
+        {componentEnabled('quick-commerce-search') && <div ref={boxRef} className="qc-header-search flex-1 relative min-w-0">
           <form onSubmit={submit} className="flex items-center gap-2">
             <input
               value={q}
@@ -261,9 +292,9 @@ export default function Header() {
               </button>
             </div>
           )}
-        </div>
+        </div>}
 
-        <Link to="/c?wishlist=1" className="hidden sm:inline-flex flex-col items-center gap-0.5 text-[11px] font-medium text-slate-500 hover:text-brand-600 px-1 relative">
+        {componentEnabled('quick-commerce-favorites') && <Link to="/c?wishlist=1" className="qc-header-favorites hidden sm:inline-flex flex-col items-center gap-0.5 text-[11px] font-medium text-slate-500 hover:text-brand-600 px-1 relative">
           <Heart size={20} />
           Wishlist
           {wishCount > 0 && (
@@ -271,8 +302,8 @@ export default function Header() {
               {wishCount}
             </span>
           )}
-        </Link>
-        <button type="button" aria-label={`Open cart${count ? `, ${count} items` : ''}`} onClick={() => setCartOpen(true)} className="inline-flex flex-col items-center gap-0.5 text-[11px] font-medium text-slate-500 hover:text-brand-600 px-1 relative">
+        </Link>}
+        {componentEnabled('quick-commerce-cart') && <button type="button" aria-label={`Open cart${count ? `, ${count} items` : ''}`} onClick={() => setCartOpen(true)} className="qc-header-cart inline-flex flex-col items-center gap-0.5 text-[11px] font-medium text-slate-500 hover:text-brand-600 px-1 relative">
           <ShoppingCart size={20} />
           Cart
           {count > 0 && (
@@ -280,9 +311,9 @@ export default function Header() {
               {count}
             </span>
           )}
-        </button>
-        {user ? (
-          <div className="relative hidden sm:block">
+        </button>}
+        {componentEnabled('quick-commerce-profile') && (user ? (
+          <div className="qc-header-profile relative hidden sm:block">
             <button type="button" onClick={() => setMenu(m => !m)}
               className="inline-flex items-center gap-1.5 text-sm text-slate-700 hover:text-brand-700">
               <span className="h-8 w-8 rounded-full bg-slate-100 flex items-center justify-center">
@@ -300,15 +331,15 @@ export default function Header() {
             )}
           </div>
         ) : (
-          <Link to="/login" className="hidden sm:inline-flex items-center gap-1.5 text-sm font-medium text-slate-600 hover:text-brand-700">
+          <Link to="/login" className="qc-header-profile hidden sm:inline-flex items-center gap-1.5 text-sm font-medium text-slate-600 hover:text-brand-700">
             <span className="h-8 w-8 rounded-full bg-slate-100 flex items-center justify-center">
               <User size={16} />
             </span>
             Sign In
           </Link>
-        )}
+        ))}
       </div>
-<nav className={'qc-header-cats ' + (navigationLevel === 'module' ? 'is-module-nav ' : 'is-catalog-nav ') + (navigationLevel === 'module' && isScrolledDown ? 'is-compact' : '')}>
+      {componentEnabled('quick-commerce-categories') && <nav className={'qc-header-cats ' + (navigationLevel === 'module' ? 'is-module-nav ' : 'is-catalog-nav ') + (navigationLevel === 'module' && isScrolledDown ? 'is-compact' : '')}>
         <Link to="/" className={!selectedModuleSlug ? 'qc-header-module active' : 'qc-header-module'}>
           <span className="qc-header-all-icon"><Home size={22} strokeWidth={1.8} /></span>
           <span>Home</span>
@@ -320,9 +351,10 @@ export default function Header() {
             <span>{item.name}</span>
           </Link>;
         })}
-      </nav>
-      {open && <LocationModal onClose={() => setOpen(false)} />}
-      {cartOpen && <CartDrawer onClose={() => setCartOpen(false)} />}
-    </header>
+      </nav>}
+    </header>}
+    {componentEnabled('quick-commerce-location') && open && <LocationModal onClose={() => setOpen(false)} />}
+    {componentEnabled('quick-commerce-cart') && cartOpen && <CartDrawer onClose={() => setCartOpen(false)} />}
+    </>
   );
 }

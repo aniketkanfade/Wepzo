@@ -4,6 +4,7 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { shop } from '../api';
 import ProductCard from '../components/ProductCard';
 import { useWishlist } from '../store/wishlist';
+import { useLocationStore } from '../store/location';
 
 const sameId = (a, b) => String(a || '') === String(b || '');
 const imageFallback = 'https://images.unsplash.com/photo-1542838132-92c53300491e?w=180&h=140&fit=crop';
@@ -27,17 +28,18 @@ export default function CategoryPage() {
   const sort = params.get('sort') || 'popularity';
   const wishlistOnly = params.get('wishlist') === '1';
   const wished = useWishlist(s => s.items);
+  const location = useLocationStore(s => s.current);
   const [catalog, setCatalog] = useState({ modules: [], categories: [], subCategories: [], childCategories: [] });
   const [items, setItems] = useState([]);
 
   useEffect(() => {
-    shop.home().then(data => setCatalog({
+    shop.home({ lat: location?.lat, lng: location?.lng }).then(data => setCatalog({
       modules: data.modules || [],
       categories: data.categories || [],
       subCategories: data.subCategories || [],
       childCategories: data.childCategories || [],
     })).catch(() => {});
-  }, []);
+  }, [location?.lat, location?.lng]);
   const requestedModule = catalog.modules.find(item => item.slug === moduleSlug);
   const categories = catalog.categories.filter(item => item.status !== false && (!moduleSlug || String(item.moduleId) === String(requestedModule?._id)));
   const category = categories.find(item => sameId(item._id, categoryId)) || categories.find(item => item.name === categoryText);
@@ -50,13 +52,18 @@ export default function CategoryPage() {
 
   useEffect(() => {
     if (wishlistOnly) {
-      setItems(wished);
+      shop.products({ lat: location?.lat, lng: location?.lng })
+        .then(available => {
+          const allowedIds = new Set(available.flatMap(item => [item.id, item.productId].filter(Boolean).map(String)));
+          setItems(wished.filter(item => allowedIds.has(String(item.id)) || allowedIds.has(String(item.productId))));
+        })
+        .catch(() => setItems([]));
       return;
     }
-    shop.products({ category: productCategory || undefined, module: moduleSlug || undefined, q: q || undefined, sort })
+    shop.products({ category: productCategory || undefined, module: moduleSlug || undefined, q: q || undefined, sort, lat: location?.lat, lng: location?.lng })
       .then(setItems)
       .catch(() => setItems([]));
-  }, [productCategory, moduleSlug, q, sort, wishlistOnly, wished]);
+  }, [productCategory, moduleSlug, q, sort, wishlistOnly, wished, location?.lat, location?.lng]);
 
   const select = (updates, clearKeys = []) => {
     const next = new URLSearchParams(params);

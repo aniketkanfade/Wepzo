@@ -4,6 +4,7 @@ import { MessageCircle, Phone } from 'lucide-react';
 import { shop } from '../api';
 import TrackMap from '../components/TrackMap';
 import { formatEta } from '../utils/eta';
+import { formatMoney, useSiteSettings } from '../store/siteSettings';
 
 const STEPS = [
   { key: 'placed', label: 'Placed' },
@@ -27,6 +28,7 @@ export default function TrackPage() {
   const navigate = useNavigate();
   const [order, setOrder] = useState(null);
   const [query, setQuery] = useState(orderNo || '');
+  const business = useSiteSettings(s => s.business);
 
   const load = (id) => {
     if (!id) return;
@@ -112,15 +114,15 @@ export default function TrackPage() {
           )}
           <ul className="text-sm text-slate-600">
             {(order.details || []).map((d, i) => (
-              <li key={i}>{d.name} × {d.qty} — ₹{d.price * d.qty}</li>
+              <li key={i}>{d.name} × {d.qty} — {formatMoney(d.price * d.qty, business)}</li>
             ))}
           </ul>
           <div className="text-sm space-y-1 border-t pt-2">
-            <div className="flex justify-between"><span>Items</span><span>₹{order.itemsTotal ?? bill?.itemsTotal}</span></div>
-            <div className="flex justify-between"><span>Delivery{order.zone?.name ? ` · ${order.zone.name}` : ''}</span><span>{order.deliveryCharge ? `₹${order.deliveryCharge}` : 'FREE'}</span></div>
-            {order.searchCharge > 0 && <div className="flex justify-between"><span>Search Charge</span><span>₹{order.searchCharge}</span></div>}
-            <div className="flex justify-between"><span>Platform Fee</span><span>₹{order.platformFee || 0}</span></div>
-            <p className="font-bold text-base pt-1">Total ₹{order.amount || order.total}</p>
+            <div className="flex justify-between"><span>Items</span><span>{formatMoney(order.itemsTotal ?? bill?.itemsTotal, business)}</span></div>
+            <div className="flex justify-between"><span>Delivery{order.zone?.name ? ` · ${order.zone.name}` : ''}</span><span>{order.deliveryCharge ? formatMoney(order.deliveryCharge, business) : 'FREE'}</span></div>
+            {order.searchCharge > 0 && <div className="flex justify-between"><span>Search Charge</span><span>{formatMoney(order.searchCharge, business)}</span></div>}
+            <div className="flex justify-between"><span>Platform Fee</span><span>{formatMoney(order.platformFee || 0, business)}</span></div>
+            <p className="font-bold text-base pt-1">Total {formatMoney(order.amount || order.total, business)}</p>
           </div>
         </div>
       )}

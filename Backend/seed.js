@@ -6,6 +6,7 @@ const Module = require('./models/Module');
 const Plan = require('./models/Plan');
 const AccessSection = require('./models/AccessSection');
 const Role = require('./models/Role');
+const { QUICK_COMMERCE_COMPONENTS } = require('./lib/quickCommerceComponents');
 
 const seed = async () => {
   await mongoose.connect(process.env.MONGODB_URI);
@@ -86,13 +87,14 @@ const seed = async () => {
       price: 200, description: 'Contact us form',
       htmlTemplate: '<section style="padding:40px 32px;max-width:600px;margin:0 auto"><h2>Contact Us</h2><form style="margin-top:20px"><input placeholder="Name" style="width:100%;padding:10px;margin-bottom:12px;border:1px solid #d1d5db;border-radius:6px"><input placeholder="Email" style="width:100%;padding:10px;margin-bottom:12px;border:1px solid #d1d5db;border-radius:6px"><textarea placeholder="Message" rows="4" style="width:100%;padding:10px;margin-bottom:12px;border:1px solid #d1d5db;border-radius:6px"></textarea><button style="background:#2563eb;color:white;padding:10px 32px;border:none;border-radius:6px">Send Message</button></form></section>',
       createdBy: admin._id
-    }
+    },
+    ...QUICK_COMMERCE_COMPONENTS.map(component => ({ ...component, createdBy: admin._id }))
   ]);
 
   await Module.insertMany([
     {
-      name: 'E-Commerce', slug: 'ecommerce', type: 'ecommerce',
-      description: 'Build online stores with product catalog, cart & checkout',
+      name: 'Quick Commerce', slug: 'quick-commerce', type: 'quick-commerce',
+      description: 'Ready-to-edit quick commerce storefront with location, search, favorites, cart, and product sections',
       components: components.filter(c => ['ecommerce', 'general'].includes(c.moduleType)).map(c => c._id)
     },
     {
