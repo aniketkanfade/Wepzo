@@ -68,6 +68,8 @@ import WebsiteModulesPage from './pages/settings/WebsiteModulesPage';
 import WebsiteAccessPage from './pages/settings/WebsiteAccessPage';
 import WebsiteSubscriptionPlansPage from './pages/settings/WebsiteSubscriptionPlansPage';
 import WebsiteSubscriptionPage from './pages/WebsiteSubscriptionPage';
+import WebsiteDashboardPage from './pages/WebsiteDashboardPage';
+import WebsiteRenewalPage from './pages/WebsiteRenewalPage';
 import SettingsTaxPage from './pages/settings/SettingsTaxPage';
 import SettingsHubPage from './pages/settings/SettingsHubPage';
 import SettingsGenericPage from './pages/settings/SettingsGenericPage';
@@ -96,6 +98,8 @@ export default function App() {
       <Route path="/login" element={<Login />} />
       <Route path="/register" element={<Register />} />
       <Route path="/published-websites/:websiteId" element={<PublishedWebsitePage />} />
+      <Route path="/website-dashboard" element={<PrivateRoute><WebsiteDashboardPage /></PrivateRoute>} />
+      <Route path="/website-renewal" element={<PrivateRoute><WebsiteRenewalPage /></PrivateRoute>} />
       <Route path="/" element={<PrivateRoute><Layout /></PrivateRoute>}>
         <Route index element={<Navigate to="/quick-commerce" replace />} />
         <Route path="quick-commerce" element={<QuickCommerceAdminHome />} />
@@ -200,7 +204,7 @@ export default function App() {
         <Route path="settings/modules/add" element={<Navigate to="/quick-commerce/modules/add" replace />} />
         <Route path="settings/modules" element={<Navigate to="/quick-commerce/modules" replace />} />
         <Route path="settings/website-modules" element={<MainAdminRoute><WebsiteModulesPage /></MainAdminRoute>} />
-        <Route path="settings/website-access" element={<WebsiteAccessPage />} />
+        <Route path="settings/website-access" element={<MainAdminRoute><WebsiteAccessPage /></MainAdminRoute>} />
         <Route path="settings/website-subscriptions" element={<MainAdminRoute><WebsiteSubscriptionPlansPage /></MainAdminRoute>} />
         <Route path="settings/employee-roles" element={<SettingsEmployeeRolesPage />} />
         <Route path="settings/employees/add" element={<SettingsEmployeeAddPage />} />

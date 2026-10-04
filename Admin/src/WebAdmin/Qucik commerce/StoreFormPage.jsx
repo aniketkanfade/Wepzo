@@ -209,7 +209,9 @@ export default function StoreFormPage() {
   const selectedZone = zones.find(z => z.name === form.zone);
 
   const inside = (la, ln) => selectedZone
-    ? isInsideDeliveryZone(selectedZone, la, ln)
+    ? (selectedZone.commerceType === 'ecommerce' && ['country', 'state', 'city'].includes(selectedZone.scope)
+      ? true
+      : isInsideDeliveryZone(selectedZone, la, ln))
     : isInsideZone(form.zone, la, ln);
 
   const isPendingRequest = storeRecord?.status === 'pending' || storeRecord?.isNewRequest;

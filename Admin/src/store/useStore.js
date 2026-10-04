@@ -1,9 +1,12 @@
 import { create } from 'zustand';
 
-const normalizeModuleKey = value => {
+const normalizeModuleKey = (value, name = '') => {
   const raw = String(value || '').trim().toLowerCase().replace(/_/g, '-');
   if (!raw) return '';
-  if (['qcommerce', 'quick-commerce', 'quick_commerce', 'ecommerce', 'e-commerce', 'e_commerce'].includes(raw)) return raw === 'ecommerce' || raw === 'e-commerce' || raw === 'e_commerce' ? 'ecommerce' : 'quick-commerce';
+  if (['qcommerce', 'quick-commerce', 'quick_commerce', 'quickcommerce'].includes(raw)) return 'quick-commerce';
+  if (['ecommerce', 'e-commerce', 'e_commerce'].includes(raw)) {
+    return String(name).toLowerCase().includes('quick commerce') ? 'quick-commerce' : 'e-commerce';
+  }
   if (['marketing', 'promotion', 'promotions'].includes(raw)) return 'marketing';
   if (['general', 'information-web', 'information_web', 'website', 'web'].includes(raw)) return 'general';
   return raw;
@@ -11,7 +14,7 @@ const normalizeModuleKey = value => {
 
 const normalizeModuleType = value => {
   const normalized = normalizeModuleKey(value);
-  if (['quick-commerce', 'qcommerce', 'ecommerce'].includes(normalized)) return 'ecommerce';
+  if (['quick-commerce', 'qcommerce', 'e-commerce', 'ecommerce'].includes(normalized)) return 'ecommerce';
   if (['marketing', 'promotion', 'promotions'].includes(normalized)) return 'marketing';
   if (['general', 'information-web', 'website'].includes(normalized)) return 'general';
   return normalized || 'ecommerce';
@@ -20,7 +23,7 @@ const normalizeModuleType = value => {
 const normalizeStoredUser = user => {
   if (!user) return null;
   const selectedModuleId = String(user.selectedModuleId || user.websiteModuleId || '').trim();
-  const selectedModuleSlug = normalizeModuleKey(user.selectedModuleSlug || user.websiteModuleSlug || '');
+  const selectedModuleSlug = normalizeModuleKey(user.selectedModuleSlug || user.websiteModuleSlug || '', user.selectedModuleName || '');
   return {
     ...user,
     selectedModuleId: selectedModuleId || user.selectedModuleId || user.websiteModuleId || '',
@@ -45,7 +48,7 @@ export const useModuleStore = create(set => ({
     if (!module) return;
     const normalizedModule = {
       ...module,
-      slug: normalizeModuleKey(module.slug || module.type || 'quick-commerce'),
+      slug: normalizeModuleKey(module.slug || module.type || 'quick-commerce', module.name),
       type: normalizeModuleType(module.type || module.slug || 'quick-commerce'),
       name: module.name || 'Quick Commerce',
     };
@@ -68,7 +71,7 @@ export const useAuthStore = create(set => ({
       const selectedModule = {
         _id: selectedModuleId,
         id: selectedModuleId,
-        slug: normalizeModuleKey(selectedModuleSlug),
+        slug: normalizeModuleKey(selectedModuleSlug, normalizedUser.selectedModuleName),
         name: normalizedUser.selectedModuleName || normalizedUser.selectedModuleSlug || normalizedUser.websiteModuleSlug || 'Website Module',
         type: normalizeModuleType(normalizedUser.selectedModuleType || selectedModuleSlug),
         moduleId: selectedModuleId,

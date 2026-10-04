@@ -56,7 +56,7 @@ function MenuItem({ item, openKey, onOpenChange, pathname, onClose }) {
             {item.children.map(child => {
               const ChildIcon = child.icon;
               return (
-              <NavLink key={child.path} to={child.path} onClick={onClose}
+              <NavLink key={child.path} to={child.path} end={child.path === '/settings/zones'} onClick={onClose}
                 className={({ isActive }) => `flex items-center gap-2 px-3 py-2 rounded-lg text-[13px] transition ${
                   isActive ? 'text-[#1a3a8a] bg-[#f0f4ff] font-semibold' : 'text-gray-600 hover:bg-gray-50'
                 }`}>

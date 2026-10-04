@@ -113,7 +113,7 @@ router.post('/:id/domain', auth, async (req, res) => {
     if (!website) return res.status(404).json({ message: 'Website not found' });
 
     const { domainName, type } = req.body;
-    const baseDomain = process.env.BASE_DOMAIN || 'wepzo.com';
+    const baseDomain = process.env.BASE_DOMAIN || 'wepzo.in';
     const domainPrice = type === 'subdomain' ? 500 : type === 'custom' ? 2000 : 0;
 
     website.domain = {

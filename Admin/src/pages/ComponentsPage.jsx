@@ -140,7 +140,7 @@ export default function ComponentsPage() {
               onChange={e => setForm({ ...form, type: e.target.value })}
               className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-100"
             >
-              {['header', 'footer', 'hero', 'banner', 'product_grid', 'cart', 'checkout', 'contact', 'gallery', 'testimonial', 'newsletter', 'navbar'].map(t =>
+              {['header', 'logo', 'search', 'location', 'navbar', 'categories', 'category_tiles', 'hero', 'banner', 'stores', 'brands', 'flash_deals', 'product_grid', 'product_listing', 'product_details', 'favorites', 'cart', 'cart_page', 'checkout', 'profile', 'account', 'wishlist', 'order_tracking', 'footer', 'contact', 'gallery', 'testimonial', 'newsletter'].map(t =>
                 <option key={t} value={t}>{t.replace('_', ' ')}</option>
               )}
             </select>

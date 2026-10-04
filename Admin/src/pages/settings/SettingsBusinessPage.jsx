@@ -17,6 +17,7 @@ const DEFAULT_FORM = {
   businessLng: 79.0882,
   businessLogo: '',
   favicon: '',
+  primaryColor: '#f45b15',
   maintenanceMode: false,
   timezone: 'Asia/Kolkata',
   timeFormat: '12',
@@ -156,6 +157,7 @@ export default function SettingsBusinessPage() {
     </Section>
 
     <Section title="General Setup" description="Configure timezone, time display, and currency format.">
+      <label className="flex items-center justify-between gap-4 rounded-lg border border-slate-200 px-4 py-3 text-sm font-medium text-slate-700">Website brand color<input aria-label="Website brand color" type="color" value={form.primaryColor || '#f45b15'} onChange={event => set('primaryColor', event.target.value)} className="h-10 w-16 cursor-pointer rounded border-0 bg-transparent" /></label>
       <div className="grid gap-4 rounded-lg bg-slate-50 p-4 sm:grid-cols-2">
         <label className={labelClass}>Time zone<select className={inputClass} value={form.timezone || 'Asia/Kolkata'} onChange={event => set('timezone', event.target.value)}>{['Asia/Kolkata', 'Asia/Dubai', 'Europe/London', 'America/New_York', 'Australia/Sydney', 'UTC'].map(zone => <option key={zone} value={zone}>{zone}</option>)}</select></label>
         <fieldset><legend className={labelClass}>Time Format</legend><RadioGroup name="timeFormat" value={String(form.timeFormat || '12')} onChange={value => set('timeFormat', value)} options={ [['12', '12 Hours'], ['24', '24 Hours']] } /></fieldset>

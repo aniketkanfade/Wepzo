@@ -65,8 +65,8 @@ function normalizeWebsiteModuleSlug(value) {
   const map = {
     qcommerce: 'quick-commerce',
     'quick-commerce': 'quick-commerce',
-    ecommerce: 'ecommerce',
-    'e-commerce': 'ecommerce',
+    ecommerce: 'e-commerce',
+    'e-commerce': 'e-commerce',
     marketing: 'marketing',
     general: 'general',
     'information-web': 'general',
@@ -204,10 +204,31 @@ function adminWebsiteModuleInfo(req) {
   });
   const name = String(module?.name || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
   const quickCommerce = ['quick-commerce', 'quick_commerce', 'qcommerce'].includes(slug)
-    || name.includes('quick commerce')
-    || (!module && slug === 'ecommerce');
+    || name.includes('quick commerce');
   const ecommerce = !quickCommerce && (['e-commerce', 'e_commerce', 'ecommerce'].includes(slug) || name === 'e commerce' || name === 'ecommerce');
   return { slug, module, quickCommerce, ecommerce };
+}
+function adminWebsiteIdForRecord(req) {
+  if (req.user?.role === 'website_user' && req.user.websiteId) return String(req.user.websiteId);
+  if (req.user?.role !== 'main_admin' || !adminWebsiteModuleInfo(req).ecommerce) return '';
+  const owners = new Set((store.users || []).filter(user => user.role === 'main_admin').map(user => String(user._id)));
+  const website = (store.websites || [])
+    .filter(item => owners.has(String(item.userId)) && item.status === 'published'
+      && ['e-commerce', 'ecommerce'].includes(normalizeWebsiteModuleSlug(item.websiteModuleSlug || item.moduleType || '')))
+    .sort((a, b) => new Date(b.publishedAt || b.updatedAt || 0) - new Date(a.publishedAt || a.updatedAt || 0))[0];
+  return String(website?._id || '');
+}
+function tagAdminProductCommerce(req, item, { isCreate = false } = {}) {
+  const moduleInfo = adminWebsiteModuleInfo(req);
+  const tagged = {
+    ...item,
+    websiteModuleSlug: moduleInfo.slug,
+    ...((item.websiteId || adminWebsiteIdForRecord(req)) ? { websiteId: item.websiteId || adminWebsiteIdForRecord(req) } : {}),
+    ...(moduleInfo.quickCommerce ? { commerceType: 'quick_commerce', quickCommerce: true } : {}),
+    ...(moduleInfo.ecommerce ? { commerceType: 'ecommerce', quickCommerce: false } : {}),
+  };
+  if (!moduleInfo.quickCommerce) return tagged;
+  return applyQuickCommerceFlag(tagged, store.stores, { isCreate });
 }
 
 function isInAdminWebsiteModule(req, item, { includeShared = false } = {}) {
@@ -229,6 +250,10 @@ function isInAdminWebsiteModule(req, item, { includeShared = false } = {}) {
     if (item?.websiteId) return !!websiteId && String(item.websiteId) === websiteId;
     return includeShared;
   }
+  // Main Admin is the platform owner: in the selected website module, it can
+  // review and manage both shared records and records owned by tenant sites.
+  // Tenant-owned records keep their websiteId when edited below.
+  if (req.user?.role === 'main_admin') return true;
   return !item?.websiteId;
 }
 function isInAdminWebsiteData(req, item) {
@@ -242,10 +267,11 @@ function canEditAdminWebsiteData(req, item) {
     || (!!req.user.websiteId && String(item?.websiteId || '') === String(req.user.websiteId));
 }
 function tagAdminWebsiteModule(req, item) {
+  const websiteId = item.websiteId || adminWebsiteIdForRecord(req);
   return {
     ...item,
     websiteModuleSlug: adminWebsiteModuleSlug(req),
-    ...(req.user?.role === 'website_user' && req.user.websiteId ? { websiteId: req.user.websiteId } : {}),
+    ...(websiteId ? { websiteId } : {}),
   };
 }
 function quickCommerceWebsiteModuleSlug() {
@@ -259,10 +285,36 @@ function isQuickCommerceWebsiteRecord(item) {
   if (slug) {
     const assignedModule = (store.websiteModules || []).find(module => String(module.slug || '').toLowerCase() === slug);
     if (assignedModule) return slug === quickCommerceWebsiteModuleSlug();
-    return [quickCommerceWebsiteModuleSlug(), 'quick-commerce', 'quick_commerce', 'ecommerce'].includes(slug);
+    return [quickCommerceWebsiteModuleSlug(), 'quick-commerce', 'quick_commerce', 'qcommerce'].includes(slug);
   }
   if (item?.commerceType) return item.commerceType === 'quick_commerce';
   return true;
+}
+function isShopWebsiteRecord(item, websiteContext) {
+  const moduleSlug = normalizeWebsiteModuleSlug(
+    websiteContext?.website?.websiteModuleSlug || websiteContext?.website?.moduleType || websiteContext?.moduleSlug || ''
+  );
+  if (!moduleSlug || ['qcommerce', 'quick-commerce', 'quick_commerce'].includes(moduleSlug)) {
+    return isQuickCommerceWebsiteRecord(item);
+  }
+  const itemSlug = normalizeWebsiteModuleSlug(item?.websiteModuleSlug || '');
+  const module = (store.websiteModules || []).find(entry =>
+    normalizeWebsiteModuleSlug(entry.slug || entry.type || '') === moduleSlug
+  );
+  const aliases = new Set([moduleSlug, normalizeWebsiteModuleSlug(module?.slug)]);
+  const moduleTypeSlug = normalizeWebsiteModuleSlug(module?.type);
+  if (!module?.slug || moduleTypeSlug === moduleSlug) aliases.add(moduleTypeSlug);
+  if (['ecommerce', 'e-commerce'].includes(moduleSlug)) {
+    aliases.add('ecommerce'); aliases.add('e-commerce');
+  }
+  if (!itemSlug) {
+    if (item?.commerceType) return item.commerceType === 'ecommerce';
+    if (item?.quickCommerce === true) return false;
+    // Old untagged records defaulted to Quick Commerce. Do not expose them in
+    // an E-Commerce storefront unless they are explicitly classified.
+    return false;
+  }
+  return aliases.has(itemSlug) || (module?.name && itemSlug === normalizeWebsiteModuleSlug(module.name));
 }
 
 function adminWebsiteModuleView(req) {
@@ -293,20 +345,42 @@ function normalizeWebsiteHost(value) {
 
 function websiteContextForRequest(req, { requirePublished = false } = {}) {
   const requestedWebsiteId = String(req.get('X-Website-Id') || req.query?.websiteId || req.body?.websiteId || '').trim();
+  const requestedModuleSlug = normalizeWebsiteModuleSlug(req.get('X-Website-Module') || req.query?.moduleType || '');
   const requestHost = normalizeWebsiteHost(req.get('X-Forwarded-Host') || req.get('Origin') || req.get('Host') || req.hostname);
-  const hostWebsite = requestHost ? (store.websites || []).find(item =>
+  const matchedHostWebsite = requestHost ? (store.websites || []).find(item =>
     normalizeWebsiteHost(item.domain?.fullDomain || item.domain?.name) === requestHost
   ) : null;
+  const mainWebsiteDomain = normalizeWebsiteHost(process.env.MAIN_WEBSITE_DOMAIN || 'wepzo.in');
+  const mainDomainHost = requestHost === mainWebsiteDomain;
+  const localPreviewHost = process.env.NODE_ENV !== 'production'
+    && !requestedWebsiteId
+    && ['localhost', '127.0.0.1'].includes(requestHost);
+  const mainWebsiteHost = mainDomainHost || localPreviewHost;
+  const mainEcommerceWebsite = mainWebsiteHost
+    ? (store.websites || [])
+      .filter(item => {
+        const owner = (store.users || []).find(user => String(user._id) === String(item.userId));
+        return owner?.role === 'main_admin'
+          && item.status === 'published'
+          && ['e-commerce', 'ecommerce'].includes(normalizeWebsiteModuleSlug(item.websiteModuleSlug || item.moduleType || ''));
+      })
+      .sort((a, b) => new Date(b.publishedAt || b.updatedAt || 0) - new Date(a.publishedAt || a.updatedAt || 0))[0]
+    : null;
+  const hostWebsite = mainWebsiteHost ? mainEcommerceWebsite : matchedHostWebsite;
   if (requestedWebsiteId && hostWebsite && String(hostWebsite._id) !== requestedWebsiteId) {
     return { error: { status: 403, message: 'Website ID does not match this domain' } };
   }
   const websiteId = requestedWebsiteId || String(hostWebsite?._id || '');
-  if (!websiteId) return { website: null, websiteId: '', moduleId: '' };
+  if (!websiteId) return { website: null, websiteId: '', moduleId: '', moduleSlug: requestedModuleSlug, isMainWebsite: false };
   const website = requestedWebsiteId
     ? (store.websites || []).find(item => String(item._id) === requestedWebsiteId)
     : hostWebsite;
   if (!website || ((requirePublished || hostWebsite) && website.status !== 'published')) {
     return { error: { status: 404, message: 'Published website not found' } };
+  }
+  const websiteModuleSlug = normalizeWebsiteModuleSlug(website.websiteModuleSlug || website.moduleType || '');
+  if (requestedModuleSlug && websiteModuleSlug && requestedModuleSlug !== websiteModuleSlug) {
+    return { error: { status: 403, message: 'Website module does not match this website' } };
   }
   const module = (store.websiteModules || []).find(item =>
     (website.websiteModuleId && String(item._id) === String(website.websiteModuleId))
@@ -317,12 +391,18 @@ function websiteContextForRequest(req, { requirePublished = false } = {}) {
   if (requestedModuleId && moduleId && requestedModuleId !== moduleId) {
     return { error: { status: 403, message: 'Website module does not match this website' } };
   }
-  return { website, websiteId, moduleId };
+  return {
+    website,
+    websiteId,
+    moduleId,
+    moduleSlug: websiteModuleSlug || requestedModuleSlug,
+    isMainWebsite: !!mainWebsiteHost && String(website._id) === String(mainEcommerceWebsite?._id || ''),
+  };
 }
 
 function belongsToWebsite(item, websiteId) {
   return websiteId
-    ? String(item?.websiteId || '') === String(websiteId)
+    ? !item?.websiteId || String(item.websiteId) === String(websiteId)
     : !item?.websiteId;
 }
 
@@ -341,6 +421,7 @@ function shopAuth(req, res, next) {
     if (decoded.websiteId && !req.get('X-Website-Id')) req.headers['x-website-id'] = decoded.websiteId;
     const websiteContext = websiteContextForRequest(req, { requirePublished: !!requestedWebsiteId });
     if (websiteContext.error) return res.status(websiteContext.error.status).json({ message: websiteContext.error.message });
+    req.websiteContext = websiteContext;
     const user = findShopCustomer(decoded);
     if (!user) return res.status(401).json({ message: LOGIN_AGAIN, code: 'STALE_TOKEN' });
     if (requestedWebsiteId && String(user.websiteId || '') !== requestedWebsiteId) {
@@ -527,7 +608,7 @@ router.post('/categories', auth, (req, res) => {
     image: req.body.image || '',
     moduleId: req.body.moduleId || '',
     websiteModuleSlug: adminWebsiteModuleSlug(req),
-    ...(req.user?.role === 'website_user' && req.user.websiteId ? { websiteId: req.user.websiteId } : {}),
+    ...(adminWebsiteIdForRecord(req) ? { websiteId: adminWebsiteIdForRecord(req) } : {}),
   };
   store.categories.push(cat);
   res.status(201).json(cat);
@@ -536,7 +617,7 @@ router.post('/categories', auth, (req, res) => {
 router.put('/categories/:id', auth, (req, res) => {
   const idx = store.categories.findIndex(c => c._id === req.params.id && isInAdminWebsiteModule(req, c) && canEditAdminWebsiteData(req, c));
   if (idx === -1) return res.status(404).json({ message: 'Not found' });
-  store.categories[idx] = { ...store.categories[idx], ...req.body, _id: req.params.id, websiteModuleSlug: adminWebsiteModuleSlug(req), websiteId: store.categories[idx].websiteId || '' };
+  store.categories[idx] = { ...store.categories[idx], ...req.body, _id: req.params.id, websiteModuleSlug: adminWebsiteModuleSlug(req), websiteId: store.categories[idx].websiteId || adminWebsiteIdForRecord(req) };
   res.json(store.categories[idx]);
 });
 
@@ -555,7 +636,7 @@ router.post('/sub-categories', auth, (req, res) => {
 router.put('/sub-categories/:id', auth, (req, res) => {
   const idx = store.subCategories.findIndex(c => c._id === req.params.id && isInAdminWebsiteModule(req, c) && canEditAdminWebsiteData(req, c));
   if (idx === -1) return res.status(404).json({ message: 'Not found' });
-  store.subCategories[idx] = { ...store.subCategories[idx], ...req.body, _id: req.params.id, websiteModuleSlug: adminWebsiteModuleSlug(req), websiteId: store.subCategories[idx].websiteId || '' };
+  store.subCategories[idx] = { ...store.subCategories[idx], ...req.body, _id: req.params.id, websiteModuleSlug: adminWebsiteModuleSlug(req), websiteId: store.subCategories[idx].websiteId || adminWebsiteIdForRecord(req) };
   res.json(store.subCategories[idx]);
 });
 router.delete('/sub-categories/:id', auth, (req, res) => {
@@ -574,7 +655,7 @@ router.post('/child-categories', auth, (req, res) => {
 router.put('/child-categories/:id', auth, (req, res) => {
   const idx = store.childCategories.findIndex(c => c._id === req.params.id && isInAdminWebsiteModule(req, c) && canEditAdminWebsiteData(req, c));
   if (idx === -1) return res.status(404).json({ message: 'Not found' });
-  store.childCategories[idx] = { ...store.childCategories[idx], ...req.body, _id: req.params.id, websiteModuleSlug: adminWebsiteModuleSlug(req), websiteId: store.childCategories[idx].websiteId || '' };
+  store.childCategories[idx] = { ...store.childCategories[idx], ...req.body, _id: req.params.id, websiteModuleSlug: adminWebsiteModuleSlug(req), websiteId: store.childCategories[idx].websiteId || adminWebsiteIdForRecord(req) };
   res.json(store.childCategories[idx]);
 });
 router.delete('/child-categories/:id', auth, (req, res) => {
@@ -593,7 +674,7 @@ function simpleCrud(path, key, idField) {
   router.put(`/${path}/:id`, auth, (req, res) => {
     const idx = store[key].findIndex(c => c._id === req.params.id && isInAdminWebsiteModule(req, c) && canEditAdminWebsiteData(req, c));
     if (idx === -1) return res.status(404).json({ message: 'Not found' });
-    store[key][idx] = { ...store[key][idx], ...req.body, _id: req.params.id, websiteModuleSlug: adminWebsiteModuleSlug(req), websiteId: store[key][idx].websiteId || '' };
+    store[key][idx] = { ...store[key][idx], ...req.body, _id: req.params.id, websiteModuleSlug: adminWebsiteModuleSlug(req), websiteId: store[key][idx].websiteId || adminWebsiteIdForRecord(req) };
     res.json(store[key][idx]);
   });
   router.delete(`/${path}/:id`, auth, (req, res) => {
@@ -618,7 +699,7 @@ router.post('/brands', auth, (req, res) => {
 router.put('/brands/:id', auth, (req, res) => {
   const idx = store.brands.findIndex(c => c._id === req.params.id && isInAdminWebsiteModule(req, c) && canEditAdminWebsiteData(req, c));
   if (idx === -1) return res.status(404).json({ message: 'Not found' });
-  store.brands[idx] = { ...store.brands[idx], ...req.body, _id: req.params.id, websiteModuleSlug: adminWebsiteModuleSlug(req), websiteId: store.brands[idx].websiteId || '' };
+  store.brands[idx] = { ...store.brands[idx], ...req.body, _id: req.params.id, websiteModuleSlug: adminWebsiteModuleSlug(req), websiteId: store.brands[idx].websiteId || adminWebsiteIdForRecord(req) };
   res.json(store.brands[idx]);
 });
 router.delete('/brands/:id', auth, (req, res) => {
@@ -637,11 +718,11 @@ function categoryConfigRoutes(path, storeKey, dataField) {
     if (!mainCategory) return res.status(400).json({ message: 'mainCategory required' });
     const idx = store[storeKey].findIndex(c => c.mainCategory === mainCategory && isInAdminWebsiteModule(req, c) && canEditAdminWebsiteData(req, c));
     if (idx >= 0) {
-      store[storeKey][idx] = { ...store[storeKey][idx], [dataField]: data || [], websiteModuleSlug: adminWebsiteModuleSlug(req), websiteId: store[storeKey][idx].websiteId || '' };
+      store[storeKey][idx] = { ...store[storeKey][idx], [dataField]: data || [], websiteModuleSlug: adminWebsiteModuleSlug(req), websiteId: store[storeKey][idx].websiteId || adminWebsiteIdForRecord(req) };
       return res.json(store[storeKey][idx]);
     }
     const maxId = store[storeKey].reduce((m, c) => Math.max(m, c.configId || 0), 0);
-    const item = { _id: uuidv4(), configId: maxId + 1, mainCategory, [dataField]: data || [], websiteModuleSlug: adminWebsiteModuleSlug(req), ...(req.user?.role === 'website_user' && req.user.websiteId ? { websiteId: req.user.websiteId } : {}) };
+    const item = { _id: uuidv4(), configId: maxId + 1, mainCategory, [dataField]: data || [], websiteModuleSlug: adminWebsiteModuleSlug(req), ...(adminWebsiteIdForRecord(req) ? { websiteId: adminWebsiteIdForRecord(req) } : {}) };
     store[storeKey].push(item);
     res.status(201).json(item);
   });
@@ -697,7 +778,7 @@ router.get('/product-items/stats', auth, (req, res) => {
 
 router.post('/product-items', auth, (req, res) => {
   const maxId = store.productItems.reduce((m, p) => Math.max(m, p.productId || 0), 0);
-  const item = applyQuickCommerceFlag(
+  const item = tagAdminProductCommerce(req,
     attachStoreRef({
       _id: uuidv4(),
       productId: maxId + 1,
@@ -707,11 +788,9 @@ router.post('/product-items', auth, (req, res) => {
       lowStockLimit: 10,
       ...req.body,
       createdAt: req.body?.createdAt || new Date().toISOString(),
-      quickCommerce: true,
       websiteModuleSlug: adminWebsiteModuleSlug(req),
-      ...(req.user?.role === 'website_user' && req.user.websiteId ? { websiteId: req.user.websiteId } : {}),
+      ...(adminWebsiteIdForRecord(req) ? { websiteId: adminWebsiteIdForRecord(req) } : {}),
     }, store.stores),
-    store.stores,
     { isCreate: true }
   );
   store.productItems.unshift(item);
@@ -735,17 +814,15 @@ router.get('/product-items/:id', auth, (req, res) => {
 router.put('/product-items/:id', auth, (req, res) => {
   const idx = store.productItems.findIndex(p => p._id === req.params.id && isInAdminWebsiteModule(req, p) && canEditAdminWebsiteData(req, p));
   if (idx === -1) return res.status(404).json({ message: 'Not found' });
-  store.productItems[idx] = applyQuickCommerceFlag(
+  store.productItems[idx] = tagAdminProductCommerce(req,
     attachStoreRef({
       ...store.productItems[idx],
       ...req.body,
       _id: req.params.id,
-      quickCommerce: true,
       websiteModuleSlug: adminWebsiteModuleSlug(req),
-      websiteId: store.productItems[idx].websiteId || '',
+      websiteId: store.productItems[idx].websiteId || adminWebsiteIdForRecord(req),
       createdAt: store.productItems[idx].createdAt || req.body?.createdAt || new Date().toISOString(),
-    }, store.stores),
-    store.stores
+    }, store.stores)
   );
   syncData(store);
   res.json(store.productItems[idx]);
@@ -832,12 +909,11 @@ function approveProductRequest(id, req) {
   const idx = store.productRequests.findIndex(r => r._id === id && isInAdminWebsiteModule(req, r));
   if (idx === -1) return { error: { status: 404, message: 'Not found' } };
   const request = store.productRequests[idx];
-  const product = applyQuickCommerceFlag(attachStoreRef({
+  const product = tagAdminProductCommerce(req, attachStoreRef({
     ...mapRequestToProduct(request),
     createdAt: new Date().toISOString(),
-    quickCommerce: true,
     websiteModuleSlug: request.websiteModuleSlug || adminWebsiteModuleSlug(req),
-  }, store.stores), store.stores, { isCreate: true });
+  }, store.stores), { isCreate: true });
   store.productItems.unshift(product);
   store.productRequests.splice(idx, 1);
   syncData(store);
@@ -1001,7 +1077,9 @@ router.post('/product-items/bulk-import', auth, upload.single('file'), async (re
     const existingProductIds = new Set(store.productItems.map(item => item._id));
     const result = importProductsFromRows(rows, store, uuidv4);
     store.productItems.forEach(item => {
-      if (!existingProductIds.has(item._id)) item.websiteModuleSlug = adminWebsiteModuleSlug(req);
+      if (!existingProductIds.has(item._id)) {
+        Object.assign(item, tagAdminProductCommerce(req, item, { isCreate: true }));
+      }
     });
     syncData(store);
     const record = {
@@ -1547,7 +1625,7 @@ router.post('/flash-sales', auth, (req, res) => {
     _id: uuidv4(),
     status: req.body.status || 'Scheduled',
     websiteModuleSlug: adminWebsiteModuleSlug(req),
-    ...(req.user?.role === 'website_user' && req.user.websiteId ? { websiteId: req.user.websiteId } : {}),
+    ...(adminWebsiteIdForRecord(req) ? { websiteId: adminWebsiteIdForRecord(req) } : {}),
   };
   sale.products = Array.isArray(sale.productItems) ? sale.productItems.length : Number(sale.products) || 0;
   store.flashSales.unshift(sale);
@@ -1562,7 +1640,7 @@ router.put('/flash-sales/:id', auth, (req, res) => {
     ...req.body,
     _id: req.params.id,
     websiteModuleSlug: adminWebsiteModuleSlug(req),
-    websiteId: store.flashSales[idx].websiteId || '',
+    websiteId: store.flashSales[idx].websiteId || adminWebsiteIdForRecord(req),
   };
   if (Array.isArray(store.flashSales[idx].productItems)) store.flashSales[idx].products = store.flashSales[idx].productItems.length;
   res.json(store.flashSales[idx]);
@@ -1583,20 +1661,43 @@ router.get('/components', auth, requireWebsiteBuilderAccess, (req, res) => {
         name: req.user.selectedModuleName,
       })
     : (req.query.moduleType || websiteBuilderType(adminWebsiteModuleInfo(req).module));
-  const list = store.components.filter(component => component.status === 'active'
+  const includeInactive = req.user?.role === 'main_admin' && Object.prototype.hasOwnProperty.call(req.query, 'status') && req.query.status === '';
+  const list = store.components.filter(component => (includeInactive || component.status === 'active')
     && isInAdminWebsiteModule(req, component, { includeShared: true })
     && (!moduleType || component.moduleType === moduleType));
   res.json(list);
 });
 
 router.post('/components', auth, requireWebsiteBuilderAccess, (req, res) => {
-  const c = { _id: uuidv4(), ...req.body, websiteModuleSlug: adminWebsiteModuleSlug(req), ...(req.user?.role === 'website_user' && req.user.websiteId ? { websiteId: req.user.websiteId } : {}), status: 'active' };
+  if (req.user?.role !== 'main_admin') return res.status(403).json({ message: 'Main admin access required' });
+  const c = { _id: uuidv4(), ...req.body, websiteModuleSlug: adminWebsiteModuleSlug(req), ...(adminWebsiteIdForRecord(req) ? { websiteId: adminWebsiteIdForRecord(req) } : {}), status: req.body?.status || 'active' };
   store.components.push(c);
+  syncData(store);
   res.status(201).json(c);
 });
 
+router.put('/components/:id', auth, requireWebsiteBuilderAccess, (req, res) => {
+  if (req.user?.role !== 'main_admin') return res.status(403).json({ message: 'Main admin access required' });
+  const component = store.components.find(item => String(item._id) === String(req.params.id)
+    && isInAdminWebsiteModule(req, item) && canEditAdminWebsiteData(req, item));
+  if (!component) return res.status(404).json({ message: 'Component not found' });
+  const updated = { ...component, ...req.body, _id: component._id, websiteModuleSlug: adminWebsiteModuleSlug(req) };
+  Object.assign(component, updated);
+  (store.websites || []).forEach(website => {
+    (website.components || []).forEach(entry => {
+      const id = entry.componentId && typeof entry.componentId === 'object' ? entry.componentId._id : entry.componentId;
+      if (String(id) === String(component._id)) entry.price = Number(component.price) || 0;
+    });
+    website.totalAmount = (website.components || []).reduce((sum, entry) => sum + (Number(entry.price) || 0), 0) + (Number(website.domain?.price) || 0);
+  });
+  syncData(store);
+  res.json(component);
+});
+
 router.delete('/components/:id', auth, requireWebsiteBuilderAccess, (req, res) => {
+  if (req.user?.role !== 'main_admin') return res.status(403).json({ message: 'Main admin access required' });
   store.components = store.components.filter(c => c._id !== req.params.id || !isInAdminWebsiteModule(req, c) || !canEditAdminWebsiteData(req, c));
+  syncData(store);
   res.json({ message: 'Deleted' });
 });
 
@@ -2002,7 +2103,7 @@ router.post('/stores/:id/store-discounts', auth, (req, res) => {
   const item = {
     _id: uuidv4(),
     websiteModuleSlug: adminWebsiteModuleSlug(req),
-    ...(req.user?.role === 'website_user' && req.user.websiteId ? { websiteId: req.user.websiteId } : {}),
+    ...(adminWebsiteIdForRecord(req) ? { websiteId: adminWebsiteIdForRecord(req) } : {}),
     storeId: s.storeId,
     storeName: s.name,
     discountPercent: percent,
@@ -2034,7 +2135,7 @@ router.put('/stores/:id/store-discounts/:discountId', auth, (req, res) => {
     storeId: s.storeId,
     storeName: s.name,
     websiteModuleSlug: adminWebsiteModuleSlug(req),
-    websiteId: store.storeDiscounts[idx].websiteId || '',
+    websiteId: store.storeDiscounts[idx].websiteId || adminWebsiteIdForRecord(req),
   };
   const item = store.storeDiscounts[idx];
   res.json({ ...item, status: getDiscountStatus(item) });
@@ -2121,7 +2222,7 @@ router.post('/stores', auth, (req, res) => {
     storeId,
     name: body.name || 'New Store',
     websiteModuleSlug: adminWebsiteModuleSlug(req),
-    ...(req.user?.role === 'website_user' && req.user.websiteId ? { websiteId: req.user.websiteId } : {}),
+    ...(adminWebsiteIdForRecord(req) ? { websiteId: adminWebsiteIdForRecord(req) } : {}),
     slug,
     subdomain: slug,
     area: body.area || body.zone || 'Sitabuldi',
@@ -2189,7 +2290,7 @@ router.put('/stores/:id', auth, (req, res) => {
   const current = store.stores[idx];
   const oldName = current.name;
   const { _id: _omitId, storeId: _omitStoreId, storeSettings: _omitSettings, ...rest } = req.body || {};
-  store.stores[idx] = { ...current, ...rest, websiteModuleSlug: adminWebsiteModuleSlug(req), websiteId: current.websiteId || '', _id: current._id, storeId: current.storeId };
+  store.stores[idx] = { ...current, ...rest, websiteModuleSlug: adminWebsiteModuleSlug(req), websiteId: current.websiteId || adminWebsiteIdForRecord(req), _id: current._id, storeId: current.storeId };
   if (rest.name && rest.name !== oldName) {
     propagateStoreRename(store, current.storeId, oldName, rest.name);
   }
@@ -2267,7 +2368,7 @@ router.put('/promotions/:type/:id', auth, (req, res) => {
   if (!key) return res.status(404).json({ message: 'Invalid promotion type' });
   const idx = store[key].findIndex(i => i._id === req.params.id && isInAdminWebsiteModule(req, i) && canEditAdminWebsiteData(req, i));
   if (idx === -1) return res.status(404).json({ message: 'Not found' });
-  store[key][idx] = { ...store[key][idx], ...req.body, _id: req.params.id, websiteModuleSlug: adminWebsiteModuleSlug(req), websiteId: store[key][idx].websiteId || '' };
+  store[key][idx] = { ...store[key][idx], ...req.body, _id: req.params.id, websiteModuleSlug: adminWebsiteModuleSlug(req), websiteId: store[key][idx].websiteId || adminWebsiteIdForRecord(req) };
   res.json(store[key][idx]);
 });
 
@@ -2290,7 +2391,7 @@ router.post('/roles', auth, (req, res) => {
   const item = {
     _id: uuidv4(),
     websiteModuleSlug: adminWebsiteModuleSlug(req),
-    ...(req.user?.role === 'website_user' && req.user.websiteId ? { websiteId: req.user.websiteId } : {}),
+    ...(adminWebsiteIdForRecord(req) ? { websiteId: adminWebsiteIdForRecord(req) } : {}),
     name,
     slug,
     type: body.type || 'employee',
@@ -2398,21 +2499,141 @@ function nextZoneNumericId(req) {
   return max + 1;
 }
 
-router.get('/zones', auth, (req, res) => res.json((store.deliveryZones || []).filter(zone => isInAdminWebsiteModule(req, zone)).map(zone => enrichZone(zone, req))));
+const geographyCache = new Map();
+async function countriesNow(pathname, options = {}) {
+  const cacheKey = `${options.method || 'GET'}:${pathname}:${JSON.stringify(options.body || {})}`;
+  const cached = geographyCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) return cached.data;
+  const response = await fetch(`https://countriesnow.space/api/v0.1/${pathname}`, {
+    method: options.method || 'GET',
+    headers: options.body ? { 'Content-Type': 'application/json' } : undefined,
+    body: options.body ? JSON.stringify(options.body) : undefined,
+    signal: AbortSignal.timeout(12000),
+  });
+  if (!response.ok) throw new Error(`Geography service returned ${response.status}`);
+  const payload = await response.json();
+  if (payload.error || payload.data == null) throw new Error(payload.msg || 'Geography data unavailable');
+  geographyCache.set(cacheKey, { data: payload.data, expiresAt: Date.now() + 24 * 60 * 60 * 1000 });
+  return payload.data;
+}
+
+router.get('/geography/countries', auth, async (_req, res) => {
+  try {
+    const data = await countriesNow('countries/positions');
+    res.json(data.map(item => item.name).filter(Boolean).sort((a, b) => a.localeCompare(b)));
+  } catch (error) {
+    res.status(503).json({ message: error.message || 'Country list unavailable' });
+  }
+});
+
+router.get('/geography/states', auth, async (req, res) => {
+  const country = String(req.query.country || '').trim();
+  if (!country) return res.status(400).json({ message: 'Country required' });
+  try {
+    const data = await countriesNow(`countries/states/q?country=${encodeURIComponent(country)}`);
+    res.json((data.states || []).map(item => typeof item === 'string' ? item : item.name).filter(Boolean).sort((a, b) => a.localeCompare(b)));
+  } catch (error) {
+    res.status(503).json({ message: error.message || 'State list unavailable' });
+  }
+});
+
+router.get('/geography/cities', auth, async (req, res) => {
+  const country = String(req.query.country || '').trim();
+  const state = String(req.query.state || '').trim();
+  if (!country || !state) return res.status(400).json({ message: 'Country and state required' });
+  try {
+    const data = await countriesNow('countries/state/cities', { method: 'POST', body: { country, state } });
+    res.json(data.filter(Boolean).sort((a, b) => a.localeCompare(b)));
+  } catch (error) {
+    res.status(503).json({ message: error.message || 'City list unavailable' });
+  }
+});
+
+router.get('/geography/pincodes', auth, async (req, res) => {
+  const state = String(req.query.state || '').trim();
+  if (!state) return res.status(400).json({ message: 'State required' });
+  const cacheKey = `pincodes:${state.toLowerCase()}`;
+  const cached = geographyCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) return res.json(cached.data);
+  try {
+    const response = await fetch(`https://api.pincodeapi.in/api/v1/state/${encodeURIComponent(state)}`, {
+      headers: { Accept: 'application/json' },
+      signal: AbortSignal.timeout(15000),
+    });
+    if (!response.ok) throw new Error(`PIN code service returned ${response.status}`);
+    const payload = await response.json();
+    const apiSucceeded = payload.success === true || String(payload.status || '').toLowerCase() === 'success';
+    if (!apiSucceeded) throw new Error(payload.error?.message || payload.message || 'PIN code data unavailable');
+    const source = [];
+    const collectRecords = value => {
+      if (Array.isArray(value)) return value.forEach(collectRecords);
+      if (!value || typeof value !== 'object') return;
+      if (value.pincode || value.pin || value.pin_code) source.push(value);
+      else Object.values(value).forEach(collectRecords);
+    };
+    collectRecords(payload.data);
+    const unique = new Map();
+    source.forEach(item => {
+      const pin = String(item.pincode || item.pin || item.pin_code || item.Pincode || '').trim();
+      if (!/^\d{6}$/.test(pin) || unique.has(pin)) return;
+      unique.set(pin, {
+        pin,
+        area: item.office_name || item.officename || item.post_office || item.PostOfficeAddress || item.name || item.district || pin,
+        district: item.district || item.District || '',
+        state: item.state || item.statename || item.State || state,
+        lat: (item.latitude ?? item.Latitude) != null && (item.latitude ?? item.Latitude) !== '' && Number.isFinite(Number(item.latitude ?? item.Latitude)) ? Number(item.latitude ?? item.Latitude) : null,
+        lng: (item.longitude ?? item.Longitude) != null && (item.longitude ?? item.Longitude) !== '' && Number.isFinite(Number(item.longitude ?? item.Longitude)) ? Number(item.longitude ?? item.Longitude) : null,
+      });
+    });
+    const result = [...unique.values()].sort((a, b) => a.pin.localeCompare(b.pin));
+    if (!result.length) throw new Error('No PIN codes found for this state');
+    geographyCache.set(cacheKey, { data: result, expiresAt: Date.now() + 24 * 60 * 60 * 1000 });
+    res.json(result);
+  } catch (error) {
+    res.status(503).json({ message: error.message || 'PIN code list unavailable' });
+  }
+});
+
+router.get('/zone-location-options', auth, (_req, res) => res.json(store.zoneLocationOptions || []));
+router.post('/zone-location-options', auth, (req, res) => {
+  if (req.user?.role !== 'main_admin') return res.status(403).json({ message: 'Only Main Admin can add countries, states, and cities' });
+  const type = ['country', 'state', 'city'].includes(req.body?.type) ? req.body.type : '';
+  const name = String(req.body?.name || '').trim();
+  const country = String(req.body?.country || '').trim();
+  const state = String(req.body?.state || '').trim();
+  if (!type || !name || (type !== 'country' && !country) || (type === 'city' && !state)) {
+    return res.status(400).json({ message: 'Location name and its parent are required' });
+  }
+  if (!Array.isArray(store.zoneLocationOptions)) store.zoneLocationOptions = [];
+  const exists = store.zoneLocationOptions.some(item => item.type === type
+    && item.name.toLowerCase() === name.toLowerCase()
+    && String(item.country || '').toLowerCase() === country.toLowerCase()
+    && String(item.state || '').toLowerCase() === state.toLowerCase());
+  if (exists) return res.status(409).json({ message: 'This location already exists' });
+  const item = { _id: uuidv4(), type, name, country, state, createdAt: new Date().toISOString() };
+  store.zoneLocationOptions.unshift(item);
+  schedulePersist();
+  res.status(201).json(item);
+});
+
+router.get('/zones', auth, (req, res) => res.json((store.deliveryZones || []).filter(zone => isInAdminWebsiteModule(req, zone, { includeShared: req.user?.role === 'website_user' })).map(zone => enrichZone(zone, req))));
 
 router.post('/zones', auth, (req, res) => {
   const body = req.body || {};
   const name = (body.name || '').trim();
   if (!name) return res.status(400).json({ message: 'Zone name zaroori hai' });
+  if (req.user?.role === 'website_user') return res.status(403).json({ message: 'Main Admin manages shared service areas' });
   const isEcom = body.commerceType === 'ecommerce';
+  const scope = isEcom ? 'pincode' : 'city';
   const polygon = Array.isArray(body.polygon) ? body.polygon : [];
   const pinAreas = Array.isArray(body.pinAreas) ? body.pinAreas : [];
   if (!isEcom && polygon.length < 3) {
     return res.status(400).json({ message: 'Map pe zone draw karo — last point first point se jod ke close karo' });
   }
-  if (isEcom && !(Array.isArray(body.pincodes) && body.pincodes.length)) {
+  if (isEcom && scope === 'pincode' && !(Array.isArray(body.pincodes) && body.pincodes.length)) {
     return res.status(400).json({ message: 'E-Commerce: kam se kam 1 pin code select karo' });
   }
+  if (isEcom && !String(body.state || '').trim()) return res.status(400).json({ message: 'State select karo' });
   if (body.isDefault) {
     (store.deliveryZones || []).filter(zone => isInAdminWebsiteModule(req, zone)).forEach(z => { z.isDefault = false; });
   }
@@ -2425,8 +2646,10 @@ router.post('/zones', auth, (req, res) => {
     nameHi: body.nameHi || '',
     displayNameEn: body.displayNameEn || body.displayName || name,
     displayNameHi: body.displayNameHi || '',
-    city: body.city || 'Nagpur',
+    city: isEcom ? '' : (body.city || 'Nagpur'),
     state: body.state || '',
+    country: isEcom ? 'India' : (body.country || ''),
+    scope,
     lat: Number(body.lat) || 21.1458,
     lng: Number(body.lng) || 79.0882,
     radiusKm: Number(body.radiusKm) || 0,
@@ -2463,6 +2686,9 @@ router.put('/zones/:id', auth, (req, res) => {
     return res.status(400).json({ message: 'Map pe zone draw karo — kam se kam 3 points jodo' });
   }
   const existing = store.deliveryZones[idx];
+  if (existing.commerceType === 'ecommerce' && ['country', 'state', 'city'].includes(body.scope) && req.user?.role !== 'main_admin') {
+    return res.status(403).json({ message: 'Only Main Admin can manage country, state, or city service areas' });
+  }
   const { searchCharges: _ignoreCharges, deliveryRules: incomingRules, modules: incomingModules, paymentMethods: incomingPaymentMethods, ...rest } = body;
   store.deliveryZones[idx] = {
     ...existing,
@@ -2712,7 +2938,7 @@ router.put('/system-modules/:id', auth, (req, res) => {
     name,
     slug,
     websiteModuleSlug: adminWebsiteModuleSlug(req),
-    websiteId: current.websiteId || '',
+    websiteId: current.websiteId || adminWebsiteIdForRecord(req),
     image: body.image === undefined ? (current.image || '') : body.image,
     _id: current._id,
   };
@@ -3177,6 +3403,7 @@ router.post('/websites', auth, requireWebsiteBuilderAccess, (req, res) => {
     existing.websiteModuleSlug = moduleSlug;
     existing.websiteKey = websiteKey;
     req.user.websiteId = existing._id;
+    syncData(store);
     return res.status(200).json(existing);
   }
 
@@ -3195,6 +3422,7 @@ router.post('/websites', auth, requireWebsiteBuilderAccess, (req, res) => {
   };
   store.websites.push(w);
   req.user.websiteId = w._id;
+  syncData(store);
   res.status(201).json(w);
 });
 
@@ -3203,8 +3431,11 @@ router.post('/websites/:id/components', auth, requireWebsiteBuilderAccess, (req,
   if (!w) return res.status(404).json({ message: 'Website not found' });
   const comp = store.components.find(c => c._id === req.body.componentId && isInAdminWebsiteModule(req, c, { includeShared: true }));
   if (!comp) return res.status(404).json({ message: 'Component not found' });
-  w.components.push({ componentId: comp._id, config: {}, order: w.components.length, price: comp.price });
+  if (!(w.components || []).some(entry => String(entry.componentId?._id || entry.componentId) === String(comp._id))) {
+    w.components.push({ componentId: comp._id, config: {}, order: w.components.length, price: Number(comp.price) || 0 });
+  }
   w.totalAmount = w.components.reduce((s, c) => s + c.price, 0) + (w.domain?.price || 0);
+  syncData(store);
   res.json(populateWebsite(w));
 });
 
@@ -3213,6 +3444,7 @@ router.delete('/websites/:id/components/:idx', auth, requireWebsiteBuilderAccess
   if (!w) return res.status(404).json({ message: 'Website not found' });
   w.components.splice(parseInt(req.params.idx), 1);
   w.totalAmount = w.components.reduce((s, c) => s + c.price, 0) + (w.domain?.price || 0);
+  syncData(store);
   res.json(populateWebsite(w));
 });
 
@@ -3222,7 +3454,7 @@ function normalizeWebsiteDomain(value) {
 }
 
 function websiteDomainAvailability(domainName, type, websiteId = '') {
-  const baseDomain = normalizeWebsiteDomain(process.env.BASE_DOMAIN || 'wepzo.com');
+  const baseDomain = normalizeWebsiteDomain(process.env.BASE_DOMAIN || 'wepzo.in');
   const cleanName = String(domainName || '').trim();
   if (type === 'none') return { available: true, fullDomain: '', baseDomain, message: '' };
   if (!cleanName) return { available: false, fullDomain: '', baseDomain, message: 'Enter a domain name.' };
@@ -3233,7 +3465,11 @@ function websiteDomainAvailability(domainName, type, websiteId = '') {
     : /^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/.test(normalizedName) && normalizedName.includes('.');
   if (!valid) return { available: false, fullDomain: '', baseDomain, message: 'Enter a valid domain name.' };
   const fullDomain = type === 'subdomain' ? `${normalizedName}.${baseDomain}` : normalizedName;
-  const inUse = (store.websites || []).some(website => String(website._id) !== String(websiteId || '')
+  const requestedWebsite = (store.websites || []).find(website => String(website._id) === String(websiteId || ''));
+  const requestedOwner = (store.users || []).find(user => String(user._id) === String(requestedWebsite?.userId || ''));
+  const reservedMainDomain = fullDomain === normalizeWebsiteHost(process.env.MAIN_WEBSITE_DOMAIN || 'wepzo.in')
+    && requestedOwner?.role !== 'main_admin';
+  const inUse = reservedMainDomain || (store.websites || []).some(website => String(website._id) !== String(websiteId || '')
     && normalizeWebsiteDomain(website.domain?.fullDomain || website.domain?.name) === fullDomain);
   return {
     available: !inUse,
@@ -3268,7 +3504,11 @@ router.post('/websites/:id/domain', auth, requireWebsiteBuilderAccess, (req, res
 router.post('/websites/:id/checkout', auth, requireWebsiteBuilderAccess, async (req, res) => {
   const website = findAccessibleWebsite(req, req.params.id);
   if (!website) return res.status(404).json({ message: 'Website not found' });
-  if (website.purchase?.status === 'paid') return res.status(409).json({ message: 'This website has already been paid for.' });
+  const renewal = req.body?.renewal === true;
+  if (website.purchase?.status === 'paid' && !renewal) return res.status(409).json({ message: 'This website has already been paid for.' });
+  if (renewal && (req.user.role !== 'website_user' || website.purchase?.status !== 'paid' || website.purchase?.type !== 'subscription')) {
+    return res.status(400).json({ message: 'Only an active website subscription can be renewed.' });
+  }
   if (!website.domain) return res.status(400).json({ message: 'Choose and save a domain before checkout.' });
   const purchaseType = String(req.body?.purchaseType || '');
   if (!['full', 'subscription'].includes(purchaseType)) return res.status(400).json({ message: 'Choose full purchase or subscription.' });
@@ -3294,11 +3534,14 @@ router.post('/websites/:id/checkout', auth, requireWebsiteBuilderAccess, async (
       amount: amountPaise,
       currency: 'INR',
       receipt: `wz-${String(website._id).replace(/-/g, '').slice(0, 28)}`,
-      notes: { websiteId: String(website._id), purchaseType, planId: String(plan?._id || '') },
+      notes: { websiteId: String(website._id), purchaseType, planId: String(plan?._id || ''), renewal: String(renewal) },
     });
     website.purchase = {
       type: purchaseType,
       status: 'pending',
+      renewal,
+      previousExpiresAt: renewal ? website.purchase.expiresAt || '' : '',
+      previousPaymentId: renewal ? website.purchase.paymentId || '' : '',
       amount,
       totalAmount,
       balanceDue: Math.max(0, Math.round((totalAmount - amount) * 100) / 100),
@@ -3346,7 +3589,11 @@ router.post('/websites/:id/checkout/verify', auth, requireWebsiteBuilderAccess, 
   purchase.paymentId = paymentId;
   purchase.paidAt = new Date().toISOString();
   if (purchase.type === 'subscription') {
-    const expiresAt = new Date(purchase.paidAt);
+    const currentExpiry = purchase.renewal && purchase.previousExpiresAt ? new Date(purchase.previousExpiresAt) : null;
+    const renewalStart = currentExpiry && Number.isFinite(currentExpiry.getTime()) && currentExpiry.getTime() > Date.now()
+      ? currentExpiry
+      : new Date(purchase.paidAt);
+    const expiresAt = new Date(renewalStart);
     const duration = Number(purchase.subscriptionDurationValue) || 30;
     if (purchase.subscriptionDurationUnit === 'year') expiresAt.setFullYear(expiresAt.getFullYear() + duration);
     else if (purchase.subscriptionDurationUnit === 'month') expiresAt.setMonth(expiresAt.getMonth() + duration);
@@ -3514,9 +3761,9 @@ function populateWebsite(w) {
 
     const componentSlug = String(component.slug || '').toLowerCase();
     const componentType = normalizeWebsiteModuleSlug(component.moduleType || '');
-    if (componentType === 'ecommerce') {
+    if (['ecommerce', 'e-commerce'].includes(componentType)) {
       if (quickCommerce) return componentSlug.startsWith('quick-commerce-');
-      if (ecommerce) return componentSlug.startsWith('e-commerce-') || componentSlug.startsWith('ecommerce-');
+      if (ecommerce) return !componentSlug.startsWith('quick-commerce-');
       return false;
     }
     if (componentType) return componentType === websiteType;
@@ -3606,8 +3853,10 @@ function shopVariants(p) {
   });
 }
 
-function shopModuleSlug(product) {
+function shopModuleSlug(product, websiteContext = null) {
   const category = String(product?.mainCategory || '').trim().toLowerCase();
+  const websiteId = String(websiteContext?.websiteId || product?.websiteId || '');
+  const matchesWebsite = item => belongsToWebsite(item, websiteId) && isShopWebsiteRecord(item, websiteContext);
   const legacyCategoryModules = {
     groceries: 'grocery', 'grocery & staples': 'grocery', 'fruits & vegetables': 'grocery',
     'dairy & bakery': 'grocery', 'snacks & beverages': 'grocery', 'home care': 'grocery',
@@ -3618,22 +3867,22 @@ function shopModuleSlug(product) {
     "women's fashion": 'fashion', "women's wear": 'fashion', 'womens wear': 'fashion',
     footwear: 'fashion', 'ethnic wear': 'ethnic-wear',
   };
-  const matchedStore = (store.stores || []).find(item =>
+  const matchedStore = (store.stores || []).find(item => matchesWebsite(item) && (
     (product?.storeId && String(item.storeId) === String(product.storeId)) || item.name === product?.store
-  );
-  const linkedCategory = (store.categories || []).find(item => String(item.name || '').trim().toLowerCase() === category);
+  ));
+  const linkedCategory = (store.categories || []).find(item => matchesWebsite(item) && String(item.name || '').trim().toLowerCase() === category);
   const linkedModule = linkedCategory?.moduleId
-    ? (store.systemModules || []).find(item => String(item._id) === String(linkedCategory.moduleId))
+    ? (store.systemModules || []).find(item => matchesWebsite(item) && String(item._id) === String(linkedCategory.moduleId))
     : null;
   const value = product?.moduleSlug || product?.module || linkedModule?.slug || legacyCategoryModules[category] || matchedStore?.module || 'grocery';
   const normalized = String(value).trim().toLowerCase().replace(/\s+/g, '-');
-  const matchedModule = (store.systemModules || []).find(item =>
+  const matchedModule = (store.systemModules || []).find(item => matchesWebsite(item) && (
     item.slug === normalized || String(item.name || '').trim().toLowerCase() === String(value).trim().toLowerCase()
-  );
+  ));
   return matchedModule?.slug || normalized;
 }
 
-function toShopProduct(p) {
+function toShopProduct(p, websiteContext = null) {
   const mrp = Number(p.price) || 0;
   const price = shopPrice(p);
   const images = shopImages(p);
@@ -3655,7 +3904,7 @@ function toShopProduct(p) {
     stock: p.stock,
     store: p.store,
     storeId: p.storeId,
-    moduleSlug: shopModuleSlug(p),
+    moduleSlug: shopModuleSlug(p, websiteContext),
     rating: p.rating || Number((4.1 + ((p.productId || 1) % 8) * 0.1).toFixed(1)),
     reviews: 80 + ((p.productId || 1) * 7) % 400,
     description: p.description || p.shortDesc || `${p.name} — delivered fast from ${p.store || 'nearby store'}.`,
@@ -3672,11 +3921,11 @@ function toShopProduct(p) {
   };
 }
 
-function qcCatalog(websiteId = '') {
+function qcCatalog(websiteId = '', websiteContext = null) {
   const seen = new Set();
   const out = [];
   const push = (p) => {
-    if (!belongsToWebsite(p, websiteId) || !isQuickCommerceWebsiteRecord(p)) return;
+    if (!belongsToWebsite(p, websiteId) || !isShopWebsiteRecord(p, websiteContext)) return;
     if (!shouldListOnQuickCommerce(p)) return;
     const key = p._id || `pid-${p.productId}-${p.name}`;
     if (seen.has(key)) return;
@@ -3687,8 +3936,8 @@ function qcCatalog(websiteId = '') {
   return sortNewestFirst(out);
 }
 
-function buildShopLines(rawItems, websiteId = '') {
-  const catalog = qcCatalog(websiteId);
+function buildShopLines(rawItems, websiteId = '', websiteContext = null) {
+  const catalog = qcCatalog(websiteId, websiteContext);
   const details = [];
   let itemsTotal = 0;
   (Array.isArray(rawItems) ? rawItems : []).forEach(line => {
@@ -3717,7 +3966,7 @@ function buildShopLines(rawItems, websiteId = '') {
       image: variant?.image || p.image,
       store: p.store,
       storeId: p.storeId,
-      moduleSlug: shopModuleSlug(p),
+      moduleSlug: shopModuleSlug(p, websiteContext),
       productId: p.productId,
       category: p.mainCategory,
     });
@@ -3752,17 +4001,24 @@ function calculateShopCoupon(coupon, itemsTotal, storeName) {
   return { discount: Math.min(itemsTotal, Math.round(isPercent ? itemsTotal * amount / 100 : amount)) };
 }
 
-function shopQuoteFor(body, websiteId = '') {
+function shopQuoteFor(body, websiteId = '', contextOverride = null) {
   const { quoteDelivery } = require('../lib/shopQuote');
+  const website = contextOverride?.website || (websiteId ? (store.websites || []).find(item => String(item._id) === String(websiteId)) : null);
+  const websiteContext = contextOverride || {
+    website,
+    websiteId,
+    moduleId: String(website?.websiteModuleId || ''),
+    moduleSlug: normalizeWebsiteModuleSlug(website?.websiteModuleSlug || website?.moduleType || ''),
+  };
   const websiteStore = websiteId ? {
     ...store,
     stores: (store.stores || []).filter(item => belongsToWebsite(item, websiteId)),
     deliveryZones: (store.deliveryZones || []).filter(item => belongsToWebsite(item, websiteId)),
   } : store;
-  const { details, itemsTotal } = buildShopLines(body.items, websiteId);
+  const { details, itemsTotal } = buildShopLines(body.items, websiteId, websiteContext);
   const firstStore = details[0]?.store;
   const firstStoreId = details[0]?.storeId;
-  const st = websiteStore.stores.find(s => isQuickCommerceWebsiteRecord(s) && ((firstStoreId && (String(s._id) === String(firstStoreId) || String(s.storeId) === String(firstStoreId))) || s.name === firstStore));
+  const st = websiteStore.stores.find(s => isShopWebsiteRecord(s, websiteContext) && ((firstStoreId && (String(s._id) === String(firstStoreId) || String(s.storeId) === String(firstStoreId))) || s.name === firstStore));
   const moduleSlug = String(body.moduleSlug || details[0]?.moduleSlug || 'grocery');
   const result = {
     details,
@@ -3775,7 +4031,7 @@ function shopQuoteFor(body, websiteId = '') {
   };
   const couponCode = String(body.couponCode || '').trim().toUpperCase();
   if (!couponCode) return result;
-  const coupon = (store.coupons || []).find(item => belongsToWebsite(item, websiteId) && isQuickCommerceWebsiteRecord(item) && String(item.code || '').trim().toUpperCase() === couponCode);
+  const coupon = (store.coupons || []).find(item => belongsToWebsite(item, websiteId) && isShopWebsiteRecord(item, websiteContext) && String(item.code || '').trim().toUpperCase() === couponCode);
   if (!coupon) {
     result.quote = { ...result.quote, couponError: 'Coupon code not found' };
     return result;
@@ -3817,7 +4073,7 @@ router.post('/shop/auth/register', async (req, res) => {
     _id: uuidv4(),
     websiteId,
     websiteModuleId: websiteContext.moduleId,
-    websiteModuleSlug: websiteContext.website?.websiteModuleSlug || quickCommerceWebsiteModuleSlug(),
+    websiteModuleSlug: websiteContext.website?.websiteModuleSlug || websiteContext.website?.moduleType || websiteContext.moduleSlug || quickCommerceWebsiteModuleSlug(),
     name: String(name).trim(),
     email: em,
     phone: ph,
@@ -3859,7 +4115,7 @@ router.post('/shop/quote', (req, res) => {
   const body = req.body || {};
   const websiteContext = websiteContextForRequest(req);
   if (websiteContext.error) return res.status(websiteContext.error.status).json({ message: websiteContext.error.message });
-  const { details, quote } = shopQuoteFor(body, websiteContext.websiteId);
+  const { details, quote } = shopQuoteFor(body, websiteContext.websiteId, websiteContext);
   if (!details.length && (body.items || []).length) {
     return res.status(400).json({ message: 'Valid items nahi mile' });
   }
@@ -3869,7 +4125,7 @@ router.post('/shop/quote', (req, res) => {
 router.get('/shop/coupons', (req, res) => {
   const websiteContext = websiteContextForRequest(req);
   if (websiteContext.error) return res.status(websiteContext.error.status).json({ message: websiteContext.error.message });
-  const coupons = (store.coupons || []).filter(coupon => belongsToWebsite(coupon, websiteContext.websiteId) && isQuickCommerceWebsiteRecord(coupon) && !couponAvailability(coupon));
+  const coupons = (store.coupons || []).filter(coupon => belongsToWebsite(coupon, websiteContext.websiteId) && isShopWebsiteRecord(coupon, websiteContext) && !couponAvailability(coupon));
   res.json(coupons.map(({ _id, code, title, discount, discountType, minOrder, store: storeName, expiry }) => ({
     _id, code, title, discount, discountType, minOrder: Number(minOrder) || 0, store: storeName, expiry,
   })));
@@ -3898,18 +4154,36 @@ router.get('/shop/home', (req, res) => {
   });
   if (linkedLegacyCategory) schedulePersist();
 
-  const catalog = quickCommerceCatalogForLocation(req.query.lat, req.query.lng, websiteId);
+  const ecommerceStorefront = ['ecommerce', 'e-commerce'].includes(normalizeWebsiteModuleSlug(websiteContext.website?.websiteModuleSlug || websiteContext.website?.moduleType || websiteContext.moduleSlug || ''));
+  const catalog = ecommerceStorefront
+    ? { stores: (store.stores || []).filter(item => belongsToWebsite(item, websiteId) && isShopWebsiteRecord(item, websiteContext) && item.status === 'active') }
+    : quickCommerceCatalogForLocation(req.query.lat, req.query.lng, websiteId);
   const activeStores = catalog.stores;
   const requestedModule = String(req.query.module || '').trim().toLowerCase();
-  const list = qcCatalog(websiteId)
-    .filter(product => !requestedModule || shopModuleSlug(product) === requestedModule)
-    .map(toShopProduct);
-  const activeBrands = (store.brands || []).filter(b => belongsToWebsite(b, websiteId) && isQuickCommerceWebsiteRecord(b) && b.status !== false);
+  const list = qcCatalog(websiteId, websiteContext)
+    .filter(product => !requestedModule || shopModuleSlug(product, websiteContext) === requestedModule)
+    .map(product => toShopProduct(product, websiteContext));
+  const activeBrands = (store.brands || []).filter(b => belongsToWebsite(b, websiteId) && isShopWebsiteRecord(b, websiteContext) && b.status !== false);
   const homeBanners = (store.banners || [])
     .filter(banner => belongsToWebsite(banner, websiteId)
-      && isQuickCommerceWebsiteRecord(banner)
+      && isShopWebsiteRecord(banner, websiteContext)
       && String(banner.status || '').toLowerCase() === 'active'
       && ['home top', 'home hero', 'home'].includes(String(banner.placement || '').trim().toLowerCase())
+      && banner.image)
+    .sort((a, b) => (Number(a.priority) || 0) - (Number(b.priority) || 0))
+    .map(({ _id, title, subtitle, image, link, cta, buttonText }) => ({
+      id: _id,
+      title: title || '',
+      subtitle: subtitle || '',
+      image,
+      link: link || '',
+      cta: cta || buttonText || '',
+    }));
+  const promotionalBanners = (store.banners || [])
+    .filter(banner => belongsToWebsite(banner, websiteId)
+      && isShopWebsiteRecord(banner, websiteContext)
+      && String(banner.status || '').toLowerCase() === 'active'
+      && ['home middle', 'home secondary', 'home promotion'].includes(String(banner.placement || '').trim().toLowerCase())
       && banner.image)
     .sort((a, b) => (Number(a.priority) || 0) - (Number(b.priority) || 0))
     .map(({ _id, title, subtitle, image, link, cta, buttonText }) => ({
@@ -3923,17 +4197,23 @@ router.get('/shop/home', (req, res) => {
   const flash = [...list].sort((a, b) => b.discount - a.discount).slice(0, 6);
   const best = [...list].sort((a, b) => b.rating - a.rating).slice(0, 8);
   const newest = list.slice(0, 12);
-  const settingsScope = websiteContext.websiteId
-    ? `website-user:${websiteContext.websiteId}:${normalizeWebsiteModuleSlug(websiteContext.website?.websiteModuleSlug || '')}`
-    : '';
-  const settings = settingsScope
-    ? (store.businessSettingsByModule?.[settingsScope] || {})
-    : (store.businessSettings || {});
+  const settingsModuleSlug = normalizeWebsiteModuleSlug(
+    websiteContext.website?.websiteModuleSlug || websiteContext.website?.moduleType || websiteContext.moduleSlug || ''
+  );
+  const settingsScope = websiteContext.isMainWebsite
+    ? `main-module:${settingsModuleSlug}`
+    : websiteContext.websiteId ? `website-user:${websiteContext.websiteId}:${settingsModuleSlug}` : '';
+  const settings = {
+    ...(store.businessSettingsByModule?.[settingsModuleSlug] || store.businessSettingsByModule?.[settingsModuleSlug.replace(/-/g, '')] || store.businessSettings || {}),
+    ...(settingsScope ? (store.businessSettingsByModule?.[settingsScope] || {}) : {}),
+  };
   res.json({
+    isMainWebsite: websiteContext.isMainWebsite === true,
     business: {
       businessName: settings.businessName || settings.platformName || settings.siteTitle || websiteContext.website?.name || 'WEPZO',
       businessLogo: settings.businessLogo || settings.logo || settings.logoUrl || '',
       favicon: settings.favicon || '',
+      primaryColor: settings.primaryColor || '',
       businessEmail: settings.businessEmail || settings.supportEmail || '',
       businessPhone: settings.businessPhone || settings.supportPhone || '',
       businessAddress: settings.businessAddress || settings.address || '',
@@ -3942,7 +4222,29 @@ router.get('/shop/home', (req, res) => {
       currencySymbol: settings.currencySymbol || '₹',
       currencyPosition: settings.currencyPosition || 'left',
       decimalDigits: Number(settings.decimalDigits) || 0,
+      maintenanceMode: settings.maintenanceMode === true,
+      cookiesText: settings.cookiesText || '',
+      country: settings.country || 'India',
+      timezone: settings.timezone || 'Asia/Kolkata',
+      timeFormat: settings.timeFormat || '12',
     },
+    websiteComponents: websiteContext.website
+      ? populateWebsite(websiteContext.website).components.map(component => ({
+        componentId: component.componentId && typeof component.componentId === 'object'
+          ? {
+            _id: component.componentId._id,
+            slug: component.componentId.slug,
+            name: component.componentId.name,
+            type: component.componentId.type,
+            moduleType: component.componentId.moduleType,
+            description: component.componentId.description,
+          }
+          : component.componentId,
+        config: component.config || {},
+        order: component.order,
+        price: component.price,
+      }))
+      : [],
     city: settingsScope ? (settings.city || '') : (store.businessSettings?.city || ''),
     pincode: settingsScope ? (settings.pincode || '') : (store.businessSettings?.pincode || ''),
     eta: activeStores[0]?.deliveryMin && activeStores[0]?.deliveryMax
@@ -3963,10 +4265,11 @@ router.get('/shop/home', (req, res) => {
     })),
     brands: activeBrands.map(b => ({ id: b._id, name: b.name, image: b.image || '' })),
     banners: homeBanners,
-    categories: (store.categories || []).filter(category => belongsToWebsite(category, websiteId) && isQuickCommerceWebsiteRecord(category) && category.status !== false),
-    subCategories: (store.subCategories || []).filter(category => belongsToWebsite(category, websiteId) && isQuickCommerceWebsiteRecord(category) && category.status !== false),
-    childCategories: (store.childCategories || []).filter(category => belongsToWebsite(category, websiteId) && isQuickCommerceWebsiteRecord(category) && category.status !== false),
-    modules: (store.systemModules || []).filter(module => belongsToWebsite(module, websiteId) && module.status !== false && isQuickCommerceWebsiteRecord(module))
+    promotionalBanners,
+    categories: (store.categories || []).filter(category => belongsToWebsite(category, websiteId) && isShopWebsiteRecord(category, websiteContext) && category.status !== false),
+    subCategories: (store.subCategories || []).filter(category => belongsToWebsite(category, websiteId) && isShopWebsiteRecord(category, websiteContext) && category.status !== false),
+    childCategories: (store.childCategories || []).filter(category => belongsToWebsite(category, websiteId) && isShopWebsiteRecord(category, websiteContext) && category.status !== false),
+    modules: (store.systemModules || []).filter(module => belongsToWebsite(module, websiteId) && module.status !== false && module.status !== 'false' && module.status !== 'inactive' && isShopWebsiteRecord(module, websiteContext))
       .map(({ _id, name, slug, image }) => ({ _id, name, slug, image: image || '' })),
     flash,
     newest,
@@ -3976,9 +4279,9 @@ router.get('/shop/home', (req, res) => {
 router.get('/shop/products', (req, res) => {
   const websiteContext = websiteContextForRequest(req);
   if (websiteContext.error) return res.status(websiteContext.error.status).json({ message: websiteContext.error.message });
-  let list = qcCatalog(websiteContext.websiteId);
+  let list = qcCatalog(websiteContext.websiteId, websiteContext);
   const requestedModule = String(req.query.module || '').trim().toLowerCase();
-  if (requestedModule) list = list.filter(product => shopModuleSlug(product) === requestedModule);
+  if (requestedModule) list = list.filter(product => shopModuleSlug(product, websiteContext) === requestedModule);
   const cat = req.query.category;
   const q = (req.query.q || '').toLowerCase().trim();
   if (cat) list = list.filter(p => p.mainCategory === cat || (p.subCategory || '') === cat || (p.childCategory || '') === cat);
@@ -3988,7 +4291,7 @@ router.get('/shop/products', (req, res) => {
     (p.mainCategory || '').toLowerCase().includes(q)
   );
   if (req.query.maxPrice) list = list.filter(p => shopPrice(p) <= Number(req.query.maxPrice));
-  let out = list.map(toShopProduct);
+  let out = list.map(product => toShopProduct(product, websiteContext));
   if (req.query.sort === 'price-asc') out.sort((a, b) => a.price - b.price);
   else if (req.query.sort === 'price-desc') out.sort((a, b) => b.price - a.price);
   else if (req.query.sort === 'rating') out.sort((a, b) => b.rating - a.rating);
@@ -4000,14 +4303,13 @@ router.get('/shop/products/:id', (req, res) => {
   const websiteContext = websiteContextForRequest(req);
   if (websiteContext.error) return res.status(websiteContext.error.status).json({ message: websiteContext.error.message });
   const id = req.params.id;
-  const products = qcCatalog(websiteContext.websiteId);
+  const products = qcCatalog(websiteContext.websiteId, websiteContext);
   const item = products.find(product => product._id === id || String(product.productId) === id);
   if (!item) return res.status(404).json({ message: 'Product not found' });
   const related = products
     .filter(product => product._id !== item._id && product.mainCategory === item.mainCategory)
-    .slice(0, 6)
-    .map(toShopProduct);
-  const approvedRatings = (store.productReviews || []).filter(review => belongsToWebsite(review, websiteContext.websiteId) && isQuickCommerceWebsiteRecord(review) && (() => {
+    .slice(0, 6);
+  const approvedRatings = (store.productReviews || []).filter(review => belongsToWebsite(review, websiteContext.websiteId) && isShopWebsiteRecord(review, websiteContext) && (() => {
     if (String(review.status || '').toLowerCase() !== 'approved') return false;
     const sameId = review.productId && String(review.productId) === String(item._id);
     const sameName = String(review.productName || '').trim().toLowerCase() === String(item.name || '').trim().toLowerCase();
@@ -4018,13 +4320,13 @@ router.get('/shop/products/:id', (req, res) => {
   const rating = approvedRatings.length
     ? Number((approvedRatings.reduce((total, review) => total + (Number(review.rating) || 0), 0) / approvedRatings.length).toFixed(1))
     : Number(item.rating) || 0;
-  res.json({ ...toShopProduct(item), rating, reviews: approvedRatings.length, related });
+  res.json({ ...toShopProduct(item, websiteContext), rating, reviews: approvedRatings.length, related: related.map(product => toShopProduct(product, websiteContext)) });
 });
 
 router.post('/shop/orders', shopAuth, (req, res) => {
   ensureOrders();
   const body = req.body || {};
-  const { details, quote, storeRef } = shopQuoteFor(body, req.customer.websiteId || '');
+  const { details, quote, storeRef } = shopQuoteFor(body, req.customer.websiteId || '', req.websiteContext);
   if (!details.length) return res.status(400).json({ message: 'Cart empty hai' });
   if (quote.couponError) return res.status(400).json({ message: quote.couponError });
   if (!quote.deliverable) return res.status(400).json({ message: quote.message || 'Is location par delivery nahi' });
@@ -4070,7 +4372,7 @@ router.post('/shop/orders', shopAuth, (req, res) => {
     instruction: body.instruction || '',
     orderDate: formatNow(),
     date: formatNow(),
-    source: 'quick_commerce',
+    source: ['ecommerce', 'e-commerce'].includes(normalizeWebsiteModuleSlug(req.customer.websiteModuleSlug)) ? 'e_commerce' : 'quick_commerce',
     websiteId: req.customer.websiteId || '',
     websiteModuleId: req.customer.websiteModuleId || '',
     websiteModuleSlug: req.customer.websiteModuleSlug || quickCommerceWebsiteModuleSlug(),

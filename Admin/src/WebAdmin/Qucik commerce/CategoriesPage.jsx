@@ -4,6 +4,7 @@ import {
   Edit, Trash2, Search, ChevronDown, ChevronLeft, ChevronRight
 } from 'lucide-react';
 import api from '../../api/axios';
+import { Link } from 'react-router-dom';
 import { downloadFile } from '../../api/download';
 import { PageCard, PageCardHeader } from './components/PageCard';
 import ViewableImage from './components/ViewableImage';
@@ -36,6 +37,7 @@ export default function CategoriesPage() {
   const [page, setPage] = useState(1);
   const [editingId, setEditingId] = useState(null);
   const fileRef = useRef(null);
+  const formCardRef = useRef(null);
 
   const [form, setForm] = useState({
     name: '', nameEn: '', nameHi: '', priority: 'Normal', moduleId: '',
@@ -96,7 +98,7 @@ export default function CategoriesPage() {
       name: cat.name, nameEn: cat.nameEn || '', nameHi: cat.nameHi || '',
       priority: cat.priority, moduleId: cat.moduleId || '', status: cat.status, featured: cat.featured, image: cat.image || ''
     });
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    requestAnimationFrame(() => formCardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
   };
 
   const handleDelete = async (id) => {
@@ -124,7 +126,7 @@ export default function CategoriesPage() {
           description="Create a new category to organize your products."
         />
 
-        <form onSubmit={handleSubmit} className="p-6">
+        <form ref={formCardRef} onSubmit={handleSubmit} className="p-6 scroll-mt-4">
           {/* Language Tabs */}
           <div className="flex gap-1 border-b border-gray-200 mb-6">
             {tabs.map((tab, i) => (
@@ -197,7 +199,10 @@ export default function CategoriesPage() {
               </div>
 
               <div>
-                <label className="flex items-center gap-1.5 text-sm font-medium text-gray-700 mb-1.5"><Layers size={14} className="text-gray-400" /> Module <span className="text-red-500">*</span></label>
+                <div className="mb-1.5 flex items-center justify-between gap-3">
+                  <label className="flex items-center gap-1.5 text-sm font-medium text-gray-700"><Layers size={14} className="text-gray-400" /> Main Module <span className="text-red-500">*</span></label>
+                  <Link to="/quick-commerce/modules/add" className="text-xs font-semibold text-blue-700 hover:underline">+ Add main module</Link>
+                </div>
                 <select required value={form.moduleId} onChange={e => setForm({ ...form, moduleId: e.target.value })} className="w-full px-4 py-2.5 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 outline-none bg-white">
                   <option value="">Select a module</option>
                   {modules.map(module => <option key={module._id} value={module._id}>{module.name}</option>)}
@@ -285,9 +290,9 @@ export default function CategoriesPage() {
           </div>
         </div>
 
-        <div className="flex-1 min-h-0 overflow-x-auto overflow-y-auto dropdown-scroll max-h-[520px]">
+        <div className="overflow-x-auto">
           <table className="w-full text-sm">
-            <thead className="sticky top-0 z-10">
+            <thead>
               <tr className={listTheadClass} style={listTheadStyle}>
                 <th className={`${listThClass} w-12`}>#</th>
                 <th className={listThClass}>ID</th>

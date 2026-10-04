@@ -9,7 +9,9 @@ import { useAuthStore, useBuilderStore, useModuleStore } from '../../../store/us
 import { getAdminModuleKey } from '../../../constants/adminModules';
 
 const MODULES = [
-  { type: 'ecommerce', name: 'Quick Commerce', icon: ShoppingBag, color: 'bg-emerald-600', desc: 'Build your storefront from individually priced components' },
+  { type: 'quick-commerce', name: 'Quick Commerce', icon: ShoppingBag, color: 'bg-emerald-600', desc: 'Build your Quick Commerce storefront' },
+  { type: 'e-commerce', name: 'E-Commerce', icon: ShoppingBag, color: 'bg-orange-600', desc: 'Build your E-Commerce storefront' },
+  { type: 'store-single', name: 'Store Singlepage Web', icon: Layout, color: 'bg-indigo-600', desc: 'Build a single-page store website' },
   { type: 'marketing', name: 'Marketing', icon: Megaphone, color: 'bg-purple-500', desc: 'Landing pages, newsletters & promotions' },
   { type: 'general', name: 'General', icon: Layout, color: 'bg-green-500', desc: 'Basic website with header, footer & contact' },
 ];
@@ -22,9 +24,11 @@ const normalizeModuleType = (moduleType) => {
   return value || 'ecommerce';
 };
 
-const displayModuleName = (moduleType) => {
+const displayModuleName = (moduleType, moduleKey) => {
   const value = normalizeModuleType(moduleType);
-  if (value === 'ecommerce') return 'Quick Commerce';
+  if (moduleKey === 'information-web') return 'Information Web';
+  if (moduleKey === 'store-single') return 'Store Singlepage Web';
+  if (value === 'ecommerce') return moduleKey === 'e-commerce' ? 'E-Commerce' : 'Quick Commerce';
   if (value === 'marketing') return 'Marketing';
   if (value === 'general') return 'General';
   return value ? value.replace(/[-_]/g, ' ') : 'Quick Commerce';
@@ -33,6 +37,22 @@ const displayModuleName = (moduleType) => {
 const getComponentGroup = component => component?.group || (
   ['header', 'navbar'].includes(component?.type) ? 'Header' : component?.type === 'footer' ? 'Footer' : 'Storefront'
 );
+
+const escapeHtml = value => String(value || '').replace(/[&<>"']/g, character => ({
+  '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+}[character]));
+
+function createModulePreviewDocument(moduleName, selectedComponents) {
+  const blocks = [...selectedComponents]
+    .sort((a, b) => Number(a.order || 0) - Number(b.order || 0))
+    .map(entry => {
+      const component = entry.componentId && typeof entry.componentId === 'object' ? entry.componentId : entry;
+      if (component.htmlTemplate) return component.htmlTemplate;
+      return `<section class="component-card"><span>${escapeHtml(component.type || component.group || 'Website component')}</span><h2>${escapeHtml(component.name || 'Website component')}</h2><p>${escapeHtml(component.description || 'Add a description in Main Admin to customize this component preview.')}</p></section>`;
+    }).join('\n');
+  const content = blocks || `<section class="empty"><h1>${escapeHtml(moduleName)} website preview</h1><p>Add components in the designer panel to build this page.</p></section>`;
+  return `<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1"><title>${escapeHtml(moduleName)} preview</title><style>*{box-sizing:border-box}body{margin:0;background:#f8fafc;color:#172033;font:15px/1.5 Arial,sans-serif}.preview{max-width:1120px;min-height:100vh;margin:auto;padding:24px}.preview-label{margin:0 0 18px;color:#64748b;font-size:12px;font-weight:700;letter-spacing:.1em;text-transform:uppercase}.component-card{margin:16px 0;padding:24px;border:1px solid #e2e8f0;border-radius:14px;background:white;box-shadow:0 3px 12px #0f172a0a}.component-card span{color:#ea580c;font-size:11px;font-weight:700;text-transform:uppercase}.component-card h2{margin:8px 0;font-size:24px}.component-card p{margin:0;color:#64748b}.empty{display:grid;min-height:440px;place-content:center;text-align:center}.empty h1{margin:0 0 8px;font-size:28px}.empty p{color:#64748b}@media(max-width:640px){.preview{padding:16px}.component-card{padding:18px}}</style></head><body><main class="preview"><p class="preview-label">${escapeHtml(moduleName)} · Website preview</p>${content}</main></body></html>`;
+}
 
 const LEGACY_PREVIEW_COMPONENTS = {
   'basic-header': ['quick-commerce-header'],
@@ -68,8 +88,8 @@ export default function WebsiteBuilder() {
   const previewModuleKey = isWebsiteUser
     ? getAdminModuleKey({ slug: selectedAccountModule, name: user?.selectedModuleName })
     : adminModuleKey;
-  const adminBuilderType = adminModuleKey === 'information-web' ? 'general' : adminModuleKey === 'marketing' ? 'marketing' : 'ecommerce';
-  const builderContextSlug = isWebsiteUser ? selectedAccountModule : String(activeModule?.slug || activeModule?.type || 'ecommerce').toLowerCase();
+  const displayModuleKey = previewModuleKey;
+  const adminBuilderType = adminModuleKey === 'information-web' ? 'general' : adminModuleKey === 'marketing' ? 'marketing' : adminModuleKey;
   const {
     website, selectedModule, components, totalAmount, domain,
     setWebsite, setModule, addComponent, removeComponent, setDomain
@@ -79,7 +99,7 @@ export default function WebsiteBuilder() {
   const [availableComponents, setAvailableComponents] = useState([]);
   const [domainName, setDomainName] = useState('');
   const [domainType, setDomainType] = useState('subdomain');
-  const [baseDomain, setBaseDomain] = useState('wepzo.com');
+  const [baseDomain, setBaseDomain] = useState('wepzo.in');
   const [domainError, setDomainError] = useState('');
   const [subscriptionPlans, setSubscriptionPlans] = useState([]);
   const [selectedPlanId, setSelectedPlanId] = useState('');
@@ -88,6 +108,7 @@ export default function WebsiteBuilder() {
   const [checkoutLoading, setCheckoutLoading] = useState(false);
   const [loading, setLoading] = useState(false);
   const [websiteName, setWebsiteName] = useState('My Website');
+  const ecommercePreviewRef = useRef(null);
   const hasPurchasedWebsite = !!website && (website.purchase?.status === 'paid' || (website.status === 'published' && !website.purchase));
   const isEditOnly = isWebsiteUser && hasPurchasedWebsite;
   const steps = isWebsiteUser
@@ -125,9 +146,7 @@ export default function WebsiteBuilder() {
         .then(res => {
           const catalog = res.data || [];
           const moduleComponents = catalog.filter(component => normalizeModuleType(component.moduleType) === normalizedModuleType);
-          setAvailableComponents(normalizedModuleType === 'ecommerce'
-            ? moduleComponents.filter(component => component.group)
-            : moduleComponents);
+          setAvailableComponents(moduleComponents);
         })
         .catch(error => {
           console.error('Unable to load website components:', error);
@@ -166,27 +185,28 @@ export default function WebsiteBuilder() {
     api.get('/websites').then(({ data }) => {
       const websites = Array.isArray(data) ? data : [];
       const existingWebsite = isWebsiteUser
-        ? websites.find(item => normalizeModuleType(item.moduleType || item.websiteModuleSlug || '') === accountModuleType
-          || normalizeModuleType(item.moduleType || item.websiteModuleSlug || '') === normalizeModuleType(user?.selectedModuleSlug || ''))
-        : websites.find(item => normalizeModuleType(item.websiteModuleSlug || item.moduleType || '') === normalizeModuleType(builderContextSlug))
-          || websites.find(item => normalizeModuleType(item.moduleType || item.websiteModuleSlug || '') === adminBuilderType);
+        ? websites.find(item => String(item._id) === String(user?.websiteId || ''))
+          || websites.find(item => getAdminModuleKey({ slug: item.websiteModuleSlug || item.moduleType }) === previewModuleKey
+            && (!user?.selectedModuleId || String(item.websiteModuleId || '') === String(user.selectedModuleId)))
+          || websites.find(item => getAdminModuleKey({ slug: item.websiteModuleSlug || item.moduleType }) === previewModuleKey)
+        : websites.find(item => getAdminModuleKey({ slug: item.websiteModuleSlug || item.moduleType }) === adminModuleKey);
       if (existingWebsite) {
         setWebsite(existingWebsite);
-        setModule(isWebsiteUser ? accountModuleType : adminBuilderType);
+          setModule(isWebsiteUser ? accountModuleType : normalizeModuleType(adminBuilderType));
         setStep('design');
         return;
       }
       if (isWebsiteUser && accountModuleType) {
         return handleSelectModule(accountModuleType, `${user.name || 'My'} Website`);
       } else if (!isWebsiteUser) {
-        setModule(adminBuilderType);
+        setModule(normalizeModuleType(adminBuilderType));
         setStep('design');
         return handleSelectModule(adminBuilderType, websiteName || 'My Website');
       }
     }).catch(error => {
       console.error(error);
     }).finally(() => setLoading(false));
-  }, [location.state?.moduleType, website, builderContextSlug, adminBuilderType]);
+  }, [location.state?.moduleType, website, adminBuilderType]);
   const handleAddComponent = async (comp) => {
     if (!website) return;
     setComponentError('');
@@ -219,7 +239,7 @@ export default function WebsiteBuilder() {
         const { data: availability } = await api.get('/domains/availability', {
           params: { name: domainName, type: domainType, websiteId: website._id },
         });
-        setBaseDomain(availability.baseDomain || 'wepzo.com');
+        setBaseDomain(availability.baseDomain || 'wepzo.in');
         if (!availability.available) {
           setDomainError(availability.message || 'Domain not available. Choose another name.');
           return false;
@@ -251,6 +271,15 @@ export default function WebsiteBuilder() {
       window.location.assign(url.href);
       return;
     }
+    if (previewModuleKey === 'e-commerce') {
+      const url = new URL(import.meta.env.VITE_ECOMMERCE_PREVIEW_URL || 'http://localhost:5173/', window.location.origin);
+      url.searchParams.set('published', '1');
+      url.searchParams.set('websiteId', data._id);
+      if (data.websiteModuleId) url.searchParams.set('moduleId', data.websiteModuleId);
+      if (!isWebsiteUser) url.searchParams.set('adminPreview', '1');
+      window.location.assign(url.href);
+      return;
+    }
     navigate('/published-websites/' + data._id);
   };
 
@@ -259,7 +288,8 @@ export default function WebsiteBuilder() {
     try {
       const { data } = await api.post('/websites/' + website._id + '/publish');
       setWebsite(data);
-      openPublishedWebsite(data);
+      if (isWebsiteUser) navigate('/website-dashboard');
+      else openPublishedWebsite(data);
     } catch (err) {
       console.error(err);
     }
@@ -292,7 +322,8 @@ export default function WebsiteBuilder() {
             setWebsite(verifiedWebsite);
             const { data: publishedWebsite } = await api.post(`/websites/${website._id}/publish`);
             setWebsite(publishedWebsite);
-            openPublishedWebsite(publishedWebsite);
+            if (isWebsiteUser) navigate('/website-dashboard');
+            else openPublishedWebsite(publishedWebsite);
           } catch (error) {
             setCheckoutError(error.response?.data?.message || 'Payment was received but could not be verified. Contact support before paying again.');
             setCheckoutLoading(false);
@@ -330,6 +361,20 @@ export default function WebsiteBuilder() {
   if (isWebsiteUser && website && !hasPurchasedWebsite) quickCommercePreviewUrl.searchParams.set('templatePreview', '1');
   if (website?._id && (!isWebsiteUser || hasPurchasedWebsite)) quickCommercePreviewUrl.searchParams.set('websiteId', website._id);
   if (website?.websiteModuleId && (!isWebsiteUser || hasPurchasedWebsite)) quickCommercePreviewUrl.searchParams.set('websiteModuleId', website.websiteModuleId);
+  const ecommercePreviewUrl = new URL(import.meta.env.VITE_ECOMMERCE_PREVIEW_URL || 'http://localhost:5173/', window.location.origin);
+  if (website?._id) ecommercePreviewUrl.searchParams.set('websiteId', website._id);
+  const ecommerceModuleId = website?.websiteModuleId || user?.selectedModuleId;
+  if (ecommerceModuleId) ecommercePreviewUrl.searchParams.set('moduleId', ecommerceModuleId);
+  ecommercePreviewUrl.searchParams.set('builderPreview', '1');
+  if (!isWebsiteUser) ecommercePreviewUrl.searchParams.set('adminPreview', '1');
+  const modulePreviewDocument = createModulePreviewDocument(displayModuleName(selectedModule, displayModuleKey), components);
+  const sendEcommercePreview = () => ecommercePreviewRef.current?.contentWindow?.postMessage({
+    type: 'wepzo:builder-preview',
+    components: website?.components || [],
+  }, ecommercePreviewUrl.origin);
+  useEffect(() => {
+    sendEcommercePreview();
+  }, [website?.components, ecommercePreviewUrl.origin]);
   const publishedPreviewUrl = new URL(quickCommercePreviewUrl.href);
   publishedPreviewUrl.searchParams.delete('builderPreview');
   publishedPreviewUrl.searchParams.set('published', '1');
@@ -417,7 +462,7 @@ export default function WebsiteBuilder() {
               <div className="flex items-center justify-between">
                 <h3 className="font-semibold text-gray-800">Add Components</h3>
                 <span className="text-xs bg-primary-100 text-primary-700 px-2 py-1 rounded-full capitalize">
-                  {displayModuleName(selectedModule)}
+                  {displayModuleName(selectedModule, displayModuleKey)}
                 </span>
               </div>
               {componentError && <p role="alert" className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{componentError}</p>}
@@ -425,6 +470,7 @@ export default function WebsiteBuilder() {
               {/* Available Components */}
               <div className="space-y-2">
                 <p className="text-xs font-medium text-gray-500 uppercase">Choose components</p>
+                {!availableComponents.length && <p className="rounded-lg border border-dashed border-slate-300 bg-slate-50 px-3 py-4 text-sm text-slate-500">No {displayModuleName(selectedModule, displayModuleKey)} components yet. Add components from the Admin Components page for this module.</p>}
                 {componentGroups.map(group => (
                   <details key={group} open={group === 'Header'} className="border border-gray-200 bg-white">
                     <summary className="flex cursor-pointer items-center justify-between px-3 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50">
@@ -576,7 +622,7 @@ export default function WebsiteBuilder() {
                 </div>
                 <div className="flex justify-between text-sm">
                   <span className="text-gray-500">Module</span>
-                  <span className="font-medium capitalize">{displayModuleName(selectedModule)}</span>
+                  <span className="font-medium capitalize">{displayModuleName(selectedModule, displayModuleKey)}</span>
                 </div>
                 <div className="flex justify-between text-sm">
                   <span className="text-gray-500">Components</span>
@@ -681,7 +727,7 @@ export default function WebsiteBuilder() {
               <div className="w-3 h-3 rounded-full bg-green-500" />
             </div>
             <div className="flex-1 bg-gray-700 rounded-md px-4 py-1 text-xs text-gray-400 text-center">
-              {domain?.fullDomain || 'preview.wepzo.com'}
+              {domain?.fullDomain || 'preview.wepzo.in'}
             </div>
             <Monitor size={16} className="text-gray-400" />
           </div>
@@ -696,12 +742,25 @@ export default function WebsiteBuilder() {
                 className="block w-full border-0 bg-white"
                 style={{ height: '70vh', minHeight: '500px' }}
               />
+            ) : previewModuleKey === 'e-commerce' ? (
+              <iframe
+                ref={ecommercePreviewRef}
+                key={ecommercePreviewUrl.href}
+                title="Live E-Commerce storefront preview"
+                src={ecommercePreviewUrl.href}
+                onLoad={sendEcommercePreview}
+                className="block w-full border-0 bg-white"
+                style={{ height: '70vh', minHeight: '500px' }}
+              />
             ) : (
-              <div className="flex min-h-[500px] flex-col items-center justify-center px-6 text-center text-slate-500">
-                <Layout size={44} className="mb-4 opacity-40" />
-                <p className="text-base font-semibold text-slate-700">{displayModuleName(selectedModule)} storefront is not available yet</p>
-                <p className="mt-2 max-w-md text-sm">This module has no live website app connected. Its selected components will not be shown as repeated placeholders.</p>
-              </div>
+              <iframe
+                key={`${previewModuleKey}-${components.map(component => component._id || component.componentId?._id || component.order).join(',')}`}
+                title={`${displayModuleName(selectedModule, displayModuleKey)} website preview`}
+                srcDoc={modulePreviewDocument}
+                sandbox=""
+                className="block w-full border-0 bg-white"
+                style={{ height: '70vh', minHeight: '500px' }}
+              />
             )}
           </div>
         </div>

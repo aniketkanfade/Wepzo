@@ -2,13 +2,13 @@ import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Sparkles, Grid2x2, Link2, MoreVertical, Download, Search, RotateCcw, Loader2, Eye, Pencil, Trash2 } from 'lucide-react';
 import api from '../../api/axios';
-import { useModuleStore } from '../../store/useStore';
+import { useAuthStore, useModuleStore } from '../../store/useStore';
 import NavyToggle from '../../WebAdmin/Qucik commerce/components/NavyToggle';
 import ZoneDrawMap from '../../WebAdmin/Qucik commerce/components/ZoneDrawMap';
 import { useListPagination } from '../../hooks/useListPagination';
 import { fetchPincodePolygon } from '../../constants/nagpurPincodes';
 import {
-  STATES, citiesInState, pinsInCity, getCity, pincodeLabel, findPin,
+  STATES, citiesInState, getCity, pincodeLabel, findPin,
 } from '../../constants/locations';
 import {
   LIST_CARD_BORDER as CARD_BORDER,
@@ -19,6 +19,8 @@ const EMPTY = {
   name: '', displayName: '', nameEn: '', nameHi: '',
   displayNameEn: '', displayNameHi: '',
   commerceType: 'quick_commerce',
+  country: '',
+  scope: 'pincode',
   state: '',
   city: '',
   radiusKm: 0,
@@ -33,13 +35,68 @@ const EMPTY = {
   status: true,
 };
 
+const INDIA_STATES = [
+  'Andaman and Nicobar Islands', 'Andhra Pradesh', 'Arunachal Pradesh', 'Assam', 'Bihar', 'Chandigarh',
+  'Chhattisgarh', 'Dadra and Nagar Haveli and Daman and Diu', 'Delhi', 'Goa', 'Gujarat', 'Haryana',
+  'Himachal Pradesh', 'Jammu and Kashmir', 'Jharkhand', 'Karnataka', 'Kerala', 'Ladakh', 'Lakshadweep',
+  'Madhya Pradesh', 'Maharashtra', 'Manipur', 'Meghalaya', 'Mizoram', 'Nagaland', 'Odisha', 'Puducherry',
+  'Punjab', 'Rajasthan', 'Sikkim', 'Tamil Nadu', 'Telangana', 'Tripura', 'Uttar Pradesh', 'Uttarakhand', 'West Bengal',
+];
+
+async function loadStatePincodes(state) {
+  try {
+    const { data } = await api.get('/geography/pincodes', { params: { state } });
+    if (Array.isArray(data) && data.length) return data;
+  } catch { /* use the postal API directly if the backend cannot reach it */ }
+
+  const response = await fetch(`https://api.pincodeapi.in/api/v1/state/${encodeURIComponent(state)}`);
+  if (!response.ok) throw new Error(`PIN code API returned ${response.status}`);
+  const payload = await response.json();
+  if (!(payload.success === true || String(payload.status || '').toLowerCase() === 'success')) {
+    throw new Error(payload.error?.message || payload.message || 'PIN code data unavailable');
+  }
+  const records = [];
+  const collect = value => {
+    if (Array.isArray(value)) return value.forEach(collect);
+    if (!value || typeof value !== 'object') return;
+    if (value.pincode || value.pin || value.pin_code || value.Pincode) records.push(value);
+    else Object.values(value).forEach(collect);
+  };
+  collect(payload.data);
+  const unique = new Map();
+  records.forEach(item => {
+    const pin = String(item.pincode || item.pin || item.pin_code || item.Pincode || '').trim();
+    if (!/^\d{6}$/.test(pin) || unique.has(pin)) return;
+    const latitude = item.latitude ?? item.Latitude;
+    const longitude = item.longitude ?? item.Longitude;
+    unique.set(pin, {
+      pin,
+      area: item.office_name || item.officename || item.post_office || item.PostOfficeAddress || item.name || item.district || pin,
+      district: item.district || item.District || '',
+      state: item.state || item.statename || item.State || state,
+      lat: latitude != null && latitude !== '' && Number.isFinite(Number(latitude)) ? Number(latitude) : null,
+      lng: longitude != null && longitude !== '' && Number.isFinite(Number(longitude)) ? Number(longitude) : null,
+    });
+  });
+  if (!unique.size) throw new Error('Is state ke PIN codes API se nahi mile.');
+  return [...unique.values()].sort((a, b) => a.pin.localeCompare(b.pin));
+}
+
 export default function SettingsZonesPage() {
   const navigate = useNavigate();
   const { activeModule } = useModuleStore();
+  const user = useAuthStore(state => state.user);
+  const isReadOnly = user?.role === 'website_user';
   const activeModuleKey = String(activeModule?.slug || activeModule?.type || '').toLowerCase();
   const defaultCommerceType = ['e-commerce', 'e_commerce', 'ecommerce'].includes(activeModuleKey) ? 'ecommerce' : 'quick_commerce';
   const [zones, setZones] = useState([]);
   const [modules, setModules] = useState([]);
+  const [states, setStates] = useState([]);
+  const [geoLoading, setGeoLoading] = useState(false);
+  const [statePins, setStatePins] = useState([]);
+  const [pinsLoading, setPinsLoading] = useState(false);
+  const [pinsError, setPinsError] = useState('');
+  const [pinsReload, setPinsReload] = useState(0);
   const [form, setForm] = useState({ ...EMPTY, commerceType: defaultCommerceType });
   const [saving, setSaving] = useState(false);
   const [searchInput, setSearchInput] = useState('');
@@ -50,6 +107,7 @@ export default function SettingsZonesPage() {
   const [viewZone, setViewZone] = useState(null);
   const [editingId, setEditingId] = useState(null);
   const [menuId, setMenuId] = useState(null);
+  const isQuick = form.commerceType === 'quick_commerce';
 
   const load = () => {
     api.get('/zones').then(r => setZones(r.data || [])).catch(() => setZones([]));
@@ -57,18 +115,45 @@ export default function SettingsZonesPage() {
   };
   useEffect(() => { load(); }, []);
 
+  useEffect(() => {
+    if (isQuick) { setStates([]); return undefined; }
+    let cancelled = false;
+    setGeoLoading(true);
+    api.get('/geography/states', { params: { country: 'India' } })
+      .then(r => { if (!cancelled) setStates([...new Set([...(r.data || []), ...INDIA_STATES])].sort((a, b) => a.localeCompare(b))); })
+      .catch(() => { if (!cancelled) setStates(INDIA_STATES); })
+      .finally(() => { if (!cancelled) setGeoLoading(false); });
+    return () => { cancelled = true; };
+  }, [isQuick]);
+
+  useEffect(() => {
+    if (isQuick || !form.state) { setStatePins([]); setPinsError(''); return undefined; }
+    let cancelled = false;
+    setPinsLoading(true);
+    setPinsError('');
+    loadStatePincodes(form.state)
+      .then(data => { if (!cancelled) setStatePins(data); })
+      .catch(error => {
+        if (!cancelled) {
+          setStatePins([]);
+          setPinsError(error.response?.data?.message || 'PIN code list load nahi hui. Dobara try karein.');
+        }
+      })
+      .finally(() => { if (!cancelled) setPinsLoading(false); });
+    return () => { cancelled = true; };
+  }, [form.state, isQuick, pinsReload]);
+
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
-  const isQuick = form.commerceType === 'quick_commerce';
   const currentTypeLabel = isQuick ? 'Quick Commerce' : 'E-Commerce';
   const cityMeta = getCity(form.state, form.city);
-  const cityOptions = form.state ? citiesInState(form.state) : [];
-  const cityPins = form.state && form.city ? pinsInCity(form.state, form.city) : [];
 
   const matchesSearch = (z) =>
     (z.name || '').toLowerCase().includes(search.toLowerCase()) ||
     String(z.zoneId || '').includes(search) ||
     (z.pincodes || []).some(p => String(p).includes(search)) ||
-    (z.city || '').toLowerCase().includes(search.toLowerCase());
+    (z.city || '').toLowerCase().includes(search.toLowerCase()) ||
+    (z.state || '').toLowerCase().includes(search.toLowerCase()) ||
+    (z.country || '').toLowerCase().includes(search.toLowerCase());
 
   const listZones = zones
     .filter(z => isQuick ? z.commerceType !== 'ecommerce' : z.commerceType === 'ecommerce')
@@ -77,13 +162,13 @@ export default function SettingsZonesPage() {
 
   const pinOptions = useMemo(() => {
     const q = pinQuery.trim().toLowerCase();
-    if (!q) return cityPins;
-    return cityPins.filter(p =>
+    if (!q) return statePins;
+    return statePins.filter(p =>
       p.pin.includes(q) ||
       p.area.toLowerCase().includes(q) ||
       pincodeLabel(p).toLowerCase().includes(q)
     );
-  }, [pinQuery, cityPins]);
+  }, [pinQuery, statePins]);
 
   const switchType = (type) => {
     setForm(f => ({
@@ -96,25 +181,12 @@ export default function SettingsZonesPage() {
   };
 
   const selectState = (state) => {
+    setStatePins([]);
     setForm(f => ({
       ...f,
+      country: 'India',
       state,
       city: '',
-      polygon: [],
-      polygonClosed: false,
-      pincodes: [],
-      pinAreas: [],
-    }));
-    setPinQuery('');
-  };
-
-  const selectCity = (cityName) => {
-    const meta = getCity(form.state, cityName);
-    setForm(f => ({
-      ...f,
-      city: cityName,
-      lat: meta?.lat || f.lat,
-      lng: meta?.lng || f.lng,
       polygon: [],
       polygonClosed: false,
       pincodes: [],
@@ -129,7 +201,10 @@ export default function SettingsZonesPage() {
     if (form.pincodes.includes(entry.pin)) return;
     setPinLoading(true);
     try {
-      const geo = await fetchPincodePolygon(entry);
+      const hasCoords = Number.isFinite(entry.lat) && Number.isFinite(entry.lng);
+      const geo = hasCoords
+        ? await fetchPincodePolygon(entry)
+        : { lat: form.lat, lng: form.lng, polygon: [] };
       setForm(f => {
         const pinAreas = [...(f.pinAreas || []), {
           pin: entry.pin,
@@ -142,9 +217,10 @@ export default function SettingsZonesPage() {
         return {
           ...f,
           commerceType: 'ecommerce',
+          scope: 'pincode',
           pincodes: [...f.pincodes, entry.pin],
           pinAreas,
-          name: f.name || (f.city ? `${f.city} E-Com` : entry.area),
+          name: f.name || `${f.state} E-Com`,
           displayName: f.displayName || entry.area,
           nameEn: f.nameEn || f.name || entry.area,
           lat: geo.lat,
@@ -172,12 +248,14 @@ export default function SettingsZonesPage() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!form.name.trim()) return alert('Business zone name zaroori hai');
-    if (!form.state || !form.city) return alert('State aur city select karo');
     if (isQuick) {
+      if (!form.state || !form.city) return alert('State aur city select karo');
       if ((form.polygon || []).length < 3 || !form.polygonClosed) {
         return alert('City ke andar points jodo — last point first (green) point par wapas lao tab zone close hoga');
       }
-    } else if (form.pincodes.length === 0) {
+    } else if (!form.state) {
+      return alert('State select karo');
+    } else if (form.scope === 'pincode' && form.pincodes.length === 0) {
       return alert('E-Commerce: kam se kam 1 pin code select karo');
     }
     setSaving(true);
@@ -185,9 +263,9 @@ export default function SettingsZonesPage() {
       const payload = {
         ...form,
         radiusKm: isQuick ? Number(form.radiusKm) || 0 : 0,
-        pincodes: isQuick ? [] : form.pincodes,
-        pinAreas: isQuick ? [] : form.pinAreas,
-        polygon: isQuick ? form.polygon : (form.pinAreas || []).flatMap(a => a.polygon || []),
+        pincodes: isQuick || form.scope !== 'pincode' ? [] : form.pincodes,
+        pinAreas: isQuick || form.scope !== 'pincode' ? [] : form.pinAreas,
+        polygon: isQuick ? form.polygon : (form.scope === 'pincode' ? (form.pinAreas || []).flatMap(a => a.polygon || []) : []),
       };
       if (editingId) await api.put(`/zones/${editingId}`, payload);
       else await api.post('/zones', payload);
@@ -225,6 +303,8 @@ export default function SettingsZonesPage() {
       displayNameEn: z.displayNameEn || '',
       displayNameHi: z.displayNameHi || '',
       commerceType: z.commerceType === 'ecommerce' ? 'ecommerce' : 'quick_commerce',
+      country: 'India',
+      scope: 'pincode',
       state: z.state || '',
       city: z.city || '',
       radiusKm: z.radiusKm || 0,
@@ -256,9 +336,9 @@ export default function SettingsZonesPage() {
   };
 
   const exportCsv = () => {
-    const rows = [['Zone Id', 'Name', 'Type', 'State', 'City', 'Radius', 'Pincodes', 'Vendors', 'Deliverymen', 'Status']];
+    const rows = [['Zone Id', 'Name', 'Type', 'Country', 'State', 'City', 'Scope', 'Pincodes', 'Vendors', 'Deliverymen', 'Status']];
     listZones.forEach(z => {
-      rows.push([z.zoneId, z.name, z.commerceType, z.state || '', z.city || '', z.radiusKm || '', (z.pincodes || []).join('|'), z.vendors || 0, z.deliveryMen || 0, z.status ? 'Active' : 'Inactive']);
+      rows.push([z.zoneId, z.name, z.commerceType, z.country || '', z.state || '', z.city || '', z.scope || 'pincode', (z.pincodes || []).join('|'), z.vendors || 0, z.deliveryMen || 0, z.status ? 'Active' : 'Inactive']);
     });
     const blob = new Blob([rows.map(r => r.join(',')).join('\n')], { type: 'text/csv' });
     const a = document.createElement('a');
@@ -280,11 +360,12 @@ export default function SettingsZonesPage() {
         <p className="text-sm text-sky-700 mt-2 bg-sky-50 border border-sky-100 rounded-lg px-3 py-2">
           {isQuick
             ? 'Quick Commerce: city select karo, phir city ke andar points jodo. Last point first (green) point par wapas aao — tab zone close hoga. Har point drag karke adjust hoga.'
-            : 'E-Commerce: State → City → Pin code. Jitne pin select karoge, sab map pe dikhenge.'}
+            : 'E-Commerce: ek state select karein, phir us state ke PIN codes me se jitne chahen service ke liye add karein.'}
         </p>
       </div>
 
-      <form id="add-zone-form" onSubmit={handleSubmit} className="bg-white rounded-xl border shadow-sm overflow-hidden" style={{ borderColor: CARD_BORDER }}>
+      {isReadOnly && <p className="rounded-lg border border-blue-100 bg-blue-50 px-4 py-3 text-sm text-blue-800">Main Admin ke shared service areas yahan view kar sakte hain. Zone ya location add/edit karne ke liye Main Admin access chahiye.</p>}
+      {!isReadOnly && <form id="add-zone-form" onSubmit={handleSubmit} className="bg-white rounded-xl border shadow-sm overflow-hidden" style={{ borderColor: CARD_BORDER }}>
         <div className="flex items-center justify-between px-5 py-4 border-b" style={{ borderColor: CARD_BORDER }}>
           <h2 className="font-semibold text-gray-800">{editingId ? 'Edit Zone' : 'Add New Zone'}</h2>
         </div>
@@ -354,36 +435,33 @@ export default function SettingsZonesPage() {
               ) : (
                 <>
                   <div>
-                    <label className={labelCls}>State</label>
-                    <select className={inputCls} value={form.state} onChange={e => selectState(e.target.value)}>
-                      <option value="">Select state</option>
-                      {STATES.map(s => <option key={s} value={s}>{s}</option>)}
+                    <label className={labelCls}>State / Province</label>
+                    <select className={inputCls} value={form.state} disabled={geoLoading || pinsLoading || pinLoading}
+                      onChange={e => selectState(e.target.value)}>
+                      <option value="">{geoLoading ? 'Loading states...' : 'Select state'}</option>
+                      {states.map(state => <option key={state} value={state}>{state}</option>)}
                     </select>
-                  </div>
-                  <div>
-                    <label className={labelCls}>City</label>
-                    <select className={inputCls} value={form.city} disabled={!form.state}
-                      onChange={e => selectCity(e.target.value)}>
-                      <option value="">Select city</option>
-                      {cityOptions.map(c => <option key={c.name} value={c.name}>{c.name}</option>)}
-                    </select>
+                    <p className="mt-1 text-[11px] text-gray-400">PIN codes is state ki postal directory se load honge.</p>
                   </div>
                   <div className="relative">
-                    <label className={labelCls}>Pin code / Area</label>
+                    <div className="mb-1.5 flex items-center justify-between gap-2">
+                      <label className="text-sm font-medium text-gray-700">Service PIN codes</label>
+                      {form.state && <span className="text-xs text-gray-500">{form.pincodes.length} selected / {statePins.length}</span>}
+                    </div>
                     <input
                       className={inputCls}
                       value={pinQuery}
-                      disabled={!form.city}
+                      disabled={!form.state || pinsLoading || pinLoading || !!pinsError}
                       onChange={e => { setPinQuery(e.target.value); setPinOpen(true); }}
-                      onFocus={() => form.city && setPinOpen(true)}
+                      onFocus={() => form.state && setPinOpen(true)}
                       onBlur={() => setTimeout(() => setPinOpen(false), 180)}
-                      placeholder={form.city ? 'Search pin code or area name' : 'Pehle city select karo'}
+                      placeholder={!form.state ? 'Pehle state select karein' : pinsLoading ? 'State PIN codes load ho rahe hain...' : 'PIN code ya post office search karein'}
                     />
-                    {pinLoading && <Loader2 size={14} className="absolute right-3 top-10 animate-spin text-gray-400" />}
-                    {pinOpen && form.city && (
+                    {(pinLoading || pinsLoading) && <Loader2 size={14} className="absolute right-3 top-10 animate-spin text-gray-400" />}
+                    {pinOpen && form.state && !pinsLoading && !pinsError && (
                       <div className="absolute z-30 left-0 right-0 mt-1 max-h-56 overflow-y-auto bg-white border border-gray-200 rounded-lg shadow-lg">
                         {pinOptions.length === 0 && (
-                          <p className="px-3 py-2 text-xs text-gray-400">Koi pin code nahi mila</p>
+                          <p className="px-3 py-2 text-xs text-gray-400">Koi PIN code nahi mila</p>
                         )}
                         {pinOptions.map(p => (
                           <button
@@ -400,13 +478,14 @@ export default function SettingsZonesPage() {
                         ))}
                       </div>
                     )}
-                    <p className="text-[11px] text-gray-400 mt-1">Har selected pin ka area map pe dikhega.</p>
+                    {pinsError && <div className="mt-1 flex items-center justify-between gap-2 text-xs text-red-600"><span>{pinsError}</span><button type="button" className="font-semibold underline" onClick={() => setPinsReload(n => n + 1)}>Retry</button></div>}
+                    {!pinsError && <p className="text-[11px] text-gray-400 mt-1">List me is state ke available PIN codes hain. Service dene wale PIN codes add karein.</p>}
                     <div className="flex flex-wrap gap-1.5 mt-2">
                       {form.pincodes.map(pin => {
-                        const meta = findPin(pin);
+                        const meta = form.pinAreas.find(area => area.pin === pin);
                         return (
                           <span key={pin} className="inline-flex items-center gap-1 text-xs bg-[#eef2f8] text-[#1a3a8a] px-2 py-1 rounded-full">
-                            {pin}{meta ? ` · ${meta.area}` : ''}
+                            {pin}{meta?.area ? ` · ${meta.area}` : ''}
                             <button type="button" onClick={() => removePin(pin)}>×</button>
                           </span>
                         );
@@ -418,8 +497,7 @@ export default function SettingsZonesPage() {
             </div>
 
             <div>
-              <p className="text-sm font-medium text-gray-700 mb-1.5">Select Area</p>
-              <ZoneDrawMap
+              <><p className="text-sm font-medium text-gray-700 mb-1.5">{isQuick ? 'Select Area' : 'Selected PIN code areas'}</p><ZoneDrawMap
                 mode={isQuick ? 'draw' : 'pins'}
                 lat={form.lat}
                 lng={form.lng}
@@ -432,7 +510,7 @@ export default function SettingsZonesPage() {
                 onCenterChange={(lat, lng) => setForm(f => ({ ...f, lat, lng }))}
                 onPolygonChange={polygon => setForm(f => ({ ...f, polygon }))}
                 onClosedChange={closed => set('polygonClosed', closed)}
-              />
+              /></>
             </div>
           </div>
 
@@ -447,7 +525,7 @@ export default function SettingsZonesPage() {
             </button>
           </div>
         </div>
-      </form>
+      </form>}
 
       <ZoneTable
         title={isQuick ? 'Quick Commerce Zone List' : 'E-Commerce Zone List'}
@@ -459,6 +537,7 @@ export default function SettingsZonesPage() {
         searchPlaceholder={isQuick ? 'Search Quick Commerce zone' : 'Search E-Commerce zone / Pin'}
         onExport={exportCsv}
         coverKind={isQuick ? 'quick' : 'ecom'}
+        readOnly={isReadOnly}
         menuId={menuId}
         setMenuId={setMenuId}
         onDefault={makeDefault}
@@ -484,12 +563,15 @@ export default function SettingsZonesPage() {
               <button type="button" onClick={() => setViewZone(null)} className={`px-3 py-1.5 rounded-lg text-sm ${listBtnOutline}`}>Close</button>
             </div>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs mb-3">
-              <div className="bg-gray-50 rounded-lg p-2"><span className="text-gray-400 block">City</span>{viewZone.city || '—'}</div>
+              <div className="bg-gray-50 rounded-lg p-2"><span className="text-gray-400 block">Country</span>{viewZone.country || '—'}</div>
+              <div className="bg-gray-50 rounded-lg p-2"><span className="text-gray-400 block">Scope</span>{viewZone.scope || 'Pincode'}</div>
+              <div className="bg-gray-50 rounded-lg p-2"><span className="text-gray-400 block">State</span>{viewZone.state || '—'}</div>
               <div className="bg-gray-50 rounded-lg p-2"><span className="text-gray-400 block">Type</span>{viewZone.commerceType === 'ecommerce' ? 'E-Commerce' : 'Quick Commerce'}</div>
               <div className="bg-gray-50 rounded-lg p-2"><span className="text-gray-400 block">Date / Time</span>{viewZone.createdAt ? new Date(viewZone.createdAt).toLocaleString('en-IN') : '—'}</div>
               <div className="bg-gray-50 rounded-lg p-2"><span className="text-gray-400 block">Status</span>{viewZone.status ? 'Active' : 'Inactive'}</div>
             </div>
-            <ZoneDrawMap
+            {(viewZone.polygon?.length || viewZone.pinAreas?.length)
+              ? <ZoneDrawMap
               readOnly
               mode={viewZone.commerceType === 'ecommerce' ? 'pins' : 'draw'}
               lat={viewZone.lat}
@@ -501,7 +583,8 @@ export default function SettingsZonesPage() {
               pinAreas={viewZone.pinAreas || []}
               drawEnabled={false}
             />
-            <div className="flex justify-end gap-2 mt-4">
+              : <p className="rounded-lg bg-gray-50 p-4 text-sm text-gray-700">Service area: {[viewZone.city, viewZone.state, viewZone.country].filter(Boolean).join(', ') || '—'}. Zone covers the selected {viewZone.scope || 'area'}.</p>}
+            {!isReadOnly && <div className="flex justify-end gap-2 mt-4">
               <button type="button" onClick={() => startEdit(viewZone)}
                 className={`inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold ${listBtnNavy}`}>
                 <Pencil size={14} /> Edit
@@ -510,7 +593,7 @@ export default function SettingsZonesPage() {
                 className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm text-red-600 border border-red-200 hover:bg-red-50">
                 <Trash2 size={14} /> Delete
               </button>
-            </div>
+            </div>}
           </div>
         </div>
       )}
@@ -519,7 +602,7 @@ export default function SettingsZonesPage() {
   );
 }
 
-function ZoneTable({ title, rows, pager, searchInput, onSearchInputChange, onSearch, searchPlaceholder, onExport, coverKind, menuId, setMenuId, onDefault, onToggle, onView, onEdit, onConnect, onSearchCharge, onDelete }) {
+function ZoneTable({ title, rows, pager, searchInput, onSearchInputChange, onSearch, searchPlaceholder, onExport, coverKind, readOnly, menuId, setMenuId, onDefault, onToggle, onView, onEdit, onConnect, onSearchCharge, onDelete }) {
   const { page, perPage, total } = pager;
   return (
     <div className="bg-white rounded-xl border shadow-sm overflow-hidden" style={{ borderColor: CARD_BORDER }}>
@@ -551,7 +634,7 @@ function ZoneTable({ title, rows, pager, searchInput, onSearchInputChange, onSea
               <th className={`${listThClass} w-12`}>SL</th>
               <th className={listThClass}>Zone Id</th>
               <th className={listThClass}>Business Zone Name</th>
-              <th className={listThClass}>City</th>
+              <th className={listThClass}>Service area</th>
               <th className={listThClass}>Vendors</th>
               <th className={listThClass}>Deliverymen</th>
               <th className={listThClass}>{coverKind === 'ecom' ? 'Pin codes / Area' : 'Cover'}</th>
@@ -573,34 +656,35 @@ function ZoneTable({ title, rows, pager, searchInput, onSearchInputChange, onSea
                 <td className={`${listTdClass} text-gray-500`}>{(page - 1) * perPage + i + 1}</td>
                 <td className={`${listTdClass} tabular-nums`}>{z.zoneId}</td>
                 <td className={`${listTdClass} font-medium`}>{z.name}</td>
-                <td className={listTdClass}>{z.city || '—'}</td>
+                <td className={listTdClass}>{[z.city, z.state, z.country].filter(Boolean).join(', ') || '—'} <small className="ml-1 text-gray-400">{coverKind === 'ecom' ? `(${z.scope || 'pincode'})` : ''}</small></td>
                 <td className={listTdClass}>{z.vendors ?? 0}</td>
                 <td className={listTdClass}>{z.deliveryMen ?? 0}</td>
                 <td className={listTdClass}>
                   {coverKind === 'ecom'
                     ? ((z.pincodes || []).length
                       ? (z.pincodes || []).map(pin => {
-                          const area = findPin(pin)?.area;
+                          const area = z.pinAreas?.find(item => item.pin === pin)?.area || findPin(pin)?.area;
                           return area ? `${pin} — ${area}` : pin;
                         }).join(', ')
-                      : 'N/A')
+                      : `${z.scope || 'area'} coverage`)
                     : (z.radiusKm > 0 ? `${z.radiusKm} Km` : `${(z.polygon || []).length} pts`)}
                 </td>
                 <td className={listTdClass}>
                   {z.isDefault ? (
                     <span className="text-xs font-semibold text-emerald-600">Default</span>
-                  ) : (
+                  ) : !readOnly ? (
                     <button type="button" onClick={() => onDefault(z)}
                       className="text-xs px-3 py-1 rounded-lg border text-gray-600 hover:bg-gray-50">
                       Make default
                     </button>
-                  )}
+                  ) : null}
                 </td>
                 <td className={listTdClass}>
-                  <NavyToggle checked={!!z.status} onChange={() => onToggle(z)} />
+                  {readOnly ? <span className="text-xs text-gray-500">{z.status ? 'Active' : 'Inactive'}</span> : <NavyToggle checked={!!z.status} onChange={() => onToggle(z)} />}
                 </td>
                 <td className={listTdClass}>
                   <div className="flex items-center gap-1.5 relative">
+                    {readOnly ? <button type="button" title="View service area" aria-label="View service area" onClick={() => onView(z)} className="w-8 h-8 flex items-center justify-center rounded-lg border text-sky-600 hover:bg-sky-50"><Eye size={14}/></button> : <>
                     <button type="button" title="Delivery Settings" aria-label="Delivery Settings" onClick={() => onConnect(z)}
                       className="w-8 h-8 flex items-center justify-center rounded-lg border text-sky-600 hover:bg-sky-50"
                       style={{ borderColor: '#bae6fd' }}>
@@ -623,6 +707,7 @@ function ZoneTable({ title, rows, pager, searchInput, onSearchInputChange, onSea
                         <button type="button" onClick={() => onDelete(z)} className="w-full text-left px-3 py-1.5 text-red-500 hover:bg-red-50">Delete</button>
                       </div>
                     )}
+                    </>}
                   </div>
                 </td>
               </tr>

@@ -9,6 +9,8 @@ import { MapContainer, TileLayer, Marker } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import api from '../../api/axios';
+import { useModuleStore } from '../../store/useStore';
+import { getAdminModuleLabel } from '../../constants/adminModules';
 import { ORDER_STATUS_STYLE } from '../../constants/orderStatus';
 import StoreItemsTab from './components/store/StoreItemsTab';
 import StoreQrCodeTab from './components/store/StoreQrCodeTab';
@@ -120,6 +122,8 @@ function MetaGrid({ rows }) {
 }
 
 export default function StoreViewPage() {
+  const activeModule = useModuleStore(state => state.activeModule);
+  const commerceModuleLabel = getAdminModuleLabel(activeModule);
   const { storeId } = useParams();
   const navigate = useNavigate();
   const [store, setStore] = useState(null);
@@ -373,7 +377,7 @@ export default function StoreViewPage() {
               { label: 'Internal _id', value: store._id },
               { label: 'Slug', value: store.slug },
               { label: 'Subdomain', value: store.subdomain },
-              { label: 'Module Type', value: ['ecommerce', 'e-commerce', 'e_commerce', 'quick-commerce', 'quick_commerce', 'qcommerce'].includes(String(store.moduleType || '').toLowerCase()) ? 'Quick Commerce' : (store.moduleType || 'Quick Commerce') },
+              { label: 'Module Type', value: commerceModuleLabel },
               { label: 'Business Module', value: store.module },
               { label: 'Created At', value: store.createdAt },
               { label: 'Latitude', value: store.lat },

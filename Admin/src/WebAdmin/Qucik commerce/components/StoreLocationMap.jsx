@@ -60,7 +60,11 @@ export default function StoreLocationMap({ zone, zoneData, lat, lng, onLocationC
   const searchTimer = useRef(null);
 
   const inZone = useCallback((la, ln) => (
-    zoneData ? isInsideDeliveryZone(zoneData, la, ln) : isInsideZone(zone, la, ln)
+    zoneData
+      ? (zoneData.commerceType === 'ecommerce' && ['country', 'state', 'city'].includes(zoneData.scope)
+        ? true
+        : isInsideDeliveryZone(zoneData, la, ln))
+      : isInsideZone(zone, la, ln)
   ), [zone, zoneData]);
 
   const pickLocation = useCallback(async (newLat, newLng, addressLabel) => {

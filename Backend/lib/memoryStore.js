@@ -12,6 +12,7 @@ const store = {
   plans: [],
   websiteSubscriptionPlans: [],
   websites: [],
+  mainAdminStorefrontSeededFor: [],
   stores: [],
   nextStoreId: 1001,
   roles: [],
@@ -74,7 +75,7 @@ const PERSIST_KEYS = [
   'storeDiscounts', 'productRequests', 'productReviews', 'businessSettings', 'businessSettingsByModule',
   'roles', 'accessSections', 'modules', 'components', 'plans', 'flashSales',
   'campaigns', 'banners', 'otherBanners', 'coupons', 'pushNotifications',
-  'advertisements', 'deliveryMen', 'systemModules', 'websiteModules', 'websiteModuleCatalogSeeded', 'websiteModuleContentSeeded', 'websites',
+  'advertisements', 'deliveryMen', 'systemModules', 'websiteModules', 'websiteModuleCatalogSeeded', 'websiteModuleContentSeeded', 'websites', 'mainAdminStorefrontSeededFor',
 ];
 
 function collectionHasData(val) {
@@ -309,6 +310,8 @@ async function seedMemory() {
     ensureQuickCommerceCatalog();
     ensureWebsiteModuleCatalog();
     ensureWebsiteModuleContent();
+    const { ensureMainAdminStorefront } = require('./mainAdminStorefrontSeed');
+    if (ensureMainAdminStorefront(store)) persistNow();
     console.log('Memory store loaded from wepzo-store.json');
     return;
   }
@@ -427,7 +430,7 @@ async function seedMemory() {
   store.components = compData.map(c => ({ _id: uuidv4(), ...c, status: 'active', description: c.description || c.name }));
 
   store.modules = [
-    { _id: uuidv4(), name: 'Quick Commerce', slug: 'ecommerce', type: 'ecommerce', status: 'active',
+    { _id: uuidv4(), name: 'Quick Commerce', slug: 'quick-commerce', type: 'quick-commerce', status: 'active',
       components: store.components.filter(c => ['ecommerce','general'].includes(c.moduleType)).map(c => c._id) },
     { _id: uuidv4(), name: 'Marketing', slug: 'marketing', type: 'marketing', status: 'active',
       components: store.components.filter(c => ['marketing','general'].includes(c.moduleType)).map(c => c._id) },
@@ -678,6 +681,8 @@ async function seedMemory() {
   applyPersisted(persisted);
   ensureWebsiteModuleCatalog();
   ensureWebsiteModuleContent();
+  const { ensureMainAdminStorefront } = require('./mainAdminStorefrontSeed');
+  ensureMainAdminStorefront(store);
   persistNow();
   console.log('Memory store seeded. Login: admin@wepzo.com / admin123');
 }

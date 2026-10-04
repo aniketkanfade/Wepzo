@@ -6,9 +6,13 @@ import AdminListLayout from './components/AdminListLayout';
 import NavyToggle from './components/NavyToggle';
 import { useListPagination } from '../../hooks/useListPagination';
 import { useDeliveryZones } from '../../hooks/useDeliveryZones';
+import { useModuleStore } from '../../store/useStore';
+import { getAdminModuleLabel } from '../../constants/adminModules';
 import { LIST_TEAL, listBtnNavy, listBtnOutline, listTheadClass, listTheadStyle, listThClass, listRowClass, listRowStyle, listTdClass } from '../../constants/listTheme';
 
 export default function StoreListPage() {
+  const activeModule = useModuleStore(state => state.activeModule);
+  const commerceModuleLabel = getAdminModuleLabel(activeModule);
   const navigate = useNavigate();
   const [stores, setStores] = useState([]);
   const [searchInput, setSearchInput] = useState('');
@@ -168,7 +172,7 @@ export default function StoreListPage() {
               <td className={listTdClass}>
                 <p className="font-medium text-gray-800">{s.module || '—'}</p>
                 <p className="text-[10px] text-gray-400 uppercase tracking-wide">
-                  {['ecommerce', 'e-commerce', 'e_commerce', 'quick-commerce', 'quick_commerce', 'qcommerce'].includes(String(s.moduleType || '').toLowerCase()) ? 'Quick Commerce' : (s.moduleType || 'Quick Commerce')}
+                  {commerceModuleLabel}
                 </p>
               </td>
               <td className={`${listTdClass} text-center tabular-nums font-semibold text-gray-800`}>{s.productCount ?? 0}</td>

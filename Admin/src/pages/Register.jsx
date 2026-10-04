@@ -51,7 +51,17 @@ export default function Register() {
         },
       });
     } catch (err) {
-      setError(err.response?.data?.message || 'Account create nahi ho paya');
+      const status = err.response?.status;
+      const responseMessage = typeof err.response?.data === 'string'
+        ? err.response.data
+        : err.response?.data?.message;
+      if (status === 409) {
+        setError('Is module ke liye account pehle se bana hua hai. Sign in karein.');
+      } else if (!err.response) {
+        setError(`Server se connection nahi ho paya (${err.message || 'network error'}). Backend chalu hai, check karke dobara try karein.`);
+      } else {
+        setError(responseMessage || `Account create nahi ho paya (HTTP ${status}).`);
+      }
     } finally {
       setSubmitting(false);
     }
@@ -115,7 +125,7 @@ export default function Register() {
             <p className="mt-2 text-sm leading-5 text-slate-500">Your selected module will open in Website Design after signup.</p>
           </div>
           <form onSubmit={handleSubmit} className="space-y-4">
-            {error && <div role="alert" className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-600">{error}</div>}
+            {error && <div role="alert" className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-600">{error}{error.includes('Sign in karein') && <Link to="/login" className="ml-2 font-semibold underline">Sign In</Link>}</div>}
             <label className="block"><span className="mb-1 block text-sm font-medium text-gray-700">Your Name</span><input required autoComplete="name" value={name} onChange={event => setName(event.target.value)} className="w-full rounded-lg border border-gray-300 px-4 py-2.5 outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100" placeholder="Full name" /></label>
             <label className="block"><span className="mb-1 block text-sm font-medium text-gray-700">Email</span><input required type="email" autoComplete="email" value={email} onChange={event => setEmail(event.target.value)} className="w-full rounded-lg border border-gray-300 px-4 py-2.5 outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100" placeholder="you@example.com" /></label>
             <label className="block"><span className="mb-1 block text-sm font-medium text-gray-700">Password</span><input required minLength={8} type="password" autoComplete="new-password" value={password} onChange={event => setPassword(event.target.value)} className="w-full rounded-lg border border-gray-300 px-4 py-2.5 outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100" placeholder="At least 8 characters" /></label>

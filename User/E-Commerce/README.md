@@ -1,16 +1,34 @@
-# React + Vite
+# Wepzo E-Commerce storefront
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+Responsive customer storefront for Wepzo websites. The app uses the existing Backend public shop APIs for catalogue data, customer sessions, delivery quotes and orders.
 
-Currently, two official plugins are available:
+## Run locally
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+```powershell
+cd User/E-Commerce
+npm install
+npm run dev
+```
 
-## React Compiler
+The default API is `http://localhost:5000/api`. Set up a published website and launch the storefront with its tenant ID:
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+```text
+http://localhost:5173/?websiteId=YOUR_WEBSITE_ID
+```
 
-## Expanding the Oxlint configuration
+Optionally add `&moduleId=YOUR_WEBSITE_MODULE_ID` to check the module assignment too. The storefront persists the selected website ID in local storage and sends it as `X-Website-Id` on shop API requests. A matching custom domain can also be resolved by the backend.
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and Oxlint's TypeScript related rules in your project.
+## Environment variables
+
+Copy `.env.example` to `.env.local` and set the website ID for a fixed storefront. `VITE_E_COMMERCE_API_URL` chooses this module's API, with `VITE_API_URL` as the shared fallback. `VITE_API_PROXY_TARGET` can proxy `/api` to a backend origin when needed.
+
+## Connected backend routes
+
+- `GET /api/shop/home` and `GET /api/shop/products`
+- `POST /api/shop/quote`
+- `POST /api/shop/auth/register` and `/api/shop/auth/login`
+- `POST /api/shop/orders`
+
+The backend scopes catalog, customer accounts and orders by website ID. E-commerce records are selected using that website's assigned module slug, separately from quick-commerce records.
+
+Styling uses Tailwind CSS v4 through the Vite plugin, with storefront-specific CSS for the custom hero and product artwork.

@@ -119,7 +119,7 @@ const INFORMATION_WEB_MENU_ITEMS = [getDashboardItem({ slug: 'information-web' }
 const E_COMMERCE_MENU_ITEMS = [
   getDashboardItem({ slug: 'e-commerce' }),
   ...menuItems.filter(item => ['Quick Commerce', 'Promotion Management', 'Store Management', 'Customer Management'].includes(item.label))
-    .map(item => item.label === 'Quick Commerce' ? { ...item, label: 'E-Commerce' } : item),
+    .map(item => item.label === 'Quick Commerce' ? { ...item, label: 'E-Commerce Storefront' } : item),
 ];
 const STORE_SINGLE_MENU_ITEMS = [{ label: 'Store single page', icon: Store, children: [
   { label: 'Orders', path: '/store-single/orders', icon: ListOrdered },

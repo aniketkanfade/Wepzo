@@ -4,7 +4,7 @@ import api from '../../api/axios';
 import { useModuleStore } from '../../store/useStore';
 import { getAdminSidebarMenu } from '../../WebAdmin/Qucik commerce/components/Sidebar';
 import { WEBSITE_HEADER_ACCESS_OPTIONS } from '../../constants/websiteAccess';
-import { getAdminModulePath } from '../../constants/adminModules';
+import { getAdminModuleKey, getAdminModulePath } from '../../constants/adminModules';
 import { LIST_CARD_BORDER as CARD_BORDER, listBtnNavy } from '../../constants/listTheme';
 
 function leafPaths(item) {
@@ -41,6 +41,7 @@ export default function WebsiteAccessPage() {
   const [headerAccess, setHeaderAccess] = useState([]);
   const [sidebarAccess, setSidebarAccess] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
   const [saving, setSaving] = useState(false);
   const selectedModule = useMemo(() => modules.find(module => module.slug === selectedSlug), [modules, selectedSlug]);
   const sidebarMenu = useMemo(() => selectedModule ? getAdminSidebarMenu(selectedModule) : [], [selectedModule]);
@@ -48,25 +49,26 @@ export default function WebsiteAccessPage() {
     { path: getAdminModulePath(selectedModule), label: `${selectedModule.name} Admin` },
     ...WEBSITE_HEADER_ACCESS_OPTIONS,
   ] : WEBSITE_HEADER_ACCESS_OPTIONS, [selectedModule]);
-  const activeSlug = String(activeModule?.slug || activeModule?.type || '').toLowerCase();
+  const activeModuleKey = getAdminModuleKey(activeModule);
 
   useEffect(() => {
     api.get('/website-modules').then(({ data }) => {
+      setLoadError('');
       const list = Array.isArray(data) ? data : [];
       setModules(list);
       if (!list.length) return;
 
-      const normalizedActive = activeSlug && list.some(module => String(module.slug || module.type || '').toLowerCase() === activeSlug);
+      const normalizedActive = list.some(module => getAdminModuleKey(module) === activeModuleKey);
       const defaultSlug = normalizedActive
-        ? list.find(module => String(module.slug || module.type || '').toLowerCase() === activeSlug)?.slug
+        ? list.find(module => getAdminModuleKey(module) === activeModuleKey)?.slug
         : list[0]?.slug;
 
-      setSelectedSlug(current => {
-        if (current && list.some(module => module.slug === current)) return current;
-        return defaultSlug || '';
-      });
-    }).catch(() => setModules([])).finally(() => setLoading(false));
-  }, [activeSlug]);
+      setSelectedSlug(defaultSlug || '');
+    }).catch(error => {
+      setModules([]);
+      setLoadError(error.response?.data?.message || error.message || 'Website modules load nahi ho paye');
+    }).finally(() => setLoading(false));
+  }, [activeModuleKey]);
 
   useEffect(() => {
     const access = selectedModule?.access || {};
@@ -107,7 +109,7 @@ export default function WebsiteAccessPage() {
           {loading ? 'Loading module...' : (selectedModule?.name || 'No module selected')}
         </div>
       </div>
-      {!loading && !modules.length && <p className="mt-3 text-sm text-amber-700">Pehle Website Module page se module add karein.</p>}
+      {!loading && !modules.length && <p className="mt-3 text-sm text-amber-700">{loadError ? `Website Modules load nahi hue: ${loadError}` : 'Pehle Website Module page se module add karein.'}</p>}
       {selectedModule && <p className="mt-3 text-xs text-slate-500">{selectedModule.name} ke signup accounts ko neeche diye gaye pages hi milenge.</p>}
     </section>
 
