@@ -2552,26 +2552,54 @@ router.get('/geography/cities', auth, async (req, res) => {
 router.get('/geography/pincodes', auth, async (req, res) => {
   const state = String(req.query.state || '').trim();
   if (!state) return res.status(400).json({ message: 'State required' });
-  const cacheKey = `pincodes:${state.toLowerCase()}`;
+  const cacheKey = `pincodes:v3:${state.toLowerCase()}`;
   const cached = geographyCache.get(cacheKey);
   if (cached && cached.expiresAt > Date.now()) return res.json(cached.data);
   try {
-    const response = await fetch(`https://api.pincodeapi.in/api/v1/state/${encodeURIComponent(state)}`, {
-      headers: { Accept: 'application/json' },
-      signal: AbortSignal.timeout(15000),
-    });
-    if (!response.ok) throw new Error(`PIN code service returned ${response.status}`);
-    const payload = await response.json();
-    const apiSucceeded = payload.success === true || String(payload.status || '').toLowerCase() === 'success';
-    if (!apiSucceeded) throw new Error(payload.error?.message || payload.message || 'PIN code data unavailable');
+    const pageSize = 100;
     const source = [];
-    const collectRecords = value => {
-      if (Array.isArray(value)) return value.forEach(collectRecords);
+    let offset = 0;
+    let pagesInRateWindow = 0;
+    let hasMore = true;
+    const collectRecords = (value, records) => {
+      if (Array.isArray(value)) return value.forEach(item => collectRecords(item, records));
       if (!value || typeof value !== 'object') return;
-      if (value.pincode || value.pin || value.pin_code) source.push(value);
-      else Object.values(value).forEach(collectRecords);
+      if (value.pincode || value.Pincode || value.pin || value.pin_code) records.push(value);
+      else Object.values(value).forEach(item => collectRecords(item, records));
     };
-    collectRecords(payload.data);
+
+    while (hasMore) {
+      const pageUrl = `https://api.pincodeapi.in/api/v1/state/${encodeURIComponent(state)}?limit=${pageSize}&offset=${offset}`;
+      let response = await fetch(pageUrl, {
+        headers: { Accept: 'application/json' },
+        signal: AbortSignal.timeout(15000),
+      });
+      if (response.status === 429) {
+        await new Promise(resolve => setTimeout(resolve, 10000));
+        response = await fetch(pageUrl, {
+          headers: { Accept: 'application/json' },
+          signal: AbortSignal.timeout(15000),
+        });
+      }
+      if (!response.ok) throw new Error(`PIN code service returned ${response.status}`);
+      const payload = await response.json();
+      const apiSucceeded = payload.success === true || String(payload.status || '').toLowerCase() === 'success';
+      if (!apiSucceeded) throw new Error(payload.error?.message || payload.message || 'PIN code data unavailable');
+      const pageRecords = [];
+      collectRecords(payload.data, pageRecords);
+      source.push(...pageRecords);
+      const returnedCount = Array.isArray(payload.data?.post_offices)
+        ? payload.data.post_offices.length
+        : pageRecords.length;
+      hasMore = returnedCount >= pageSize;
+      offset += pageSize;
+      pagesInRateWindow += 1;
+      if (hasMore && pagesInRateWindow >= 6) {
+        await new Promise(resolve => setTimeout(resolve, 10000));
+        pagesInRateWindow = 0;
+      }
+    }
+
     const unique = new Map();
     source.forEach(item => {
       const pin = String(item.pincode || item.pin || item.pin_code || item.Pincode || '').trim();
@@ -4023,7 +4051,7 @@ function shopQuoteFor(body, websiteId = '', contextOverride = null) {
   const result = {
     details,
     quote: {
-      ...quoteDelivery({ store: websiteStore, lat: body.lat, lng: body.lng, itemsTotal, storeId: firstStoreId || st?.storeId || st?._id, storeLat: st?.lat, storeLng: st?.lng, moduleSlug }),
+      ...quoteDelivery({ store: websiteStore, lat: body.lat, lng: body.lng, pincode: body.pincode, itemsTotal, storeId: firstStoreId || st?.storeId || st?._id, storeLat: st?.lat, storeLng: st?.lng, moduleSlug }),
       moduleSlug,
     },
     storeRef: st,

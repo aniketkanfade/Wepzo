@@ -28,7 +28,7 @@ export default function StorefrontPage() {
     authMode, setAuthMode, message, setMessage, checkout, setCheckout, address,
     setAddress, phone, setPhone, busy, cookieAccepted, setCookieAccepted,
     categories, subCategories, childCategories, modules, shown, deals, bestsellers, heroBanner, categoryProduct, count, subtotal,
-    cartItem, changeQty, toggleFavorite, calculateQuote, submitAuth, placeOrder,
+    cartItem, changeQty, toggleFavorite, calculateQuote, submitAuth, placeOrder, signOut,
   } = store
 
   const mainAdminWebsite = home?.isMainWebsite === true
@@ -64,7 +64,7 @@ export default function StorefrontPage() {
     <StoreHeader
       business={business} customer={customer} category={category} categories={categories} query={query}
       setCategory={setCategory} setQuery={setQuery} location={location}
-      onOpenLocation={() => setLocationOpen(true)} onOpenAccount={() => setAuthOpen(true)}
+      onOpenLocation={() => setLocationOpen(true)} onOpenAccount={() => setAuthOpen(true)} onSignOut={signOut}
       onOpenCart={() => setCartOpen(true)} count={count}
       onSearch={() => document.getElementById('collection')?.scrollIntoView({ behavior: 'smooth' })}
       showLogo={showLogo} showSearch={showSearch} showLocation={showLocation}

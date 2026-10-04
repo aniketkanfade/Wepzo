@@ -177,6 +177,13 @@ export default function useStorefront() {
     }
   }
 
+  const signOut = () => {
+    localStorage.removeItem(storageKey('wepzo-shop-token'))
+    localStorage.removeItem(storageKey('wepzo-shop-customer'))
+    setCustomer(null)
+    setMessage('You have been signed out.')
+  }
+
   const placeOrder = async () => {
     if (!customer) {
       setAuthOpen(true)
@@ -191,7 +198,7 @@ export default function useStorefront() {
     try {
       const order = await request('/shop/orders', {
         method: 'POST',
-        body: JSON.stringify({ items: cart.map(item => ({ id: item.id, qty: item.qty })), address, phone, lat: Number(location.lat), lng: Number(location.lng), payment: 'COD' }),
+        body: JSON.stringify({ items: cart.map(item => ({ id: item.id, qty: item.qty })), address, phone, lat: location.lat || null, lng: location.lng || null, pincode: location.pincode, payment: 'COD' }),
       })
       setCart([])
       setCheckout(false)
@@ -213,6 +220,6 @@ export default function useStorefront() {
     customer, message, setMessage, checkout, setCheckout, address, setAddress, phone, setPhone,
     busy, quote, setQuote, cookieAccepted, setCookieAccepted, categories, modules, shown, deals,
     bestsellers, heroBanner, categoryProduct, count, subtotal, cartItem, changeQty, toggleFavorite,
-    calculateQuote, submitAuth, placeOrder,
+    calculateQuote, submitAuth, placeOrder, signOut,
   }
 }

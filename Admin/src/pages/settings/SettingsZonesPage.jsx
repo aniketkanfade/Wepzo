@@ -169,6 +169,10 @@ export default function SettingsZonesPage() {
       pincodeLabel(p).toLowerCase().includes(q)
     );
   }, [pinQuery, statePins]);
+  const manualPin = pinQuery.trim();
+  const canAddManualPin = /^\d{6}$/.test(manualPin)
+    && !statePins.some(item => item.pin === manualPin)
+    && !form.pincodes.includes(manualPin);
 
   const switchType = (type) => {
     setForm(f => ({
@@ -365,7 +369,7 @@ export default function SettingsZonesPage() {
       </div>
 
       {isReadOnly && <p className="rounded-lg border border-blue-100 bg-blue-50 px-4 py-3 text-sm text-blue-800">Main Admin ke shared service areas yahan view kar sakte hain. Zone ya location add/edit karne ke liye Main Admin access chahiye.</p>}
-      {!isReadOnly && <form id="add-zone-form" onSubmit={handleSubmit} className="bg-white rounded-xl border shadow-sm overflow-hidden" style={{ borderColor: CARD_BORDER }}>
+      {!isReadOnly && <form id="add-zone-form" onSubmit={handleSubmit} className="bg-white rounded-xl border shadow-sm overflow-visible" style={{ borderColor: CARD_BORDER }}>
         <div className="flex items-center justify-between px-5 py-4 border-b" style={{ borderColor: CARD_BORDER }}>
           <h2 className="font-semibold text-gray-800">{editingId ? 'Edit Zone' : 'Add New Zone'}</h2>
         </div>
@@ -453,15 +457,27 @@ export default function SettingsZonesPage() {
                       value={pinQuery}
                       disabled={!form.state || pinsLoading || pinLoading || !!pinsError}
                       onChange={e => { setPinQuery(e.target.value); setPinOpen(true); }}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter' && canAddManualPin) {
+                          e.preventDefault();
+                          selectPincode({ pin: manualPin, area: findPin(manualPin)?.area || 'Manual PIN code' });
+                        }
+                      }}
                       onFocus={() => form.state && setPinOpen(true)}
                       onBlur={() => setTimeout(() => setPinOpen(false), 180)}
                       placeholder={!form.state ? 'Pehle state select karein' : pinsLoading ? 'State PIN codes load ho rahe hain...' : 'PIN code ya post office search karein'}
                     />
                     {(pinLoading || pinsLoading) && <Loader2 size={14} className="absolute right-3 top-10 animate-spin text-gray-400" />}
                     {pinOpen && form.state && !pinsLoading && !pinsError && (
-                      <div className="absolute z-30 left-0 right-0 mt-1 max-h-56 overflow-y-auto bg-white border border-gray-200 rounded-lg shadow-lg">
+                      <div className="pin-options-scroll absolute z-30 left-0 right-0 mt-1 max-h-[70vh] overflow-y-auto overscroll-y-contain bg-white border border-gray-200 rounded-lg shadow-lg">
+                        {canAddManualPin && <button
+                          type="button"
+                          onMouseDown={e => e.preventDefault()}
+                          onClick={() => selectPincode({ pin: manualPin, area: findPin(manualPin)?.area || 'Manual PIN code' })}
+                          className="w-full border-b border-gray-100 px-3 py-2 text-left text-sm font-medium text-[#1a3a8a] hover:bg-sky-50"
+                        >Add PIN {manualPin} manually</button>}
                         {pinOptions.length === 0 && (
-                          <p className="px-3 py-2 text-xs text-gray-400">Koi PIN code nahi mila</p>
+                          !canAddManualPin && <p className="px-3 py-2 text-xs text-gray-400">Koi PIN code nahi mila</p>
                         )}
                         {pinOptions.map(p => (
                           <button

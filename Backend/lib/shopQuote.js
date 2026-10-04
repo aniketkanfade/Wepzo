@@ -158,9 +158,11 @@ function enrichOrderEta(order) {
   return order;
 }
 
-function quoteDelivery({ store, lat, lng, itemsTotal, storeId, storeLat, storeLng, moduleSlug = 'grocery' }) {
+function quoteDelivery({ store, lat, lng, pincode, itemsTotal, storeId, storeLat, storeLng, moduleSlug = 'grocery' }) {
   const platformFee = 5;
-  if (lat == null || lng == null) {
+  const pin = String(pincode || '').replace(/\D/g, '').slice(0, 6);
+  const hasCoordinates = lat != null && lng != null && Number.isFinite(Number(lat)) && Number.isFinite(Number(lng));
+  if (!hasCoordinates && !/^\d{6}$/.test(pin)) {
     return { deliverable: false, message: 'Delivery location select karo', itemsTotal, deliveryCharge: 0, searchCharge: 0, platformFee, total: itemsTotal + platformFee };
   }
   const zones = store.deliveryZones || [];
@@ -168,11 +170,15 @@ function quoteDelivery({ store, lat, lng, itemsTotal, storeId, storeLat, storeLn
   if (storeId && !selectedStore) {
     return { deliverable: false, message: 'Selected store service area me available nahi hai.', itemsTotal, deliveryCharge: 0, searchCharge: 0, platformFee, total: itemsTotal + platformFee };
   }
-  const customerZones = zones.filter(item => isInsideDeliveryZone(item, Number(lat), Number(lng)));
+  const customerZones = zones.filter(item =>
+    (hasCoordinates && isInsideDeliveryZone(item, Number(lat), Number(lng)))
+    || (/^\d{6}$/.test(pin) && (item.pincodes || []).some(itemPin => String(itemPin).replace(/\D/g, '') === pin))
+  );
   const zone = customerZones.find(item => {
     if (!selectedStore) return true;
     if (selectedStore.zoneId != null && (String(selectedStore.zoneId) === String(item._id) || String(selectedStore.zoneId) === String(item.zoneId))) return true;
-    return selectedStore.lat != null && selectedStore.lng != null && isInsideDeliveryZone(item, Number(selectedStore.lat), Number(selectedStore.lng));
+    if ((item.pincodes || []).some(itemPin => String(itemPin).replace(/\D/g, '') === pin)) return true;
+    return hasCoordinates && selectedStore.lat != null && selectedStore.lng != null && isInsideDeliveryZone(item, Number(selectedStore.lat), Number(selectedStore.lng));
   }) || null;
   if (!zone) {
     return { deliverable: false, message: 'Is location par delivery zone nahi hai', itemsTotal, deliveryCharge: 0, searchCharge: 0, platformFee, total: itemsTotal + platformFee };
@@ -182,9 +188,11 @@ function quoteDelivery({ store, lat, lng, itemsTotal, storeId, storeLat, storeLn
   if (!connectedModules.includes(moduleSlug) && !ruleConnected) {
     return { deliverable: false, message: 'This module is not connected to the selected delivery zone.', itemsTotal, deliveryCharge: 0, searchCharge: 0, platformFee, total: itemsTotal + platformFee, zone: { _id: zone._id, name: zone.name, zoneId: zone.zoneId, city: zone.city } };
   }
-  const distanceKm = (storeLat != null && storeLng != null)
-    ? distanceMeters(storeLat, storeLng, lat, lng) / 1000
-    : distanceMeters(zone.lat, zone.lng, lat, lng) / 1000;
+  const distanceKm = hasCoordinates
+    ? (storeLat != null && storeLng != null)
+      ? distanceMeters(storeLat, storeLng, lat, lng) / 1000
+      : (zone.lat != null && zone.lng != null ? distanceMeters(zone.lat, zone.lng, lat, lng) / 1000 : 0)
+    : 0;
   let rule = pickRule(zone, moduleSlug);
   let ruleSource = 'zone';
   if (!rule) {

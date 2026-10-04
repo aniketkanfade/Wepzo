@@ -1,0 +1,241 @@
+/* Keep the category/navigation row at the top while the main header scrolls away. */
+.storefront > .header {
+  display: grid;
+  grid-template-columns: auto minmax(125px, 160px) minmax(180px, 1fr) repeat(5, auto);
+  align-items: center;
+  gap: clamp(10px, 1.4vw, 22px);
+  height: 62px;
+  padding: 0 clamp(12px, 1.7vw, 26px);
+  position: relative;
+  top: auto;
+  z-index: 25;
+  border-bottom: 1px solid #e6e8ed;
+  background: #fff;
+  box-shadow: 0 1px 4px rgb(25 42 70 / 6%);
+}
+
+.storefront > .header > .brand {
+  grid-column: 1;
+  color: #172744;
+  font-size: 22px;
+  letter-spacing: -1px;
+}
+
+.storefront > .header > .search {
+  grid-column: 3;
+  width: 100%;
+  max-width: none;
+  min-width: 0;
+  height: 36px;
+  border-color: #e2e5eb;
+  border-radius: 5px;
+  background: #f8f9fb;
+}
+
+.storefront > .header > .search select {
+  max-width: 118px;
+  font-size: 10px;
+  background: #f8f9fb;
+}
+
+.storefront > .header > .search input {
+  font-size: 11px;
+}
+
+.storefront > .header > .search > button {
+  width: 36px;
+  height: 36px;
+  background: #4935f2;
+  display: grid;
+  place-items: center;
+  font-size: 0;
+}
+
+.storefront > .header > .search > button svg {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+
+.storefront > .header > .header-actions {
+  display: contents;
+}
+
+.storefront > .header .location-button {
+  grid-column: 2;
+  justify-self: start;
+  max-width: 165px;
+  overflow: hidden;
+  color: #23334e;
+  font-size: 10px;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+}
+
+.storefront > .header .location-button svg,
+.storefront > .header .header-service svg,
+.storefront > .header .header-icon svg,
+.storefront > .header .cart-button svg,
+.storefront > .header .account-button svg {
+  width: 17px;
+  height: 17px;
+  flex: 0 0 17px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.storefront > .header .location-button span,
+.storefront > .header .header-service,
+.storefront > .header .header-icon,
+.storefront > .header .cart-button,
+.storefront > .header .account-button span {
+  display: flex;
+  align-items: center;
+}
+
+.storefront > .header .location-button span,
+.storefront > .header .account-button span {
+  display: block;
+}
+
+.storefront > .header .location-button span { white-space: nowrap; }
+.storefront > .header .location-button b { display: block; color: #172744; font-size: 10px; }
+
+.storefront > .header .header-service {
+  grid-column: 4;
+  justify-self: center;
+  flex-direction: column;
+  gap: 3px;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: #26344c;
+  cursor: pointer;
+  font-size: 9px;
+  white-space: nowrap;
+}
+
+.storefront > .header .header-service + .header-service { grid-column: 5; }
+
+.storefront > .header .header-icon,
+.storefront > .header .cart-button,
+.storefront > .header .account-button {
+  justify-self: center;
+  color: #26344c;
+  font-size: 10px;
+}
+
+.storefront > .header .header-icon { grid-column: 6; }
+.storefront > .header .cart-button { grid-column: 7; }
+.storefront > .header .account-menu-wrap {
+  position: relative;
+  grid-column: 8;
+  justify-self: center;
+}
+
+.storefront > .header .header-icon,
+.storefront > .header .cart-button {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.storefront > .header .header-icon svg,
+.storefront > .header .cart-button svg { width: 16px; height: 16px; }
+
+.storefront > .header .account-button {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+}
+
+.storefront > .header .account-button small {
+  color: #68758a;
+  font-size: 9px;
+}
+
+.storefront > .header .account-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 30;
+  width: 220px;
+  overflow: hidden;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 12px 32px rgb(16 34 59 / 16%);
+}
+
+.storefront > .header .account-dropdown-user {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 14px 16px;
+  border-bottom: 1px solid #edf0f3;
+  color: #172744;
+}
+
+.storefront > .header .account-dropdown-user strong { font-size: 13px; }
+.storefront > .header .account-dropdown-user span { overflow: hidden; color: #68758a; font-size: 11px; text-overflow: ellipsis; }
+
+.storefront > .header .account-dropdown > button {
+  width: 100%;
+  padding: 11px 16px;
+  border: 0;
+  background: #fff;
+  color: #a32626;
+  cursor: pointer;
+  text-align: left;
+  font-size: 12px;
+}
+
+.storefront > .header .account-dropdown > button:hover { background: #f8f9fb; }
+
+.storefront > .nav {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  background: #fff;
+}
+
+@media (max-width: 760px) {
+  .storefront > .header {
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    grid-template-rows: 48px 38px;
+    gap: 4px 10px;
+    height: auto;
+    min-height: 90px;
+    padding: 5px 12px 7px;
+  }
+
+  .storefront > .header > .brand { grid-column: 1; grid-row: 1; }
+  .storefront > .header > .search { grid-column: 1 / -1; grid-row: 2; }
+  .storefront > .header > .header-actions {
+    display: flex;
+    grid-column: 2 / -1;
+    grid-row: 1;
+    justify-self: end;
+    gap: 10px;
+  }
+  .storefront > .header .account-button,
+  .storefront > .header .header-icon,
+  .storefront > .header .cart-button,
+  .storefront > .header .header-service {
+    grid-column: auto;
+    grid-row: auto;
+  }
+  .storefront > .header .location-button { display: none; }
+}
