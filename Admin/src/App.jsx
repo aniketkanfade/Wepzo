@@ -41,6 +41,11 @@ import StoreSingleOrdersPage from './WebAdmin/Qucik commerce/StoreSingleOrdersPa
 import QuickCommerceOrders from './WebAdmin/Qucik commerce/QuickCommerceOrdersPage';
 import ECommerceDashboardPage from './WebAdmin/E-Commerce/ECommerceDashboardPage';
 import MarketingDashboardPage from './WebAdmin/Marketing/MarketingDashboardPage';
+import MarketingContentPage from './WebAdmin/Marketing/MarketingContentPage';
+import MarketingWebsiteContentPage from './WebAdmin/Marketing/MarketingWebsiteContentPage';
+import MarketingUsersPage from './WebAdmin/Marketing/MarketingUsersPage';
+import MarketingSubscriptionsPage from './WebAdmin/Marketing/MarketingSubscriptionsPage';
+import MarketingUserAccountsPage from './WebAdmin/Marketing/MarketingUserAccountsPage';
 import InformationWebDashboardPage from './WebAdmin/informastion web/InformationWebDashboardPage';
 import OrderDetailPage from './WebAdmin/Qucik commerce/OrderDetailPage';
 import RefundsPage from './WebAdmin/Qucik commerce/RefundsPage';
@@ -108,6 +113,11 @@ export default function App() {
         <Route path="quick-commerce/orders" element={<QuickCommerceOrders />} />
         <Route path="e-commerce" element={<ECommerceDashboardPage />} />
         <Route path="marketing" element={<MarketingDashboardPage />} />
+        <Route path="marketing/website-content" element={<MarketingWebsiteContentPage />} />
+        <Route path="marketing/content-add" element={<MarketingContentPage />} />
+        <Route path="marketing/users" element={<MarketingUsersPage />} />
+        <Route path="marketing/users/:userId/accounts" element={<MarketingUserAccountsPage />} />
+        <Route path="marketing/subscriptions" element={<MarketingSubscriptionsPage />} />
         <Route path="information-web" element={<InformationWebDashboardPage />} />
         <Route path="store-single" element={<StoreSingleAdminHome />} />
         <Route path="store-single/orders" element={<StoreSingleOrdersPage />} />

@@ -65,6 +65,14 @@ export default function WebsiteDashboardPage() {
           return url.href;
         })()
       : `/published-websites/${website?._id}`;
+  const marketingWorkspaceUrl = useMemo(() => {
+    if (websiteModuleKey !== 'marketing') return '';
+    const url = new URL(import.meta.env.VITE_MARKETING_APP_URL || 'http://localhost:3001/', window.location.origin);
+    url.searchParams.set('websiteId', website?._id || '');
+    if (website?.websiteModuleId) url.searchParams.set('websiteModuleId', website.websiteModuleId);
+    url.hash = '/login';
+    return url.href;
+  }, [website, websiteModuleKey]);
   const logoutUser = () => { resetBuilder(); logout(); navigate('/login', { replace: true }); };
 
   if (loading) return <main className="grid min-h-screen place-items-center bg-[#090f1b] text-sm text-slate-300">Loading your website...</main>;
@@ -85,6 +93,7 @@ export default function WebsiteDashboardPage() {
         <div className="rounded-lg bg-[#1d293b] p-2.5">
           <div className="flex items-start justify-between gap-3"><div className="flex min-w-0 items-start gap-2"><Globe2 size={14} className="mt-0.5 shrink-0 text-slate-400"/><div className="min-w-0"><p className="truncate text-xs font-semibold">{website.domain?.fullDomain || website.domain?.name || 'Domain not connected'}</p><p className="mt-1 text-[10px] text-slate-400">{website.domain?.type === 'custom' ? 'Custom domain' : website.domain?.type === 'subdomain' ? 'Wepzo subdomain' : 'Connect a domain in the designer'}</p></div></div>{published && <a aria-label="Open website in new tab" href={viewUrl} target="_blank" rel="noreferrer" className="rounded p-1 text-slate-300 hover:bg-slate-700"><ExternalLink size={14}/></a>}</div>
           <div className="mt-2 grid grid-cols-2 gap-2"><button type="button" onClick={() => navigate('/website-builder')} className="inline-flex items-center justify-center gap-1.5 rounded-full border border-slate-600 px-3 py-1.5 text-[11px] font-medium text-slate-100 hover:bg-slate-700"><Pencil size={12}/> Edit Website</button><a href={published ? viewUrl : undefined} target={published ? '_blank' : undefined} rel="noreferrer" aria-disabled={!published} onClick={event => { if (!published) event.preventDefault(); }} className={`inline-flex items-center justify-center gap-1.5 rounded-full px-3 py-1.5 text-[11px] font-semibold ${published ? 'bg-slate-100 text-slate-900 hover:bg-white' : 'cursor-not-allowed bg-slate-700 text-slate-400'}`}><ExternalLink size={12}/> View Website</a></div>
+          {marketingWorkspaceUrl && <a href={marketingWorkspaceUrl} target="_blank" rel="noreferrer" className="mt-2 inline-flex w-full items-center justify-center gap-2 rounded-full bg-orange-500 py-2 text-[11px] font-semibold text-white hover:bg-orange-400"><ExternalLink size={13}/> Open Marketing Workspace</a>}
         </div>
 
         <div className="mt-2 grid grid-cols-2 gap-2">

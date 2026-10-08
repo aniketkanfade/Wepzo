@@ -39,9 +39,344 @@ const websiteModuleMediaUpload = multer({
     callback(new Error('Only image and video files are allowed'));
   },
 });
+const marketingMediaDirectory = path.join(__dirname, '..', 'uploads', 'marketing');
+fs.mkdirSync(marketingMediaDirectory, { recursive: true });
+const marketingMediaUpload = multer({
+  storage: multer.diskStorage({
+    destination: (_req, _file, callback) => callback(null, marketingMediaDirectory),
+    filename: (_req, file, callback) => callback(null, `${Date.now()}-${crypto.randomBytes(10).toString('hex')}${path.extname(file.originalname).toLowerCase().replace(/[^.a-z0-9]/g, '').slice(0, 10)}`),
+  }),
+  limits: { fileSize: 150 * 1024 * 1024, files: 1 },
+  fileFilter: (_req, file, callback) => file.mimetype.startsWith('image/') || file.mimetype.startsWith('video/')
+    ? callback(null, true) : callback(new Error('Upload an image or video file')),
+});
 
 const router = express.Router();
 const SERVER_WEBSITE_MODULE = String(process.env.WEBSITE_MODULE || '').trim().toLowerCase();
+const marketingOAuthStates = new Map();
+const marketingOAuthProviders = {
+  instagram: { provider: 'meta', env: 'META', scopes: ['pages_show_list', 'pages_read_engagement', 'pages_manage_posts', 'read_insights', 'instagram_basic', 'instagram_content_publish', 'instagram_manage_insights'] },
+  facebook: { provider: 'meta', env: 'META', scopes: ['pages_show_list', 'pages_read_engagement', 'pages_manage_posts', 'read_insights'] },
+  'meta-business': { provider: 'meta', env: 'META', scopes: ['business_management', 'ads_read'] },
+  youtube: { provider: 'google', env: 'GOOGLE', scopes: ['https://www.googleapis.com/auth/youtube.upload', 'https://www.googleapis.com/auth/youtube.readonly', 'https://www.googleapis.com/auth/yt-analytics.readonly', 'openid', 'profile'] },
+  'google-ads': { provider: 'google', env: 'GOOGLE', scopes: ['https://www.googleapis.com/auth/adwords', 'openid', 'profile'] },
+  linkedin: { provider: 'linkedin', env: 'LINKEDIN', scopes: ['openid', 'profile', 'email', 'w_member_social'] },
+};
+const marketingPlatformLabels = {
+  instagram: 'Instagram', facebook: 'Facebook', youtube: 'YouTube', linkedin: 'LinkedIn',
+  'meta-business': 'Meta Business', 'google-ads': 'Google Ads',
+};
+
+function marketingOAuthConfig(platform) {
+  const definition = marketingOAuthProviders[platform];
+  if (!definition) return null;
+  const prefix = definition.env;
+  const clientId = process.env[`${prefix}_CLIENT_ID`];
+  const clientSecret = process.env[`${prefix}_CLIENT_SECRET`];
+  const publicUrl = String(process.env.BACKEND_PUBLIC_URL || '').replace(/\/$/, '');
+  const redirectKey = `${platform.replace(/-/g, '_').toUpperCase()}_OAUTH_REDIRECT_URI`;
+  const redirectUri = process.env[redirectKey] || (publicUrl && `${publicUrl}/api/marketing/integrations/callback/${platform}`);
+  return clientId && clientSecret && redirectUri ? { ...definition, clientId, clientSecret, redirectUri } : null;
+}
+
+function encryptMarketingTokens(tokens) {
+  const secret = process.env.SOCIAL_TOKEN_ENCRYPTION_KEY;
+  if (!secret) throw new Error('SOCIAL_TOKEN_ENCRYPTION_KEY is not configured');
+  const key = crypto.createHash('sha256').update(secret).digest();
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
+  const encrypted = Buffer.concat([cipher.update(JSON.stringify(tokens), 'utf8'), cipher.final()]);
+  return { iv: iv.toString('base64'), tag: cipher.getAuthTag().toString('base64'), data: encrypted.toString('base64') };
+}
+
+function decryptMarketingTokens(payload) {
+  const secret = process.env.SOCIAL_TOKEN_ENCRYPTION_KEY;
+  if (!secret || !payload?.iv || !payload?.tag || !payload?.data) throw new Error('Saved provider credentials cannot be decrypted. Check SOCIAL_TOKEN_ENCRYPTION_KEY.');
+  const key = crypto.createHash('sha256').update(secret).digest();
+  const decipher = crypto.createDecipheriv('aes-256-gcm', key, Buffer.from(payload.iv, 'base64'));
+  decipher.setAuthTag(Buffer.from(payload.tag, 'base64'));
+  const clear = Buffer.concat([decipher.update(Buffer.from(payload.data, 'base64')), decipher.final()]).toString('utf8');
+  return JSON.parse(clear);
+}
+
+async function marketingProviderJson(url, options = {}) {
+  const response = await fetch(url, options);
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data.error?.message || data.error_description || data.message || `Provider request failed (${response.status})`);
+  return { data, response };
+}
+
+async function discoverMarketingTargets(platform, tokens) {
+  const accessToken = tokens.access_token;
+  if (platform === 'meta-business') {
+    const version = String(process.env.META_GRAPH_VERSION || 'v23.0').replace(/^v?/, 'v');
+    const url = new URL(`https://graph.facebook.com/${version}/me/adaccounts`);
+    url.searchParams.set('fields', 'id,account_id,name,currency'); url.searchParams.set('access_token', accessToken);
+    const { data } = await marketingProviderJson(url);
+    return { targets: (data.data || []).map(account => ({ id: String(account.id), label: account.name || `Ad account ${account.account_id || account.id}`, kind: 'ad-account', accountId: String(account.account_id || account.id), currency: account.currency || 'INR' })) };
+  }
+  if (['instagram', 'facebook'].includes(platform)) {
+    const version = String(process.env.META_GRAPH_VERSION || 'v23.0').replace(/^v?/, 'v');
+    const url = new URL(`https://graph.facebook.com/${version}/me/accounts`);
+    url.searchParams.set('fields', 'id,name,access_token,instagram_business_account{id,username}');
+    url.searchParams.set('access_token', accessToken);
+    const { data } = await marketingProviderJson(url);
+    const targets = [];
+    const accountTokens = {};
+    for (const page of data.data || []) {
+      if (page.access_token) accountTokens[page.id] = page.access_token;
+      if (platform === 'facebook') targets.push({ id: String(page.id), label: page.name || `Facebook Page ${page.id}`, kind: 'page', tokenKey: String(page.id) });
+      if (platform === 'instagram' && page.instagram_business_account?.id) targets.push({ id: String(page.instagram_business_account.id), label: page.instagram_business_account.username ? `@${page.instagram_business_account.username}` : (page.name || 'Instagram professional account'), kind: 'instagram', tokenKey: String(page.id) });
+    }
+    return { targets, accountTokens };
+  }
+  if (platform === 'youtube') {
+    const url = new URL('https://www.googleapis.com/youtube/v3/channels');
+    url.searchParams.set('part', 'id,snippet'); url.searchParams.set('mine', 'true');
+    const { data } = await marketingProviderJson(url, { headers: { Authorization: `Bearer ${accessToken}` } });
+    return { targets: (data.items || []).map(channel => ({ id: String(channel.id), label: channel.snippet?.title || 'YouTube channel', kind: 'channel' })) };
+  }
+  if (platform === 'linkedin') {
+    const { data } = await marketingProviderJson('https://api.linkedin.com/v2/userinfo', { headers: { Authorization: `Bearer ${accessToken}` } });
+    return { targets: data.sub ? [{ id: String(data.sub), label: data.name || data.email || 'LinkedIn member', kind: 'member' }] : [] };
+  }
+  return { targets: [] };
+}
+
+async function readMarketingAdSpend(userId) {
+  const integrations = (store.marketingIntegrations || []).filter(entry => String(entry.userId) === String(userId) && entry.platform === 'meta-business');
+  const result = [];
+  for (const integration of integrations) {
+    try {
+      const bundle = await integrationOAuth(integration);
+      if (!Array.isArray(integration.targets) || !integration.targets.length) {
+        integration.targets = (await discoverMarketingTargets('meta-business', bundle.oauth || bundle)).targets || [];
+        schedulePersist();
+      }
+      for (const target of integration.targets || []) {
+        const accountId = String(target.accountId || target.id || '').replace(/^act_/, '');
+        if (!accountId) continue;
+        const version = String(process.env.META_GRAPH_VERSION || 'v23.0').replace(/^v?/, 'v');
+        const url = new URL(`https://graph.facebook.com/${version}/act_${accountId}/insights`);
+        url.searchParams.set('fields', 'account_name,spend'); url.searchParams.set('date_preset', 'last_30d');
+        url.searchParams.set('level', 'account'); url.searchParams.set('access_token', bundle.oauth?.access_token || bundle.access_token);
+        const { data } = await marketingProviderJson(url);
+        const row = data.data?.[0];
+        result.push({ platform: 'Meta Ads', accountName: row?.account_name || target.label || 'Meta ad account', accountId: target.id, amount: row ? Number(row.spend || 0) : null, currency: target.currency || 'INR', period: 'Last 30 days', message: '' });
+      }
+    } catch (error) {
+      result.push({ platform: 'Meta Ads', accountName: integration.accountName || 'Meta ad account', accountId: '', amount: null, currency: 'INR', period: 'Last 30 days', message: String(error.message || 'Ad spend is unavailable').slice(0, 180) });
+    }
+  }
+  const googleAds = (store.marketingIntegrations || []).filter(entry => String(entry.userId) === String(userId) && entry.platform === 'google-ads');
+  googleAds.forEach(integration => result.push({ platform: 'Google Ads', accountName: integration.accountName || 'Google Ads account', accountId: '', amount: null, currency: 'INR', period: 'Last 30 days', message: 'Google Ads spend sync needs a developer token and customer account setup.' }));
+  return result;
+}
+
+function marketingWorkspaceUrl(result) {
+  const base = String(process.env.MARKETING_FRONTEND_URL || process.env.FRONTEND_URL || 'http://localhost:3001').replace(/\/$/, '');
+  return `${base}/#/app/social-accounts?connection=${encodeURIComponent(result)}`;
+}
+
+function marketingCaption(item) {
+  return [String(item.caption || '').trim(), String(item.hashtags || '').trim()].filter(Boolean).join('\n\n');
+}
+
+function marketingMediaPath(item) {
+  if (!item.mediaUrl) return '';
+  const filename = path.basename(decodeURIComponent(String(item.mediaUrl).split('?')[0]));
+  const filePath = path.resolve(marketingMediaDirectory, filename);
+  if (path.dirname(filePath) !== path.resolve(marketingMediaDirectory) || !fs.existsSync(filePath)) throw new Error('The assigned media file is missing. Ask the Marketing admin to upload it again.');
+  return filePath;
+}
+
+function publicMarketingMediaUrl(item) {
+  if (/^https:\/\//i.test(item.mediaUrl || '')) return item.mediaUrl;
+  const origin = String(process.env.BACKEND_PUBLIC_URL || '').replace(/\/$/, '');
+  if (!origin) throw new Error('Set BACKEND_PUBLIC_URL so social platforms can fetch uploaded media.');
+  return `${origin}${item.mediaUrl}`;
+}
+
+async function integrationOAuth(integration) {
+  const bundle = decryptMarketingTokens(integration.encryptedTokens);
+  const oauth = bundle.oauth || bundle;
+  if (oauth.expires_at && Number(oauth.expires_at) < Date.now() + 60_000 && oauth.refresh_token && ['youtube', 'google-ads'].includes(integration.platform)) {
+    const config = marketingOAuthConfig(integration.platform);
+    const body = new URLSearchParams({ grant_type: 'refresh_token', refresh_token: oauth.refresh_token, client_id: config.clientId, client_secret: config.clientSecret });
+    const refreshed = await marketingProviderJson('https://oauth2.googleapis.com/token', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body });
+    bundle.oauth = { ...oauth, ...refreshed.data, refresh_token: oauth.refresh_token, expires_at: Date.now() + (Number(refreshed.data.expires_in) || 3600) * 1000 };
+    integration.encryptedTokens = encryptMarketingTokens(bundle);
+    schedulePersist();
+  }
+  return { ...bundle, oauth: bundle.oauth || oauth };
+}
+
+function marketingItemPlatforms(item) {
+  const allowed = ['Instagram', 'Facebook', 'YouTube', 'LinkedIn'];
+  const requested = Array.isArray(item.platforms) && item.platforms.length ? item.platforms : [item.platform];
+  return [...new Set(requested.filter(platform => allowed.includes(platform)))];
+}
+
+async function publishMarketingItemToPlatform(item) {
+  const platform = ({ 'Instagram': 'instagram', 'Facebook': 'facebook', 'YouTube': 'youtube', 'LinkedIn': 'linkedin' })[item.platform];
+  const integration = (store.marketingIntegrations || []).find(entry => String(entry.userId) === String(item.assignedUserId) && entry.platform === platform);
+  if (!integration) throw new Error(`Connect ${item.platform} before publishing this ${item.contentType.toLowerCase()}.`);
+  const target = (integration.targets || []).find(entry => String(entry.id) === String(integration.selectedTargetId));
+  if (!target) throw new Error(`Choose the ${item.platform} account to publish to.`);
+  const bundle = await integrationOAuth(integration);
+  const oauth = bundle.oauth;
+  const pageToken = target.tokenKey && bundle.accountTokens?.[target.tokenKey];
+  const caption = marketingCaption(item);
+  const version = String(process.env.META_GRAPH_VERSION || 'v23.0').replace(/^v?/, 'v');
+  let result;
+
+  if (platform === 'instagram') {
+    if (!item.mediaUrl) throw new Error('Instagram publishing needs an image for a Post or a video for a Reel.');
+    const mediaUrl = publicMarketingMediaUrl(item);
+    const container = new URL(`https://graph.facebook.com/${version}/${target.id}/media`);
+    container.searchParams.set('access_token', pageToken || oauth.access_token);
+    container.searchParams.set('caption', caption);
+    if (item.contentType === 'Reel') {
+      if (item.mediaType !== 'video') throw new Error('Instagram Reels need a video file.');
+      container.searchParams.set('media_type', 'REELS');
+      container.searchParams.set('video_url', mediaUrl);
+      container.searchParams.set('share_to_feed', 'true');
+    } else {
+      if (item.mediaType !== 'image') throw new Error('Instagram Posts need an image file.');
+      container.searchParams.set('image_url', mediaUrl);
+    }
+    const created = await marketingProviderJson(container, { method: 'POST' });
+    const creationId = created.data.id;
+    if (!creationId) throw new Error('Instagram did not create a media container.');
+    if (item.contentType === 'Reel') {
+      let ready = false;
+      for (let attempt = 0; attempt < 20; attempt += 1) {
+        await new Promise(resolve => setTimeout(resolve, 1500));
+        const statusUrl = new URL(`https://graph.facebook.com/${version}/${creationId}`);
+        statusUrl.searchParams.set('fields', 'status_code'); statusUrl.searchParams.set('access_token', pageToken || oauth.access_token);
+        const status = (await marketingProviderJson(statusUrl)).data.status_code;
+        if (status === 'FINISHED') { ready = true; break; }
+        if (status === 'ERROR' || status === 'EXPIRED') throw new Error(`Instagram Reel processing failed (${status}).`);
+      }
+      if (!ready) throw new Error('Instagram is still processing this Reel. Retry publishing in a minute.');
+    }
+    const publishUrl = new URL(`https://graph.facebook.com/${version}/${target.id}/media_publish`);
+    publishUrl.searchParams.set('creation_id', creationId); publishUrl.searchParams.set('access_token', pageToken || oauth.access_token);
+    result = (await marketingProviderJson(publishUrl, { method: 'POST' })).data;
+  } else if (platform === 'facebook') {
+    if (item.contentType === 'Reel' && item.mediaType !== 'video') throw new Error('Facebook Reels need a video file.');
+    const accessToken = pageToken || oauth.access_token;
+    if (item.contentType === 'Reel') {
+      if (!item.mediaUrl) throw new Error('Facebook Reels need a video file.');
+      const startUrl = new URL(`https://graph.facebook.com/${version}/${target.id}/video_reels`);
+      startUrl.searchParams.set('access_token', accessToken); startUrl.searchParams.set('upload_phase', 'start');
+      const started = (await marketingProviderJson(startUrl, { method: 'POST' })).data;
+      if (!started.video_id || !started.upload_url) throw new Error('Facebook did not start the Reel upload.');
+      await marketingProviderJson(started.upload_url, { method: 'POST', headers: { Authorization: `OAuth ${accessToken}`, file_url: publicMarketingMediaUrl(item) } });
+      const finishUrl = new URL(`https://graph.facebook.com/${version}/${target.id}/video_reels`);
+      for (const [key, value] of Object.entries({ access_token: accessToken, video_id: started.video_id, upload_phase: 'finish', video_state: 'PUBLISHED', description: caption, title: item.title })) finishUrl.searchParams.set(key, value);
+      result = (await marketingProviderJson(finishUrl, { method: 'POST' })).data;
+      if (result.success !== true) throw new Error('Facebook did not confirm Reel publishing.');
+      result.id = started.video_id;
+    } else {
+      const endpoint = item.mediaType === 'video' ? 'videos' : item.mediaType === 'image' ? 'photos' : 'feed';
+      const url = new URL(`https://graph.facebook.com/${version}/${target.id}/${endpoint}`);
+      const params = new URLSearchParams({ access_token: accessToken });
+      if (endpoint === 'photos') { params.set('url', publicMarketingMediaUrl(item)); params.set('caption', caption); }
+      else if (endpoint === 'videos') { params.set('file_url', publicMarketingMediaUrl(item)); params.set('description', caption); params.set('title', item.title); }
+      else params.set('message', caption || item.title);
+      result = (await marketingProviderJson(url, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: params })).data;
+    }
+  } else if (platform === 'youtube') {
+    if (item.mediaType !== 'video') throw new Error('YouTube publishing requires a video file.');
+    const videoPath = marketingMediaPath(item);
+    const boundary = `wepzo_${crypto.randomBytes(12).toString('hex')}`;
+    const metadata = { snippet: { title: item.title, description: caption, categoryId: '22' }, status: { privacyStatus: 'public' } };
+    const prefix = Buffer.from(`--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata)}\r\n--${boundary}\r\nContent-Type: ${item.mediaMimeType || 'video/mp4'}\r\nContent-Transfer-Encoding: binary\r\n\r\n`);
+    const suffix = Buffer.from(`\r\n--${boundary}--`);
+    const body = Buffer.concat([prefix, fs.readFileSync(videoPath), suffix]);
+    const uploadUrl = new URL('https://www.googleapis.com/upload/youtube/v3/videos');
+    uploadUrl.searchParams.set('uploadType', 'multipart'); uploadUrl.searchParams.set('part', 'snippet,status');
+    result = (await marketingProviderJson(uploadUrl, { method: 'POST', headers: { Authorization: `Bearer ${oauth.access_token}`, 'Content-Type': `multipart/related; boundary=${boundary}` }, body })).data;
+  } else if (platform === 'linkedin') {
+    if (item.mediaType === 'video') throw new Error('LinkedIn video/Reel publishing is not enabled; upload a text or image Post.');
+    const author = `urn:li:person:${target.id}`;
+    const post = { author, commentary: caption || item.title, visibility: 'PUBLIC', distribution: { feedDistribution: 'MAIN_FEED', targetEntities: [], thirdPartyDistributionChannels: [] }, lifecycleState: 'PUBLISHED', isReshareDisabledByAuthor: false };
+    if (item.mediaType === 'image') {
+      const imagePath = marketingMediaPath(item);
+      const init = await marketingProviderJson('https://api.linkedin.com/rest/images?action=initializeUpload', { method: 'POST', headers: { Authorization: `Bearer ${oauth.access_token}`, 'Linkedin-Version': process.env.LINKEDIN_API_VERSION || '202601', 'X-Restli-Protocol-Version': '2.0.0', 'Content-Type': 'application/json' }, body: JSON.stringify({ initializeUploadRequest: { owner: author } }) });
+      const uploadInfo = init.data.value || init.data;
+      await marketingProviderJson(uploadInfo.uploadUrl, { method: 'PUT', headers: { Authorization: `Bearer ${oauth.access_token}`, 'Content-Type': item.mediaMimeType || 'image/jpeg' }, body: fs.readFileSync(imagePath) });
+      post.content = { media: { title: item.title, id: uploadInfo.image } };
+    }
+    const published = await marketingProviderJson('https://api.linkedin.com/rest/posts', { method: 'POST', headers: { Authorization: `Bearer ${oauth.access_token}`, 'Linkedin-Version': process.env.LINKEDIN_API_VERSION || '202601', 'X-Restli-Protocol-Version': '2.0.0', 'Content-Type': 'application/json' }, body: JSON.stringify(post) });
+    result = { id: published.response.headers.get('x-restli-id') || '' };
+  } else {
+    throw new Error(`${item.platform} is not a publishing destination. Choose a social platform for this content.`);
+  }
+  return { id: result.id || result.videoId || result.post_id || '', url: result.permalink || result.url || '', targetId: target.id };
+}
+
+async function publishMarketingItem(item) {
+  const successes = Array.isArray(item.publishedPlatforms) ? item.publishedPlatforms : [];
+  const failures = [];
+  for (const platform of marketingItemPlatforms(item)) {
+    if (successes.some(result => result.platform === platform)) continue;
+    try {
+      const published = await publishMarketingItemToPlatform({ ...item, platform });
+      successes.push({ platform, ...published, publishedAt: new Date().toISOString() });
+      item.publishedPlatforms = successes;
+      schedulePersist();
+    } catch (error) {
+      failures.push(`${platform}: ${error.message || 'Publishing failed'}`);
+    }
+  }
+  if (failures.length) throw new Error(failures.join(' · '));
+  if (!successes.length) throw new Error('Select at least one supported publishing platform.');
+  return { id: successes.map(result => `${result.platform}: ${result.id}`).join(', '), url: successes.map(result => result.url).filter(Boolean).join(' ') };
+}
+
+function validateMarketingFormat(item, platform = item.platform) {
+  if (platform === 'Instagram') {
+    if (item.contentType === 'Reel' && item.mediaType !== 'video') return 'Instagram Reels need a video file.';
+    if (item.contentType !== 'Reel' && item.mediaType !== 'image') return 'Instagram Posts need an image file.';
+  }
+  if (platform === 'YouTube' && item.mediaType !== 'video') return 'YouTube uploads need a video file.';
+  if (platform === 'Facebook' && item.contentType === 'Reel' && item.mediaType !== 'video') return 'Facebook Reels need a video file.';
+  if (platform === 'LinkedIn' && (item.mediaType === 'video' || item.contentType === 'Reel')) return 'LinkedIn video/Reel publishing is not enabled; use an image Post.';
+  return '';
+}
+
+async function processMarketingItem(item) {
+  try {
+    const published = await publishMarketingItem(item);
+    item.status = 'PUBLISHED'; item.providerPostId = published.id; item.providerPostUrl = published.url;
+    item.publishedAt = new Date().toISOString(); item.lastPublishError = '';
+  } catch (error) {
+    item.status = 'FAILED'; item.lastPublishError = String(error.message || 'Publishing failed').slice(0, 500);
+  }
+  item.updatedAt = new Date().toISOString();
+  schedulePersist();
+}
+
+let marketingPublishWorkerRunning = false;
+const marketingPublishWorker = setInterval(async () => {
+  if (marketingPublishWorkerRunning) return;
+  marketingPublishWorkerRunning = true;
+  try {
+    const now = Date.now();
+    const due = (store.marketingContent || []).filter(item => item.status === 'SCHEDULED' && item.publishDate && item.publishTime
+      && (!item.releaseDate || new Date(`${item.releaseDate}T${item.releaseTime || '00:00'}:00`).getTime() <= now)
+      && new Date(`${item.publishDate}T${item.publishTime}:00`).getTime() <= now);
+    for (const item of due) {
+      if (item.status !== 'SCHEDULED') continue;
+      item.status = 'PROCESSING'; item.updatedAt = new Date().toISOString();
+      schedulePersist();
+      await processMarketingItem(item);
+    }
+  } finally { marketingPublishWorkerRunning = false; }
+}, 15_000);
+marketingPublishWorker.unref?.();
 
 router.use((req, res, next) => {
   if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method)) {
@@ -1975,6 +2310,91 @@ function promotionList(type, req) {
   return key ? store[key].filter(item => isInAdminWebsiteModule(req, item)) : null;
 }
 
+function requirePromotionWebsite(req, res) {
+  if (req.user?.role === 'website_user' && !req.user.websiteId) {
+    res.status(409).json({ message: 'Create your Marketing website before managing its promotions.' });
+    return false;
+  }
+  return true;
+}
+
+function marketingAdminWebsiteId(req, res) {
+  if (adminWebsiteModuleSlug(req) !== 'marketing') {
+    res.status(403).json({ message: 'Select the Marketing website module first.' });
+    return null;
+  }
+  if (req.user?.role === 'website_user') {
+    const websiteId = String(req.user.websiteId || '');
+    const website = (store.websites || []).find(item => String(item._id) === websiteId && String(item.userId) === String(req.user._id));
+    if (!websiteId || !website || normalizeWebsiteModuleSlug(website.websiteModuleSlug || website.moduleType || '') !== 'marketing') {
+      res.status(409).json({ message: 'Create your Marketing website before editing its website content.' });
+      return null;
+    }
+    return websiteId;
+  }
+  if (req.user?.role !== 'main_admin') {
+    res.status(403).json({ message: 'Marketing website administrator access is required.' });
+    return null;
+  }
+  const websiteId = String(req.get('X-Website-Id') || req.query?.websiteId || req.body?.websiteId || '').trim();
+  if (!websiteId) return '';
+  const website = (store.websites || []).find(item => String(item._id) === websiteId);
+  if (!website || normalizeWebsiteModuleSlug(website.websiteModuleSlug || website.moduleType || '') !== 'marketing') {
+    res.status(404).json({ message: 'Marketing website not found.' });
+    return null;
+  }
+  return websiteId;
+}
+
+function publicMarketingWebsiteScope(req) {
+  const explicitWebsiteId = String(req.get('X-Website-Id') || req.query?.websiteId || '').trim();
+  const requestHost = normalizeWebsiteHost(req.get('X-Forwarded-Host') || req.get('Origin') || req.get('Host') || req.hostname);
+  const localPreview = process.env.NODE_ENV !== 'production'
+    && !explicitWebsiteId
+    && ['localhost', '127.0.0.1'].includes(requestHost);
+  const websiteContext = websiteContextForRequest(req, { requirePublished: !!explicitWebsiteId });
+  if (websiteContext.error && !localPreview) return { error: websiteContext.error };
+  if (websiteContext.error && localPreview) return { websiteId: '' };
+  const moduleSlug = normalizeWebsiteModuleSlug(websiteContext.moduleSlug || req.get('X-Website-Module') || req.query?.moduleType || 'marketing');
+  if (moduleSlug && moduleSlug !== 'marketing' && !localPreview) {
+    return { error: { status: 403, message: 'This website is not assigned to the Marketing module.' } };
+  }
+  return { websiteId: localPreview ? '' : String(websiteContext.websiteId || '') };
+}
+
+router.get('/marketing/site-content', auth, (req, res) => {
+  const websiteId = marketingAdminWebsiteId(req, res);
+  if (websiteId === null) return;
+  const site = (store.marketingSiteContents || []).find(item =>
+    normalizeWebsiteModuleSlug(item.websiteModuleSlug || '') === 'marketing'
+    && String(item.websiteId || '') === websiteId
+  );
+  res.json({ websiteId, content: site?.content || {}, updatedAt: site?.updatedAt || '' });
+});
+
+router.put('/marketing/site-content', auth, (req, res) => {
+  const websiteId = marketingAdminWebsiteId(req, res);
+  if (websiteId === null) return;
+  const content = req.body?.content;
+  if (!content || typeof content !== 'object' || Array.isArray(content)) {
+    return res.status(400).json({ message: 'Website content must be a JSON object.' });
+  }
+  store.marketingSiteContents = store.marketingSiteContents || [];
+  let site = store.marketingSiteContents.find(item =>
+    normalizeWebsiteModuleSlug(item.websiteModuleSlug || '') === 'marketing'
+    && String(item.websiteId || '') === websiteId
+  );
+  if (site) {
+    site.content = content;
+    site.updatedAt = new Date().toISOString();
+  } else {
+    site = { _id: uuidv4(), websiteId, websiteModuleSlug: 'marketing', content, updatedAt: new Date().toISOString() };
+    store.marketingSiteContents.unshift(site);
+  }
+  schedulePersist();
+  res.json({ websiteId, content: site.content, updatedAt: site.updatedAt });
+});
+
 router.get('/stores', auth, (req, res) => {
   recomputeStoreCounts(store);
   let list = [...store.stores].filter(item => isInAdminWebsiteModule(req, item));
@@ -2349,6 +2769,542 @@ router.get('/promotions/stats', auth, (req, res) => {
   });
 });
 
+function isMarketingAccount(user) {
+  return normalizeWebsiteModuleSlug(user?.selectedModuleSlug || user?.websiteModuleSlug || user?.selectedModuleType || '') === 'marketing';
+}
+
+router.get('/marketing/users', auth, (req, res) => {
+  if (req.user.role !== 'main_admin' || adminWebsiteModuleSlug(req) !== 'marketing') {
+    return res.status(403).json({ message: 'Marketing admin access required' });
+  }
+  const users = (store.users || []).filter(user => user.role === 'website_user' && isMarketingAccount(user));
+  res.json(users.map(user => ({
+    id: user._id,
+    name: user.name,
+    email: user.email,
+    websiteId: user.websiteId || '',
+    status: user.status || 'active',
+  })));
+});
+
+router.get('/marketing/subscriptions', auth, (req, res) => {
+  if (req.user.role !== 'main_admin' || adminWebsiteModuleSlug(req) !== 'marketing') {
+    return res.status(403).json({ message: 'Marketing admin access required' });
+  }
+  const users = (store.users || []).filter(user => user.role === 'website_user' && isMarketingAccount(user));
+  res.json(users.map(user => {
+    const website = findUserWebsite(user);
+    const purchase = website?.purchase || user.marketingSubscription || user.subscription || null;
+    const expiresAt = purchase?.expiresAt || purchase?.renewalDate || '';
+    const expired = expiresAt && new Date(expiresAt).getTime() <= Date.now();
+    return {
+      user: { id: user._id, name: user.name || '', email: user.email || '' },
+      planName: purchase?.planName || purchase?.name || purchase?.plan || '',
+      status: !purchase ? 'none' : expired ? 'expired' : purchase.status || 'pending',
+      type: purchase?.type || '', amount: Number(purchase?.amount || 0),
+      totalAmount: Number(purchase?.totalAmount || purchase?.amount || 0),
+      currency: 'INR', billingCycle: purchase?.subscriptionDurationValue ? `${purchase.subscriptionDurationValue} ${purchase.subscriptionDurationUnit || 'day'}${Number(purchase.subscriptionDurationValue) === 1 ? '' : 's'}` : (purchase?.billingCycle || ''),
+      paidAt: purchase?.paidAt || '', renewalDate: expiresAt,
+      paymentId: purchase?.paymentId || '', payments: Array.isArray(purchase?.payments) ? purchase.payments.length : (purchase?.paymentId ? 1 : 0),
+    };
+  }));
+});
+
+router.get('/marketing/dashboard/analytics', auth, async (req, res) => {
+  if (req.user.role !== 'main_admin' || adminWebsiteModuleSlug(req) !== 'marketing') {
+    return res.status(403).json({ message: 'Marketing admin access required' });
+  }
+  const users = (store.users || []).filter(user => user.role === 'website_user' && isMarketingAccount(user));
+  const userById = new Map(users.map(user => [String(user._id), user]));
+  const userStats = users.map(user => {
+    const website = findUserWebsite(user);
+    const purchase = website?.purchase || user.marketingSubscription || user.subscription || null;
+    const expired = purchase?.expiresAt && new Date(purchase.expiresAt).getTime() <= Date.now();
+    const status = String(user.status || 'active').toLowerCase();
+    return { id: user._id, name: user.name || user.email || 'Marketing user', active: !['inactive', 'disabled', 'blocked'].includes(status), hasActiveSubscription: purchase?.status === 'paid' && !expired, purchase: purchase?.status === 'paid' ? purchase : null };
+  });
+  const publishedPosts = [];
+  const monthly = new Map();
+  let views = 0; let reach = 0; let comments = 0; let shares = 0;
+  const items = (store.marketingContent || []).filter(item => item.moduleSlug === 'marketing' && userById.has(String(item.assignedUserId)));
+  for (const item of items) {
+    for (const published of (item.publishedPlatforms || [])) {
+      if (!published.id) continue;
+      const metric = await readMarketingPostMetrics(item.assignedUserId, item, published);
+      const post = { id: `${item._id}:${published.platform}`, title: item.title || 'Untitled content', contentType: item.contentType || 'Post', platform: published.platform, userName: userById.get(String(item.assignedUserId))?.name || '', publishedAt: metric.publishedAt || item.publishDate || item.releaseDate || '', views: metric.views, reach: metric.reach, comments: metric.comments, shares: metric.shares, status: item.status || 'PUBLISHED' };
+      publishedPosts.push(post);
+      if (Number.isFinite(metric.views)) views += metric.views;
+      if (Number.isFinite(metric.reach)) reach += metric.reach;
+      if (Number.isFinite(metric.comments)) comments += metric.comments;
+      if (Number.isFinite(metric.shares)) shares += metric.shares;
+      const date = new Date(post.publishedAt);
+      if (!Number.isNaN(date.getTime())) {
+        const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+        const bucket = monthly.get(key) || { month: date.toLocaleDateString('en-IN', { month: 'short', year: '2-digit' }), views: 0, reach: 0, posts: 0 };
+        if (Number.isFinite(metric.views)) bucket.views += metric.views;
+        if (Number.isFinite(metric.reach)) bucket.reach += metric.reach;
+        bucket.posts += 1; monthly.set(key, bucket);
+      }
+    }
+  }
+  const adSpend = [];
+  for (const user of users) adSpend.push(...await readMarketingAdSpend(user._id).catch(() => []));
+  const spendGroups = new Map();
+  for (const entry of adSpend) {
+    const key = `${entry.platform}:${entry.currency || 'INR'}`;
+    const group = spendGroups.get(key) || { platform: entry.platform, currency: entry.currency || 'INR', amount: null, accounts: 0 };
+    if (Number.isFinite(entry.amount)) group.amount = (group.amount || 0) + entry.amount;
+    group.accounts += 1; spendGroups.set(key, group);
+  }
+  const paidPurchases = userStats.map(user => user.purchase).filter(Boolean);
+  const activeSubscriptions = userStats.filter(user => user.hasActiveSubscription).length;
+  const paidTotal = paidPurchases.reduce((total, purchase) => total + Number(purchase.amount || 0), 0);
+  const topPosts = publishedPosts.slice().sort((a, b) => (Number(b.reach ?? b.views) || 0) - (Number(a.reach ?? a.views) || 0)).slice(0, 8).map(post => ({ ...post, rankValue: Number(post.reach ?? post.views) || 0, rankMetric: post.reach == null ? 'Views' : 'Reach' }));
+  res.json({
+    users: { total: users.length, active: userStats.filter(user => user.active).length, inactive: userStats.filter(user => !user.active).length },
+    subscriptions: { active: activeSubscriptions, inactive: users.length - activeSubscriptions, paidAmount: paidTotal, currency: 'INR' },
+    content: { total: items.length, published: publishedPosts.length, views, reach, comments, shares },
+    monthly: [...monthly.entries()].sort(([a], [b]) => a.localeCompare(b)).slice(-6).map(([, value]) => value),
+    topPosts, adSpend: [...spendGroups.values()], refreshedAt: new Date().toISOString(),
+  });
+});
+
+async function readMarketingPostMetrics(userId, item, published) {
+  const result = { platform: published.platform, postId: published.id || '', publishedAt: published.publishedAt || item.publishedAt || item.publishDate || '', views: null, comments: null, shares: null, reach: null, likes: null, message: '' };
+  if (!published.id) { result.message = 'No published post ID'; return result; }
+  const key = ({ Instagram: 'instagram', Facebook: 'facebook', YouTube: 'youtube', LinkedIn: 'linkedin' })[published.platform];
+  const integration = (store.marketingIntegrations || []).find(entry => String(entry.userId) === String(userId) && entry.platform === key);
+  if (!integration) { result.message = 'Account disconnected'; return result; }
+  try {
+    const bundle = await integrationOAuth(integration);
+    const oauth = bundle.oauth || {};
+    const target = (integration.targets || []).find(entry => String(entry.id) === String(published.targetId || integration.selectedTargetId));
+    const pageToken = target?.tokenKey && bundle.accountTokens?.[target.tokenKey];
+    if (published.platform === 'Instagram') {
+      if (!target) throw new Error('The connected Instagram account is unavailable');
+      const url = new URL(`https://graph.facebook.com/${String(process.env.META_GRAPH_VERSION || 'v23.0').replace(/^v?/, 'v')}/${published.id}/insights`);
+      url.searchParams.set('metric', 'views,reach,comments,likes'); url.searchParams.set('access_token', pageToken || oauth.access_token);
+      const { data } = await marketingProviderJson(url);
+      const metrics = Object.fromEntries((data.data || []).map(metric => [metric.name, Number(metric.total_value?.value ?? metric.values?.[0]?.value ?? 0)]));
+      result.views = metrics.views ?? metrics.video_views ?? null; result.comments = metrics.comments ?? null;
+      result.reach = metrics.reach ?? null; result.likes = metrics.likes ?? null; result.shares = metrics.shares ?? null;
+    } else if (published.platform === 'Facebook') {
+      if (!target) throw new Error('The connected Facebook Page is unavailable');
+      const version = String(process.env.META_GRAPH_VERSION || 'v23.0').replace(/^v?/, 'v');
+      const url = new URL(`https://graph.facebook.com/${version}/${published.id}`);
+      url.searchParams.set('fields', 'comments.summary(true),likes.summary(true),shares'); url.searchParams.set('access_token', pageToken || oauth.access_token);
+      const { data } = await marketingProviderJson(url);
+      result.comments = Number(data.comments?.summary?.total_count ?? data.comments?.data?.length ?? 0);
+      result.likes = Number(data.likes?.summary?.total_count ?? data.likes?.data?.length ?? 0);
+      result.shares = Number(data.shares?.count || 0);
+      const insightsUrl = new URL(`https://graph.facebook.com/${version}/${published.id}/insights`);
+      insightsUrl.searchParams.set('metric', 'post_media_view,post_impressions_unique'); insightsUrl.searchParams.set('access_token', pageToken || oauth.access_token);
+      try {
+        const insights = (await marketingProviderJson(insightsUrl)).data.data || [];
+        const metrics = Object.fromEntries(insights.map(metric => [metric.name, Number(metric.values?.[0]?.value ?? metric.total_value?.value ?? 0)]));
+        result.views = metrics.post_media_view ?? null; result.reach = metrics.post_impressions_unique ?? null;
+      } catch { result.message = 'Views/reach permission or metric is not available'; }
+    } else if (published.platform === 'YouTube') {
+      const url = new URL('https://www.googleapis.com/youtube/v3/videos');
+      url.searchParams.set('part', 'statistics'); url.searchParams.set('id', published.id);
+      const { data } = await marketingProviderJson(url, { headers: { Authorization: `Bearer ${oauth.access_token}` } });
+      const stats = data.items?.[0]?.statistics;
+      if (!stats) throw new Error('Video metrics were not returned by YouTube');
+      result.views = Number(stats.viewCount || 0); result.comments = Number(stats.commentCount || 0); result.shares = Number(stats.shareCount || 0); result.likes = Number(stats.likeCount || 0);
+      result.message = 'Reach is not provided by YouTube Data API';
+    } else {
+      result.message = 'LinkedIn analytics require additional approved member analytics permissions';
+    }
+  } catch (error) {
+    result.message = String(error.message || 'Could not read provider metrics').slice(0, 220);
+  }
+  return result;
+}
+
+router.get('/marketing/users/:userId/details', auth, async (req, res) => {
+  if (req.user.role !== 'main_admin' || adminWebsiteModuleSlug(req) !== 'marketing') {
+    return res.status(403).json({ message: 'Marketing admin access required' });
+  }
+  const user = (store.users || []).find(entry => String(entry._id) === String(req.params.userId) && entry.role === 'website_user' && isMarketingAccount(entry));
+  if (!user) return res.status(404).json({ message: 'Marketing user not found' });
+  const from = String(req.query.from || ''); const to = String(req.query.to || '');
+  const content = (store.marketingContent || []).filter(item => String(item.assignedUserId) === String(user._id) && item.moduleSlug === 'marketing');
+  const posts = [];
+  for (const item of content) {
+    const publishedPlatforms = Array.isArray(item.publishedPlatforms) ? item.publishedPlatforms : [];
+    const platforms = marketingItemPlatforms(item);
+    const records = platforms.map(platform => publishedPlatforms.find(entry => entry.platform === platform) || { platform, id: '', publishedAt: '' });
+    for (const published of records) {
+      const postedDate = String(published.publishedAt || item.publishedAt || item.publishDate || item.releaseDate || '').slice(0, 10);
+      if (from && (!postedDate || postedDate < from)) continue;
+      if (to && (!postedDate || postedDate > to)) continue;
+      const metrics = published.id ? await readMarketingPostMetrics(user._id, item, published) : { platform: published.platform, postId: '', publishedAt: item.publishedAt || item.publishDate || item.releaseDate || '', views: null, comments: null, shares: null, reach: null, likes: null, message: item.status === 'FAILED' ? (item.lastPublishError || 'Publishing failed') : `Content is ${String(item.status || 'not published').toLowerCase()}` };
+      posts.push({ id: `${item._id}:${published.platform}`, contentId: item._id, title: item.title, contentType: item.contentType || 'Post', caption: item.caption || '', mediaUrl: item.mediaUrl || '', mediaType: item.mediaType || '', platform: published.platform, status: item.status, publishedAt: metrics.publishedAt, providerPostUrl: published.url || '', metrics });
+    }
+  }
+  const sum = field => { const values = posts.map(post => post.metrics?.[field]).filter(value => Number.isFinite(value)); return values.length ? values.reduce((total, value) => total + value, 0) : null; };
+  const website = findUserWebsite(user);
+  const purchase = website?.purchase || user.marketingSubscription || user.subscription || null;
+  const adSpendPlatforms = await readMarketingAdSpend(user._id);
+  const integrationLabels = { instagram: 'Instagram', facebook: 'Facebook', youtube: 'YouTube', linkedin: 'LinkedIn', 'meta-business': 'Meta Business', 'google-ads': 'Google Ads' };
+  const accounts = (store.marketingIntegrations || []).filter(entry => String(entry.userId) === String(user._id)).map(entry => ({
+    platform: integrationLabels[entry.platform] || entry.platform,
+    connectedAt: entry.connectedAt || '',
+    selectedTargetId: entry.selectedTargetId || '',
+    accountName: entry.accountName || '',
+    targets: (entry.targets || []).map(target => ({ id: target.id || '', label: target.label || '', kind: target.kind || '' })),
+  }));
+  const paymentRows = purchase?.payments?.length ? purchase.payments : (purchase ? [purchase] : []);
+  const payments = paymentRows.map(payment => ({
+    planName: payment.planName || purchase?.planName || purchase?.name || 'Subscription',
+    type: payment.type || purchase?.type || '', status: payment.status || 'pending', amount: Number(payment.amount || 0),
+    totalAmount: Number(payment.totalAmount || payment.amount || 0), currency: 'INR',
+    createdAt: payment.createdAt || '', paidAt: payment.paidAt || '', renewalDate: payment.expiresAt || '',
+    transactionId: payment.paymentId || '', orderId: payment.orderId || '',
+  }));
+  const recordedSpend = adSpendPlatforms.map(entry => entry.amount).filter(value => Number.isFinite(value));
+  const spendCurrencies = [...new Set(adSpendPlatforms.filter(entry => Number.isFinite(entry.amount)).map(entry => entry.currency || 'INR'))];
+  res.json({
+    user: { id: user._id, name: user.name, email: user.email, status: user.status || 'active', createdAt: user.createdAt || '' },
+    subscription: purchase ? { planName: purchase.planName || purchase.name || purchase.plan || 'Subscription', type: purchase.type || '', status: purchase.status || 'pending', amount: Number(purchase.amount || 0), totalAmount: Number(purchase.totalAmount || purchase.amount || 0), billingCycle: purchase.subscriptionDurationValue ? `${purchase.subscriptionDurationValue} ${purchase.subscriptionDurationUnit || 'day'}${Number(purchase.subscriptionDurationValue) === 1 ? '' : 's'}` : (purchase.billingCycle || ''), renewalDate: purchase.expiresAt || purchase.renewalDate || '', paidAt: purchase.paidAt || '', paymentId: purchase.paymentId || '' } : null,
+    payments, accounts,
+    adSpend: { currency: spendCurrencies.length === 1 ? spendCurrencies[0] : '', total: recordedSpend.length && spendCurrencies.length === 1 ? recordedSpend.reduce((total, value) => total + value, 0) : null, platforms: adSpendPlatforms },
+    totals: { posts: posts.length, views: sum('views'), comments: sum('comments'), shares: sum('shares'), reach: sum('reach') }, posts, refreshedAt: new Date().toISOString(),
+  });
+});
+
+function requireMarketingMember(req, res) {
+  if (req.user.role !== 'website_user' || !isMarketingAccount(req.user)) {
+    res.status(403).json({ message: 'Marketing user account required' });
+    return false;
+  }
+  return true;
+}
+
+router.get('/marketing/subscription', auth, (req, res) => {
+  if (!requireMarketingMember(req, res)) return;
+  const website = findUserWebsite(req.user);
+  const purchase = website?.purchase || req.user.marketingSubscription || req.user.subscription || null;
+  if (!purchase) return res.json({ active: false, planName: '', status: 'No active subscription', websiteName: website?.name || '' });
+  const expired = purchase.expiresAt && new Date(purchase.expiresAt).getTime() <= Date.now();
+  res.json({
+    active: purchase.status === 'paid' && !expired,
+    planName: purchase.planName || purchase.name || purchase.plan || '',
+    status: expired ? 'expired' : (purchase.status || 'pending'),
+    billingCycle: purchase.subscriptionDurationUnit || purchase.billingCycle || purchase.cycle || '',
+    renewalDate: purchase.expiresAt || purchase.renewalDate || '',
+    amount: Number(purchase.amount || 0),
+    currency: 'INR',
+    websiteName: website?.name || '',
+    purchaseType: purchase.type || '',
+  });
+});
+
+router.get('/marketing/integrations', auth, (req, res) => {
+  if (!requireMarketingMember(req, res)) return;
+  const integrations = (store.marketingIntegrations || []).filter(item => String(item.userId) === String(req.user._id));
+  res.json(Object.keys(marketingPlatformLabels).map(platform => ({
+    platform,
+    name: marketingPlatformLabels[platform],
+    connected: integrations.some(item => item.platform === platform),
+    configured: Boolean(marketingOAuthConfig(platform) && process.env.SOCIAL_TOKEN_ENCRYPTION_KEY),
+    targets: integrations.find(item => item.platform === platform)?.targets || [],
+    selectedTargetId: integrations.find(item => item.platform === platform)?.selectedTargetId || '',
+  })));
+});
+
+router.put('/marketing/integrations/:platform/account', auth, (req, res) => {
+  if (!requireMarketingMember(req, res)) return;
+  const platform = String(req.params.platform || '').toLowerCase();
+  const integration = (store.marketingIntegrations || []).find(item => String(item.userId) === String(req.user._id) && item.platform === platform);
+  if (!integration) return res.status(404).json({ message: 'Connect this platform first' });
+  const targetId = String(req.body?.targetId || '');
+  const target = (integration.targets || []).find(item => String(item.id) === targetId);
+  if (!target) return res.status(400).json({ message: 'Choose one of the accounts returned by the provider' });
+  integration.selectedTargetId = targetId;
+  integration.accountName = target.label || '';
+  schedulePersist();
+  res.json({ success: true, selectedTargetId: targetId, accountName: integration.accountName });
+});
+
+router.post('/marketing/media', auth, (req, res, next) => {
+  if (req.user.role !== 'main_admin' || adminWebsiteModuleSlug(req) !== 'marketing') return res.status(403).json({ message: 'Marketing admin access required' });
+  marketingMediaUpload.single('media')(req, res, error => {
+    if (error) return next(error);
+    if (!req.file) return res.status(400).json({ message: 'Choose an image or video to upload' });
+    res.status(201).json({
+      mediaUrl: `/uploads/marketing/${req.file.filename}`,
+      mediaType: req.file.mimetype.startsWith('video/') ? 'video' : 'image',
+      originalName: req.file.originalname,
+      size: req.file.size,
+    });
+  });
+});
+
+router.post('/marketing/integrations/:platform/connect', auth, (req, res) => {
+  if (!requireMarketingMember(req, res)) return;
+  const platform = String(req.params.platform || '').toLowerCase();
+  const config = marketingOAuthConfig(platform);
+  if (!config) return res.status(503).json({ message: `${marketingPlatformLabels[platform] || 'This platform'} OAuth credentials and callback URL are not configured on the Wepzo server.` });
+  if (!process.env.SOCIAL_TOKEN_ENCRYPTION_KEY) return res.status(503).json({ message: 'Secure social token storage is not configured on the Wepzo server.' });
+
+  const state = crypto.randomBytes(32).toString('hex');
+  marketingOAuthStates.set(state, { userId: req.user._id, platform, redirectUri: config.redirectUri, createdAt: Date.now() });
+  const stateExpiry = setTimeout(() => marketingOAuthStates.delete(state), 10 * 60 * 1000);
+  stateExpiry.unref?.();
+  const metaVersion = String(process.env.META_GRAPH_VERSION || 'v23.0').replace(/^v?/, 'v');
+  const url = config.provider === 'meta'
+    ? new URL(`https://www.facebook.com/${metaVersion}/dialog/oauth`)
+    : config.provider === 'google'
+      ? new URL('https://accounts.google.com/o/oauth2/v2/auth')
+      : new URL('https://www.linkedin.com/oauth/v2/authorization');
+  url.searchParams.set('client_id', config.clientId);
+  url.searchParams.set('redirect_uri', config.redirectUri);
+  url.searchParams.set('response_type', 'code');
+  url.searchParams.set('scope', config.scopes.join(config.provider === 'meta' ? ',' : ' '));
+  url.searchParams.set('state', state);
+  if (config.provider === 'google') {
+    url.searchParams.set('access_type', 'offline');
+    url.searchParams.set('include_granted_scopes', 'true');
+    url.searchParams.set('prompt', 'consent');
+  }
+  res.json({ authorizationUrl: url.toString() });
+});
+
+router.get('/marketing/integrations/callback/:platform', async (req, res) => {
+  const platform = String(req.params.platform || '').toLowerCase();
+  const state = String(req.query.state || '');
+  const pending = marketingOAuthStates.get(state);
+  marketingOAuthStates.delete(state);
+  if (!pending || pending.platform !== platform || Date.now() - pending.createdAt > 10 * 60 * 1000) {
+    return res.redirect(marketingWorkspaceUrl('invalid_state'));
+  }
+  if (req.query.error || !req.query.code) return res.redirect(marketingWorkspaceUrl('denied'));
+
+  try {
+    const config = marketingOAuthConfig(platform);
+    if (!config) throw new Error('Provider OAuth credentials are no longer configured');
+    const tokenUrl = config.provider === 'meta'
+      ? new URL(`https://graph.facebook.com/${String(process.env.META_GRAPH_VERSION || 'v23.0').replace(/^v?/, 'v')}/oauth/access_token`)
+      : config.provider === 'google'
+        ? new URL('https://oauth2.googleapis.com/token')
+        : new URL('https://www.linkedin.com/oauth/v2/accessToken');
+    const params = new URLSearchParams({
+      grant_type: 'authorization_code',
+      code: String(req.query.code),
+      client_id: config.clientId,
+      client_secret: config.clientSecret,
+      redirect_uri: pending.redirectUri,
+    });
+    let response;
+    if (config.provider === 'meta') {
+      for (const [key, value] of params) tokenUrl.searchParams.set(key, value);
+      response = await fetch(tokenUrl);
+    } else {
+      response = await fetch(tokenUrl, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: params });
+    }
+    let tokens = await response.json();
+    if (!response.ok || !tokens.access_token) throw new Error(tokens.error_description || tokens.error?.message || 'The provider did not return an access token');
+    if (tokens.expires_in) tokens.expires_at = Date.now() + Number(tokens.expires_in) * 1000;
+    if (config.provider === 'meta') {
+      const longLivedUrl = new URL('https://graph.facebook.com/oauth/access_token');
+      for (const [key, value] of Object.entries({ grant_type: 'fb_exchange_token', client_id: config.clientId, client_secret: config.clientSecret, fb_exchange_token: tokens.access_token })) longLivedUrl.searchParams.set(key, value);
+      const longLived = await marketingProviderJson(longLivedUrl);
+      tokens = { ...tokens, ...longLived.data };
+      if (tokens.expires_in) tokens.expires_at = Date.now() + Number(tokens.expires_in) * 1000;
+    }
+    const discovered = await discoverMarketingTargets(platform, tokens);
+    const encryptedTokens = encryptMarketingTokens({ oauth: tokens, accountTokens: discovered.accountTokens || {} });
+    if (!Array.isArray(store.marketingIntegrations)) store.marketingIntegrations = [];
+    const current = store.marketingIntegrations.find(item => item.userId === pending.userId && item.platform === platform);
+    const connection = {
+      _id: current?._id || uuidv4(), userId: pending.userId, platform,
+      accountName: discovered.targets?.[0]?.label || '', targets: discovered.targets || [],
+      selectedTargetId: discovered.targets?.length === 1 ? discovered.targets[0].id : '',
+      encryptedTokens, connectedAt: new Date().toISOString(),
+    };
+    if (current) Object.assign(current, connection);
+    else store.marketingIntegrations.push(connection);
+    schedulePersist();
+    return res.redirect(marketingWorkspaceUrl('success'));
+  } catch (err) {
+    console.error(`Marketing OAuth callback failed for ${platform}:`, err.message);
+    return res.redirect(marketingWorkspaceUrl('failed'));
+  }
+});
+
+router.delete('/marketing/integrations/:platform', auth, (req, res) => {
+  if (!requireMarketingMember(req, res)) return;
+  const platform = String(req.params.platform || '').toLowerCase();
+  const before = (store.marketingIntegrations || []).length;
+  store.marketingIntegrations = (store.marketingIntegrations || []).filter(item => !(String(item.userId) === String(req.user._id) && item.platform === platform));
+  if (store.marketingIntegrations.length === before) return res.status(404).json({ message: 'Connected account not found' });
+  schedulePersist();
+  res.json({ success: true });
+});
+
+router.get('/marketing/content', auth, (req, res) => {
+  if (req.user.role === 'main_admin') {
+    if (adminWebsiteModuleSlug(req) !== 'marketing') return res.status(403).json({ message: 'Select the Marketing module' });
+    return res.json((store.marketingContent || []).filter(item => item.moduleSlug === 'marketing'));
+  }
+  if (req.user.role !== 'website_user' || !isMarketingAccount(req.user)) {
+    return res.status(403).json({ message: 'Marketing account required' });
+  }
+  let unlocked = false;
+  const today = new Date();
+  (store.marketingContent || []).forEach(item => {
+    if (item.status === 'LOCKED' && item.releaseDate && String(item.assignedUserId) === String(req.user._id)
+      && new Date(`${item.releaseDate}T${item.releaseTime || '00:00'}:00`) <= today) {
+      item.status = item.autoPublish && item.publishDate && item.publishTime ? 'SCHEDULED' : 'AVAILABLE';
+      item.updatedAt = today.toISOString();
+      unlocked = true;
+    }
+  });
+  if (unlocked) schedulePersist();
+  res.json((store.marketingContent || []).filter(item => String(item.assignedUserId) === String(req.user._id)));
+});
+
+router.post('/marketing/content', auth, (req, res) => {
+  if (req.user.role !== 'main_admin' || adminWebsiteModuleSlug(req) !== 'marketing') {
+    return res.status(403).json({ message: 'Marketing admin access required' });
+  }
+  const body = req.body || {};
+  const title = String(body.title || '').trim();
+  const platforms = marketingItemPlatforms({ platforms: body.platforms, platform: body.platform || 'Instagram' });
+  const assignedUser = (store.users || []).find(user => String(user._id) === String(body.assignedUserId) && user.role === 'website_user' && isMarketingAccount(user));
+  if (!title || !assignedUser || !platforms.length) return res.status(400).json({ message: 'Choose a Marketing user, at least one platform, and enter a content title' });
+  const item = {
+    _id: uuidv4(),
+    title,
+    contentType: ['Post', 'Reel'].includes(body.contentType) ? body.contentType : 'Post',
+    platform: platforms[0],
+    platforms,
+    mediaUrl: String(body.mediaUrl || '').trim(),
+    mediaType: ['image', 'video'].includes(body.mediaType) ? body.mediaType : '',
+    mediaMimeType: String(body.mediaMimeType || '').slice(0, 100),
+    caption: String(body.caption || '').trim(),
+    hashtags: String(body.hashtags || '').trim(),
+    releaseDate: String(body.releaseDate || '').trim(),
+    releaseTime: String(body.releaseTime || '').trim(),
+    publishDate: String(body.publishDate || '').trim(),
+    publishTime: String(body.publishTime || '').trim(),
+    assignedUserId: assignedUser._id,
+    assignedUserName: assignedUser.name,
+    websiteId: assignedUser.websiteId || '',
+    moduleSlug: 'marketing',
+    status: body.status === 'LOCKED' ? 'LOCKED' : 'AVAILABLE',
+    autoPublish: Boolean(body.autoPublish),
+    allowUserEditing: Boolean(body.allowUserEditing),
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+  if (item.releaseDate && new Date(`${item.releaseDate}T${item.releaseTime || '00:00'}:00`) > new Date()) item.status = 'LOCKED';
+  else if (item.autoPublish && item.publishDate && item.publishTime) item.status = 'SCHEDULED';
+  store.marketingContent.unshift(item);
+  res.status(201).json(item);
+});
+
+router.post('/marketing/content/:id/publish', auth, (req, res) => {
+  if (!requireMarketingMember(req, res)) return;
+  const item = (store.marketingContent || []).find(entry => String(entry._id) === String(req.params.id)
+    && String(entry.assignedUserId) === String(req.user._id) && entry.moduleSlug === 'marketing');
+  if (!item) return res.status(404).json({ message: 'Marketing content not found' });
+  if (!['AVAILABLE', 'FAILED'].includes(item.status)) return res.status(409).json({ message: 'Only available or failed content can be published now.' });
+  const platforms = marketingItemPlatforms(item);
+  if (!platforms.length) return res.status(400).json({ message: 'Choose at least one publishing platform.' });
+  for (const platformName of platforms) {
+    const formatError = validateMarketingFormat(item, platformName);
+    if (formatError) return res.status(400).json({ message: `${platformName}: ${formatError}` });
+    const platformKey = ({ Instagram: 'instagram', Facebook: 'facebook', YouTube: 'youtube', LinkedIn: 'linkedin' })[platformName];
+    const integration = (store.marketingIntegrations || []).find(entry => String(entry.userId) === String(req.user._id) && entry.platform === platformKey);
+    if (!integration) return res.status(409).json({ message: `Connect ${platformName} before publishing.` });
+    if (!(integration.targets || []).some(target => String(target.id) === String(integration.selectedTargetId))) return res.status(409).json({ message: `Select the ${platformName} account to publish to.` });
+  }
+  item.status = 'PROCESSING'; item.lastPublishError = ''; item.updatedAt = new Date().toISOString();
+  schedulePersist();
+  res.status(202).json(item);
+  processMarketingItem(item);
+});
+
+router.put('/marketing/content/:id', auth, (req, res) => {
+  const index = (store.marketingContent || []).findIndex(item => String(item._id) === String(req.params.id) && item.moduleSlug === 'marketing');
+  if (index < 0) return res.status(404).json({ message: 'Marketing content not found' });
+  const item = store.marketingContent[index];
+  if (req.user.role === 'main_admin') {
+    if (adminWebsiteModuleSlug(req) !== 'marketing') return res.status(403).json({ message: 'Select the Marketing module' });
+    const { title, caption, hashtags, platform, platforms, contentType, releaseDate, releaseTime, publishDate, publishTime, status, autoPublish, allowUserEditing, assignedUserId, mediaUrl, mediaType, mediaMimeType } = req.body || {};
+    const assigned = assignedUserId && (store.users || []).find(user => String(user._id) === String(assignedUserId) && user.role === 'website_user' && isMarketingAccount(user));
+    if (assignedUserId && !assigned) return res.status(400).json({ message: 'Choose a Marketing user' });
+    Object.assign(item, {
+      ...(title !== undefined ? { title: String(title).trim() } : {}),
+      ...(caption !== undefined ? { caption: String(caption) } : {}),
+      ...(hashtags !== undefined ? { hashtags: String(hashtags) } : {}),
+      ...(mediaUrl !== undefined ? { mediaUrl: String(mediaUrl).trim(), mediaType: ['image', 'video'].includes(mediaType) ? mediaType : '', mediaMimeType: String(mediaMimeType || '').slice(0, 100) } : {}),
+      ...(platforms !== undefined || platform !== undefined ? (() => { const selected = marketingItemPlatforms({ platforms: Array.isArray(platforms) ? platforms : (platforms !== undefined ? [] : undefined), platform: platform || item.platform }); return selected.length ? { platforms: selected, platform: selected[0], publishedPlatforms: [] } : {}; })() : {}),
+      ...(contentType && ['Post', 'Reel'].includes(contentType) ? { contentType } : {}),
+      ...(releaseDate !== undefined ? { releaseDate: String(releaseDate) } : {}),
+      ...(releaseTime !== undefined ? { releaseTime: String(releaseTime) } : {}),
+      ...(publishDate !== undefined ? { publishDate: String(publishDate) } : {}),
+      ...(publishTime !== undefined ? { publishTime: String(publishTime) } : {}),
+      ...(status && ['LOCKED', 'AVAILABLE', 'SCHEDULED', 'PROCESSING', 'PUBLISHED', 'FAILED', 'CANCELLED'].includes(status) ? { status } : {}),
+      ...(autoPublish !== undefined ? { autoPublish: Boolean(autoPublish) } : {}),
+      ...(allowUserEditing !== undefined ? { allowUserEditing: Boolean(allowUserEditing) } : {}),
+      ...(assigned ? { assignedUserId: assigned._id, assignedUserName: assigned.name, websiteId: assigned.websiteId || '' } : {}),
+      updatedAt: new Date().toISOString(),
+    });
+    if (item.status !== 'LOCKED' && item.releaseDate && new Date(`${item.releaseDate}T${item.releaseTime || '00:00'}:00`) > new Date()) item.status = 'LOCKED';
+    else if (item.status !== 'LOCKED' && item.autoPublish && item.publishDate && item.publishTime) item.status = 'SCHEDULED';
+    schedulePersist();
+  } else {
+    if (req.user.role !== 'website_user' || !isMarketingAccount(req.user) || String(item.assignedUserId) !== String(req.user._id)) {
+      return res.status(404).json({ message: 'Marketing content not found' });
+    }
+    const { status, publishDate, publishTime, caption } = req.body || {};
+    if (status && !['SCHEDULED', 'CANCELLED'].includes(status)) return res.status(400).json({ message: 'Invalid content status' });
+    if (item.status === 'LOCKED') return res.status(403).json({ message: 'This content is locked until its release date' });
+    if (status === 'SCHEDULED' && !['AVAILABLE', 'SCHEDULED'].includes(item.status)) return res.status(400).json({ message: 'This content cannot be scheduled' });
+    if (status === 'CANCELLED' && item.status !== 'SCHEDULED') return res.status(400).json({ message: 'Only scheduled content can be cancelled' });
+    if (status === 'SCHEDULED') {
+      const date = String(publishDate || item.publishDate || '').trim();
+      const time = String(publishTime || item.publishTime || '').trim();
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !/^\d{2}:\d{2}$/.test(time)
+        || Number.isNaN(new Date(`${date}T${time}:00`).getTime())) {
+        return res.status(400).json({ message: 'Choose a valid publish date and time' });
+      }
+      const itemPlatforms = marketingItemPlatforms(item);
+      if (!itemPlatforms.length) return res.status(400).json({ message: 'Choose at least one publishing platform.' });
+      for (const platformName of itemPlatforms) {
+        const platformKey = ({ Instagram: 'instagram', Facebook: 'facebook', YouTube: 'youtube', LinkedIn: 'linkedin' })[platformName];
+        const integration = (store.marketingIntegrations || []).find(entry => String(entry.userId) === String(req.user._id) && entry.platform === platformKey);
+        if (!integration) return res.status(409).json({ message: `Connect ${platformName} before scheduling this content.` });
+        if (!(integration.targets || []).some(target => String(target.id) === String(integration.selectedTargetId))) return res.status(409).json({ message: `Select the ${platformName} account to schedule this content.` });
+        const formatError = validateMarketingFormat(item, platformName);
+        if (formatError) return res.status(400).json({ message: `${platformName}: ${formatError}` });
+      }
+    }
+    if (caption !== undefined && !item.allowUserEditing) return res.status(403).json({ message: 'This content cannot be edited' });
+    Object.assign(item, {
+      ...(status ? { status } : {}),
+      ...(publishDate !== undefined ? { publishDate: String(publishDate) } : {}),
+      ...(publishTime !== undefined ? { publishTime: String(publishTime) } : {}),
+      ...(caption !== undefined ? { caption: String(caption) } : {}),
+      updatedAt: new Date().toISOString(),
+    });
+  }
+  res.json(item);
+});
+
+router.delete('/marketing/content/:id', auth, (req, res) => {
+  if (req.user.role !== 'main_admin' || adminWebsiteModuleSlug(req) !== 'marketing') {
+    return res.status(403).json({ message: 'Marketing admin access required' });
+  }
+  const before = store.marketingContent.length;
+  store.marketingContent = store.marketingContent.filter(item => String(item._id) !== String(req.params.id) || item.moduleSlug !== 'marketing');
+  if (store.marketingContent.length === before) return res.status(404).json({ message: 'Marketing content not found' });
+  res.json({ message: 'Marketing content deleted' });
+});
+
 router.get('/promotions/:type', auth, (req, res) => {
   const list = promotionList(req.params.type, req);
   if (!list) return res.status(404).json({ message: 'Invalid promotion type' });
@@ -2356,27 +3312,88 @@ router.get('/promotions/:type', auth, (req, res) => {
 });
 
 router.post('/promotions/:type', auth, (req, res) => {
+  if (!requirePromotionWebsite(req, res)) return;
   const key = PROMOTION_KEYS[req.params.type];
   if (!key) return res.status(404).json({ message: 'Invalid promotion type' });
-  const item = tagAdminWebsiteModule(req, { _id: uuidv4(), status: 'Active', ...req.body });
+  const body = req.user?.role === 'website_user' ? { ...req.body, websiteId: req.user.websiteId } : req.body;
+  const item = tagAdminWebsiteModule(req, { _id: uuidv4(), status: 'Active', ...body });
   store[key].unshift(item);
+  schedulePersist();
   res.status(201).json(item);
 });
 
 router.put('/promotions/:type/:id', auth, (req, res) => {
+  if (!requirePromotionWebsite(req, res)) return;
   const key = PROMOTION_KEYS[req.params.type];
   if (!key) return res.status(404).json({ message: 'Invalid promotion type' });
   const idx = store[key].findIndex(i => i._id === req.params.id && isInAdminWebsiteModule(req, i) && canEditAdminWebsiteData(req, i));
   if (idx === -1) return res.status(404).json({ message: 'Not found' });
   store[key][idx] = { ...store[key][idx], ...req.body, _id: req.params.id, websiteModuleSlug: adminWebsiteModuleSlug(req), websiteId: store[key][idx].websiteId || adminWebsiteIdForRecord(req) };
+  schedulePersist();
   res.json(store[key][idx]);
 });
 
 router.delete('/promotions/:type/:id', auth, (req, res) => {
+  if (!requirePromotionWebsite(req, res)) return;
   const key = PROMOTION_KEYS[req.params.type];
   if (!key) return res.status(404).json({ message: 'Invalid promotion type' });
   store[key] = store[key].filter(i => i._id !== req.params.id || !isInAdminWebsiteModule(req, i) || !canEditAdminWebsiteData(req, i));
+  schedulePersist();
   res.json({ message: 'Deleted' });
+});
+
+router.get('/marketing/public/promotions', (req, res) => {
+  const scope = publicMarketingWebsiteScope(req);
+  if (scope.error) return res.status(scope.error.status).json({ message: scope.error.message });
+  const scopedWebsiteId = scope.websiteId;
+  const isMarketingRecord = item => normalizeWebsiteModuleSlug(item?.websiteModuleSlug || item?.moduleSlug || '') === 'marketing'
+    && String(item?.status || '').toLowerCase() === 'active'
+    && (scopedWebsiteId
+      ? String(item?.websiteId || '') === scopedWebsiteId
+      : !item?.websiteId);
+  const sorted = (items, key = 'priority') => (items || []).filter(isMarketingRecord).sort((a, b) => (Number(b[key]) || 0) - (Number(a[key]) || 0));
+  const now = Date.now();
+  const endOfDate = value => /^\d{4}-\d{2}-\d{2}$/.test(String(value || ''))
+    ? new Date(`${value}T23:59:59.999`).getTime()
+    : new Date(value).getTime();
+  res.json({
+    banners: sorted(store.banners).map(({ _id, title, subtitle, image, placement, link, cta, buttonText }) => ({ id: _id, title: title || '', subtitle: subtitle || '', image: image || '', placement: placement || '', link: link || '', cta: cta || buttonText || 'Learn more' })),
+    otherBanners: sorted(store.otherBanners).map(({ _id, title, subtitle, image, section, link, cta, buttonText }) => ({ id: _id, title: title || '', subtitle: subtitle || '', image: image || '', section: section || '', link: link || '', cta: cta || buttonText || 'Learn more' })),
+    campaigns: sorted(store.campaigns, 'createdAt').filter(item => !item.startDate || new Date(item.startDate).getTime() <= now).filter(item => !item.endDate || endOfDate(item.endDate) >= now).map(({ _id, title, type, description, startDate, endDate, link }) => ({ id: _id, title: title || '', type: type || '', description: description || '', startDate: startDate || '', endDate: endDate || '', link: link || '' })),
+    coupons: sorted(store.coupons, 'createdAt').filter(item => !item.expiry || endOfDate(item.expiry) >= now).map(({ _id, code, title, discount, minOrder, expiry, description }) => ({ id: _id, code: code || '', title: title || '', discount: discount || '', minOrder: Number(minOrder) || 0, expiry: expiry || '', description: description || '' })),
+    advertisements: sorted(store.advertisements, 'createdAt').map(({ _id, title, platform, description, image, link, budget }) => ({ id: _id, title: title || '', platform: platform || '', description: description || '', image: image || '', link: link || '', budget: Number(budget) || 0 })),
+    announcements: sorted(store.pushNotifications, 'createdAt').filter(item => ['active', 'sent'].includes(String(item.status || '').toLowerCase())).filter(item => !item.scheduledAt || new Date(item.scheduledAt).getTime() <= now).map(({ _id, title, message, scheduledAt }) => ({ id: _id, title: title || '', message: message || '', scheduledAt: scheduledAt || '' })),
+  });
+});
+
+router.get('/marketing/public/site-content', (req, res) => {
+  const scope = publicMarketingWebsiteScope(req);
+  if (scope.error) return res.status(scope.error.status).json({ message: scope.error.message });
+  const site = (store.marketingSiteContents || []).find(item =>
+    normalizeWebsiteModuleSlug(item.websiteModuleSlug || '') === 'marketing'
+    && String(item.websiteId || '') === scope.websiteId
+  );
+  const settingsScope = scope.websiteId
+    ? `website-user:${scope.websiteId}:marketing`
+    : 'main-module:marketing';
+  const settings = store.businessSettingsByModule?.[settingsScope]
+    || (!scope.websiteId ? store.businessSettingsByModule?.marketing : null)
+    || {};
+  const content = site?.content || {};
+  const savedBrand = content.brand || {};
+  res.json({
+    websiteId: scope.websiteId,
+    content: {
+      ...content,
+      brand: {
+        ...savedBrand,
+        name: settings.businessName || settings.platformName || savedBrand.name || '',
+        logo: settings.businessLogo || settings.logo || settings.logoUrl || savedBrand.logo || '',
+        primaryColor: settings.primaryColor || savedBrand.primaryColor || '#ff4b12',
+      },
+    },
+    updatedAt: site?.updatedAt || '',
+  });
 });
 router.get('/roles', auth, (req, res) => res.json((store.roles || []).filter(role => isInAdminWebsiteModule(req, role))));
 
@@ -3253,9 +4270,13 @@ function verifyRazorpaySignature(orderId, paymentId, signature) {
 
 router.get('/website-subscription-plans', auth, (req, res) => {
   const plans = store.websiteSubscriptionPlans || [];
-  if (req.user.role === 'main_admin') return res.json(plans);
+  if (req.user.role === 'main_admin') {
+    const moduleSlug = normalizeWebsiteModuleSlug(req.query.moduleSlug || '');
+    return res.json(moduleSlug ? plans.filter(plan => normalizeWebsiteModuleSlug(plan.moduleSlug || '') === moduleSlug) : plans);
+  }
   if (req.user.role !== 'website_user') return res.status(403).json({ message: 'Website account required' });
-  res.json(plans.filter(plan => plan.status !== false));
+  const moduleSlug = normalizeWebsiteModuleSlug(req.user.selectedModuleSlug || req.user.websiteModuleSlug || req.user.selectedModuleType || '');
+  res.json(plans.filter(plan => plan.status !== false && (!plan.moduleSlug || normalizeWebsiteModuleSlug(plan.moduleSlug) === moduleSlug)));
 });
 
 router.post('/website-subscription-plans', auth, (req, res) => {
@@ -3266,6 +4287,8 @@ router.post('/website-subscription-plans', auth, (req, res) => {
   const fixedAmount = Number(req.body?.fixedAmount);
   const durationValue = Number(req.body?.durationValue || 30);
   const durationUnit = String(req.body?.durationUnit || 'day');
+  const moduleSlug = normalizeWebsiteModuleSlug(req.body?.moduleSlug || '');
+  if (moduleSlug && adminWebsiteModuleSlug(req) !== moduleSlug) return res.status(403).json({ message: 'Select the matching website module before creating this plan.' });
   if (!name) return res.status(400).json({ message: 'Plan name is required' });
   if (!['percent', 'fixed'].includes(priceMode)) return res.status(400).json({ message: 'Choose percentage or fixed amount pricing.' });
   if (priceMode === 'percent' && (!Number.isFinite(percent) || percent <= 0 || percent > 100)) return res.status(400).json({ message: 'Subscription percentage must be between 1 and 100' });
@@ -3273,7 +4296,7 @@ router.post('/website-subscription-plans', auth, (req, res) => {
   if (!Number.isInteger(durationValue) || durationValue < 1 || durationValue > 3650) return res.status(400).json({ message: 'Subscription duration must be between 1 and 3650.' });
   if (!['day', 'month', 'year'].includes(durationUnit)) return res.status(400).json({ message: 'Duration unit must be day, month or year.' });
   store.websiteSubscriptionPlans = store.websiteSubscriptionPlans || [];
-  if (req.body?.isDefault) store.websiteSubscriptionPlans.forEach(plan => { plan.isDefault = false; });
+  if (req.body?.isDefault) store.websiteSubscriptionPlans.forEach(plan => { if (normalizeWebsiteModuleSlug(plan.moduleSlug || '') === moduleSlug) plan.isDefault = false; });
   const plan = {
     _id: uuidv4(),
     name,
@@ -3285,9 +4308,11 @@ router.post('/website-subscription-plans', auth, (req, res) => {
     durationUnit,
     isDefault: !!req.body?.isDefault,
     status: req.body?.status !== false,
+    ...(moduleSlug ? { moduleSlug } : {}),
     createdAt: new Date().toISOString(),
   };
   store.websiteSubscriptionPlans.unshift(plan);
+  schedulePersist();
   res.status(201).json(plan);
 });
 
@@ -3297,6 +4322,10 @@ router.put('/website-subscription-plans/:id', auth, (req, res) => {
   const index = plans.findIndex(plan => String(plan._id) === String(req.params.id));
   if (index === -1) return res.status(404).json({ message: 'Subscription plan not found' });
   const current = plans[index];
+  const currentModuleSlug = normalizeWebsiteModuleSlug(current.moduleSlug || '');
+  if (currentModuleSlug && adminWebsiteModuleSlug(req) !== currentModuleSlug) return res.status(403).json({ message: 'Select the matching website module before editing this plan.' });
+  const requestedModuleSlug = req.body?.moduleSlug === undefined ? currentModuleSlug : normalizeWebsiteModuleSlug(req.body.moduleSlug || '');
+  if (requestedModuleSlug !== currentModuleSlug) return res.status(400).json({ message: 'A plan cannot be moved to another website module.' });
   const priceMode = req.body?.priceMode === undefined ? (current.priceMode || 'percent') : String(req.body.priceMode);
   const percent = req.body?.percent === undefined ? Number(current.percent || 0) : Number(req.body.percent);
   const fixedAmount = req.body?.fixedAmount === undefined ? Number(current.fixedAmount || 0) : Number(req.body.fixedAmount);
@@ -3307,7 +4336,7 @@ router.put('/website-subscription-plans/:id', auth, (req, res) => {
   if (priceMode === 'fixed' && (!Number.isFinite(fixedAmount) || fixedAmount <= 0)) return res.status(400).json({ message: 'Fixed subscription amount must be greater than zero.' });
   if (!Number.isInteger(durationValue) || durationValue < 1 || durationValue > 3650) return res.status(400).json({ message: 'Subscription duration must be between 1 and 3650.' });
   if (!['day', 'month', 'year'].includes(durationUnit)) return res.status(400).json({ message: 'Duration unit must be day, month or year.' });
-  if (req.body?.isDefault === true) plans.forEach((plan, planIndex) => { if (planIndex !== index) plan.isDefault = false; });
+  if (req.body?.isDefault === true) plans.forEach((plan, planIndex) => { if (planIndex !== index && normalizeWebsiteModuleSlug(plan.moduleSlug || '') === currentModuleSlug) plan.isDefault = false; });
   plans[index] = {
     ...current,
     name: req.body?.name === undefined ? current.name : String(req.body.name || '').trim(),
@@ -3321,6 +4350,7 @@ router.put('/website-subscription-plans/:id', auth, (req, res) => {
     status: req.body?.status === undefined ? current.status !== false : req.body.status !== false,
   };
   if (!plans[index].name) return res.status(400).json({ message: 'Plan name is required' });
+  schedulePersist();
   res.json(plans[index]);
 });
 
@@ -3329,7 +4359,11 @@ router.delete('/website-subscription-plans/:id', auth, (req, res) => {
   const plans = store.websiteSubscriptionPlans || [];
   const exists = plans.some(plan => String(plan._id) === String(req.params.id));
   if (!exists) return res.status(404).json({ message: 'Subscription plan not found' });
+  const plan = plans.find(item => String(item._id) === String(req.params.id));
+  const moduleSlug = normalizeWebsiteModuleSlug(plan?.moduleSlug || '');
+  if (moduleSlug && adminWebsiteModuleSlug(req) !== moduleSlug) return res.status(403).json({ message: 'Select the matching website module before deleting this plan.' });
   store.websiteSubscriptionPlans = plans.filter(plan => String(plan._id) !== String(req.params.id));
+  schedulePersist();
   res.json({ message: 'Subscription plan deleted' });
 });
 
@@ -3545,7 +4579,8 @@ router.post('/websites/:id/checkout', auth, requireWebsiteBuilderAccess, async (
   let plan = null;
   let percent = 100;
   if (purchaseType === 'subscription') {
-    plan = (store.websiteSubscriptionPlans || []).find(item => String(item._id) === String(req.body?.planId) && item.status !== false);
+    const websiteModuleSlug = normalizeWebsiteModuleSlug(website.websiteModuleSlug || website.moduleType || '');
+    plan = (store.websiteSubscriptionPlans || []).find(item => String(item._id) === String(req.body?.planId) && item.status !== false && (!item.moduleSlug || normalizeWebsiteModuleSlug(item.moduleSlug) === websiteModuleSlug));
     if (!plan) return res.status(400).json({ message: 'Choose an active subscription plan.' });
     percent = plan.priceMode === 'fixed' ? 0 : Number(plan.percent);
   }
@@ -3564,6 +4599,11 @@ router.post('/websites/:id/checkout', auth, requireWebsiteBuilderAccess, async (
       receipt: `wz-${String(website._id).replace(/-/g, '').slice(0, 28)}`,
       notes: { websiteId: String(website._id), purchaseType, planId: String(plan?._id || ''), renewal: String(renewal) },
     });
+    const previousPurchase = website.purchase;
+    const paymentHistory = [...(previousPurchase?.payments || [])];
+    if (previousPurchase?.paymentId && !paymentHistory.some(payment => payment.paymentId === previousPurchase.paymentId)) {
+      paymentHistory.push({ paymentId: previousPurchase.paymentId, orderId: previousPurchase.orderId || '', type: previousPurchase.type || '', amount: Number(previousPurchase.amount || 0), totalAmount: Number(previousPurchase.totalAmount || previousPurchase.amount || 0), planName: previousPurchase.planName || '', status: 'paid', paidAt: previousPurchase.paidAt || '', createdAt: previousPurchase.createdAt || '' });
+    }
     website.purchase = {
       type: purchaseType,
       status: 'pending',
@@ -3581,6 +4621,7 @@ router.post('/websites/:id/checkout', auth, requireWebsiteBuilderAccess, async (
       planName: plan?.name || 'Full purchase',
       orderId: order.id,
       createdAt: new Date().toISOString(),
+      payments: paymentHistory,
     };
     res.json({
       keyId: process.env.RAZORPAY_KEY_ID,
@@ -3616,6 +4657,8 @@ router.post('/websites/:id/checkout/verify', auth, requireWebsiteBuilderAccess, 
   purchase.status = 'paid';
   purchase.paymentId = paymentId;
   purchase.paidAt = new Date().toISOString();
+  if (!Array.isArray(purchase.payments)) purchase.payments = [];
+  purchase.payments.push({ paymentId, orderId, type: purchase.type || '', amount: Number(purchase.amount || 0), totalAmount: Number(purchase.totalAmount || purchase.amount || 0), planName: purchase.planName || '', status: 'paid', paidAt: purchase.paidAt, createdAt: purchase.createdAt || '' });
   if (purchase.type === 'subscription') {
     const currentExpiry = purchase.renewal && purchase.previousExpiresAt ? new Date(purchase.previousExpiresAt) : null;
     const renewalStart = currentExpiry && Number.isFinite(currentExpiry.getTime()) && currentExpiry.getTime() > Date.now()
@@ -3628,6 +4671,7 @@ router.post('/websites/:id/checkout/verify', auth, requireWebsiteBuilderAccess, 
     else expiresAt.setDate(expiresAt.getDate() + duration);
     purchase.expiresAt = expiresAt.toISOString();
   }
+  schedulePersist();
   res.json(populateWebsite(website));
 });
 

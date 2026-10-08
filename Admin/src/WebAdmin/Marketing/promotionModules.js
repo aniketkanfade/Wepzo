@@ -11,6 +11,7 @@ export const PROMOTION_MODULES = {
     breadcrumb: 'Campaigns',
     fields: [
       { key: 'title', label: 'Campaign Title', required: true },
+      { key: 'description', label: 'Description', type: 'textarea' },
       { key: 'store', label: 'Store', type: 'select', options: ['All Stores', 'ShriKart', "Mummy's Food", 'Krishiv Ethnic Wear', 'FreshMart Sitabuldi', 'Tech Hub Store'] },
       { key: 'type', label: 'Type', type: 'select', options: ['Seasonal', 'Store', 'Festival', 'Flash'] },
       { key: 'budget', label: 'Budget (₹)', type: 'number' },
@@ -38,6 +39,9 @@ export const PROMOTION_MODULES = {
     breadcrumb: 'Banners',
     fields: [
       { key: 'title', label: 'Banner Title', required: true },
+      { key: 'subtitle', label: 'Subtitle', type: 'textarea' },
+      { key: 'image', label: 'Banner image URL' },
+      { key: 'cta', label: 'Button text' },
       { key: 'placement', label: 'Placement', type: 'select', options: ['Home Top', 'Home Mid', 'Category', 'Store Page'] },
       { key: 'store', label: 'Store', type: 'select', options: ['All Stores', 'ShriKart', 'FreshMart Sitabuldi', 'Tech Hub Store'] },
       { key: 'link', label: 'Link URL' },
@@ -62,6 +66,10 @@ export const PROMOTION_MODULES = {
     breadcrumb: 'Other Banners',
     fields: [
       { key: 'title', label: 'Title', required: true },
+      { key: 'subtitle', label: 'Description', type: 'textarea' },
+      { key: 'image', label: 'Banner image URL' },
+      { key: 'link', label: 'Link URL' },
+      { key: 'cta', label: 'Button text' },
       { key: 'section', label: 'Section', type: 'select', options: ['Checkout', 'Profile', 'Store Page', 'Cart'] },
       { key: 'store', label: 'Store', type: 'select', options: ['All Stores', 'Sweet Corner', 'ShriKart'] },
     ],
@@ -83,6 +91,7 @@ export const PROMOTION_MODULES = {
     fields: [
       { key: 'code', label: 'Coupon Code', required: true },
       { key: 'title', label: 'Title', required: true },
+      { key: 'description', label: 'Description', type: 'textarea' },
       { key: 'discount', label: 'Discount', required: true },
       { key: 'minOrder', label: 'Min Order (₹)', type: 'number' },
       { key: 'store', label: 'Store', type: 'select', options: ['All Stores', 'FreshMart Sitabuldi', 'Krishiv Ethnic Wear'] },
@@ -133,6 +142,9 @@ export const PROMOTION_MODULES = {
     breadcrumb: 'Advertisement',
     fields: [
       { key: 'title', label: 'Ad Title', required: true },
+      { key: 'description', label: 'Description', type: 'textarea' },
+      { key: 'image', label: 'Image URL' },
+      { key: 'link', label: 'Destination URL' },
       { key: 'platform', label: 'Platform', type: 'select', options: ['Google Ads', 'Meta Ads', 'YouTube', 'In-App'] },
       { key: 'store', label: 'Store', type: 'select', options: ['All Stores', 'FreshMart Sitabuldi', 'Krishiv Ethnic Wear', 'Tech Hub Store'] },
       { key: 'budget', label: 'Budget (₹)', type: 'number' },

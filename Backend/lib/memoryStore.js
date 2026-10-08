@@ -39,6 +39,9 @@ const store = {
   deliveryMen: [],
   flashSales: [],
   campaigns: [],
+  marketingContent: [],
+  marketingSiteContents: [],
+  marketingIntegrations: [],
   banners: [],
   otherBanners: [],
   coupons: [],
@@ -75,6 +78,9 @@ const PERSIST_KEYS = [
   'storeDiscounts', 'productRequests', 'productReviews', 'businessSettings', 'businessSettingsByModule',
   'roles', 'accessSections', 'modules', 'components', 'plans', 'flashSales',
   'campaigns', 'banners', 'otherBanners', 'coupons', 'pushNotifications',
+  'marketingContent',
+  'marketingSiteContents',
+  'marketingIntegrations',
   'advertisements', 'deliveryMen', 'systemModules', 'websiteModules', 'websiteModuleCatalogSeeded', 'websiteModuleContentSeeded', 'websites', 'mainAdminStorefrontSeededFor',
 ];
 

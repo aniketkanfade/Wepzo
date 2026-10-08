@@ -6,7 +6,7 @@ import {
   ChevronDown, ChevronRight, Search, Settings, Users, Shield, Layers, CreditCard, Pencil,
   ShoppingBasket, ReceiptText, Grid3X3, Image, Gift, Bell, Tag, List, PackagePlus,
   PackageSearch, Barcode, Upload, Download, RotateCcw, Zap, Smartphone, Truck, Mail, FileText,
-  UserCircle, UserRoundCheck, UserRoundX, MapPin, Star, MessageSquareText
+  UserCircle, UserRoundCheck, UserRoundX, MapPin, Star, MessageSquareText, Globe2
 } from 'lucide-react';
 import { useAuthStore } from '../../../store/useStore';
 import { useModuleStore } from '../../../store/useStore';
@@ -108,12 +108,19 @@ function filterMenuByAccess(items, allowedPaths) {
       const children = filterMenuByAccess(item.children, allowedPaths);
       return children.length ? { ...item, children } : null;
     }
-    return item.path && allowedPaths.has(item.path) ? item : null;
+    return item.path && (allowedPaths.has(item.path) || (item.accessPath && allowedPaths.has(item.accessPath))) ? item : null;
   }).filter(Boolean);
 }
 
 const getDashboardItem = module => ({ label: 'Dashboard', path: getAdminModulePath(module), icon: LayoutDashboard });
-const MARKETING_MENU_ITEMS = [getDashboardItem({ slug: 'marketing' }), ...menuItems.filter(item => item.label === 'Promotion Management')];
+const MARKETING_MENU_ITEMS = [
+  getDashboardItem({ slug: 'marketing' }),
+  { label: 'Website Content', path: '/marketing/website-content', accessPath: '/website-builder', icon: Globe2 },
+  { label: 'Content Add', path: '/marketing/content-add', icon: FileText },
+  { label: 'Users', path: '/marketing/users', icon: Users },
+  { label: 'Subscriptions', path: '/marketing/subscriptions', icon: CreditCard },
+  ...menuItems.filter(item => item.label === 'Promotion Management'),
+];
 const QUICK_COMMERCE_MENU_ITEMS = [getDashboardItem({ slug: 'quick-commerce' }), ...menuItems.filter(item => ['Quick Commerce', 'Promotion Management', 'Store Management', 'Customer Management'].includes(item.label))];
 const INFORMATION_WEB_MENU_ITEMS = [getDashboardItem({ slug: 'information-web' }), ...menuItems.filter(item => item.label === 'Design Website')];
 const E_COMMERCE_MENU_ITEMS = [

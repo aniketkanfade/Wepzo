@@ -1,6 +1,11 @@
 import React from 'react'
 import Brand from './Brand.jsx'
+import { useBranding } from '../BrandingContext.jsx'
 
 export default function Footer() {
-  return <footer className="site-footer" id="contact"><Brand /><p>Everything you need to attract, engage and grow.</p><a href="mailto:hello@wepzo.com">Get in touch ↗</a></footer>
+  const { siteContent } = useBranding()
+  const footer = siteContent?.footer || {}
+  if (footer.enabled === false) return null
+  const email = siteContent?.contact?.email || 'hello@wepzo.com'
+  return <footer className="site-footer"><Brand /><p>{footer.tagline}</p><a href={`mailto:${email}`}>{footer.contactLabel} →</a></footer>
 }
