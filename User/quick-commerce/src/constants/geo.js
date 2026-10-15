@@ -50,12 +50,19 @@ export function cityForPoint(lat, lng) {
   return c;
 }
 
+function preciseArea(address = {}) {
+  // Neighbourhood-level names are usually more useful for delivery than the
+  // wider suburb value returned alongside them by Nominatim.
+  return address.neighbourhood || address.residential || address.quarter || address.suburb
+    || address.village || address.hamlet || address.locality || address.road || '';
+}
+
 export async function reverseGeocode(lat, lng) {
   const url = `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1`;
   const res = await fetch(url, { headers: { 'Accept-Language': 'en-IN' } });
   const data = await res.json();
   const a = data.address || {};
-  const area = a.suburb || a.neighbourhood || a.village || a.road || a.city_district || '';
+  const area = preciseArea(a);
   const city = a.city || a.town || a.state_district || '';
   const pin = a.postcode || '';
   const line = data.display_name || [area, city, pin].filter(Boolean).join(', ');
@@ -72,7 +79,7 @@ export async function searchPlaces(query, city) {
     lng: Number(d.lon),
     line: d.display_name,
     pin: d.address?.postcode || '',
-    area: d.address?.suburb || d.address?.neighbourhood || d.name || '',
+    area: preciseArea(d.address) || d.name || '',
   }));
 }
 

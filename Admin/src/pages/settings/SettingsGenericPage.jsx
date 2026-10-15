@@ -78,8 +78,8 @@ export default function SettingsGenericPage({ pageKey }) {
       setForm({ ...SETTINGS_FORM_DEFAULTS, ...data });
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
-    } catch {
-      alert('Save failed');
+    } catch (error) {
+      alert(error.response?.data?.message || error.message || 'Save failed');
     } finally {
       setSaving(false);
     }
@@ -106,14 +106,14 @@ export default function SettingsGenericPage({ pageKey }) {
   if (pageKey === 'payment') {
     return <div className="w-full space-y-4">
       <div>
-        <h1 className="flex items-center gap-2 text-xl font-bold text-gray-900"><Icon size={22} className="text-[#1a3a8a]" />Payment Options</h1>
-        <p className="mt-1 text-sm text-gray-500">Set up your business payment options from here</p>
+        <h1 className="flex items-center gap-2 text-xl font-bold text-gray-900"><Icon size={22} className="text-[#1a3a8a]" />Payment Settings</h1>
+        <p className="mt-1 text-sm text-gray-500">Choose which payment methods customers can use at checkout.</p>
       </div>
 
       <section className="rounded-xl border bg-slate-50 p-4" style={{ borderColor: CARD_BORDER }}>
         <div className="grid gap-3 rounded-lg border bg-white p-4 md:grid-cols-3" style={{ borderColor: CARD_BORDER }}>
           <PaymentOption checked={form.codEnabled} onChange={value => set('codEnabled', value)} title="Cash On Delivery" description="Let your customers pay when they receive their orders. A convenient option for those who prefer cash." />
-          <PaymentOption checked={form.onlinePaymentEnabled} onChange={value => set('onlinePaymentEnabled', value)} title="Digital Payment" description="Enable customers to pay instantly using online payment gateways. Configure a payment gateway below." />
+          <PaymentOption checked={form.onlinePaymentEnabled} onChange={value => set('onlinePaymentEnabled', value)} title="Digital Payment" description="Enable customers to pay instantly using an online payment gateway. Configure gateways under Third Party." />
           <PaymentOption checked={form.offlinePaymentEnabled} onChange={value => set('offlinePaymentEnabled', value)} title="Offline payment" description="Customers can pay outside the system and submit payment proof for admin verification." warning />
         </div>
       </section>
@@ -130,13 +130,40 @@ export default function SettingsGenericPage({ pageKey }) {
         <label className="mt-3 inline-flex items-center gap-2 text-sm text-slate-700"><input type="checkbox" checked={!!form.customerWalletEnabled} onChange={event => set('customerWalletEnabled', event.target.checked)} className="h-4 w-4 accent-[#1a3a8a]" />Customer Wallet enabled</label>
       </section>
 
+      <section className="flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-white p-4" style={{ borderColor: CARD_BORDER }}>
+        <div className="flex flex-wrap gap-2">{config.relatedLinks?.map(link => <Link key={link.path} to={link.path} className="rounded-lg bg-blue-50 px-3 py-1.5 text-sm text-blue-700 hover:bg-blue-100">{link.label}</Link>)}</div>
+        <div className="flex gap-2">
+          <button type="button" onClick={() => load()} className={`inline-flex items-center gap-1.5 rounded-lg px-4 py-2.5 text-sm font-medium ${listBtnOutline}`}><RotateCcw size={14} />Reset</button>
+          <button type="button" onClick={handleSave} disabled={saving} className={`inline-flex items-center gap-1.5 rounded-lg px-5 py-2.5 text-sm font-semibold disabled:opacity-50 ${listBtnNavy}`}><Save size={14} />{saved ? 'Saved!' : saving ? 'Saving...' : 'Save Information'}</button>
+        </div>
+      </section>
+    </div>;
+  }
+
+  if (pageKey === 'paymentGateway') {
+    return <div className="w-full space-y-4">
       <section className="rounded-xl border bg-white p-5" style={{ borderColor: CARD_BORDER }}>
         <h2 className="font-semibold text-slate-800">Payment Gateway Setup</h2>
-        <p className="mt-1 text-xs text-slate-500">Configure digital payment providers and default payment values.</p>
+        <p className="mt-1 text-xs text-slate-500">Choose and configure a gateway. Secret keys are encrypted on the server and never returned to the storefront or this form. Set PAYMENT_CREDENTIALS_ENCRYPTION_KEY (32+ characters) in the backend environment before saving secrets.</p>
         <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           <div className="flex items-center justify-between rounded-lg border px-4 py-3" style={{ borderColor: CARD_BORDER }}><span className="text-sm text-slate-700">Razorpay</span><NavyToggle checked={!!form.razorpayEnabled} onChange={value => set('razorpayEnabled', value)} /></div>
-          <div className="flex items-center justify-between rounded-lg border px-4 py-3" style={{ borderColor: CARD_BORDER }}><span className="text-sm text-slate-700">Stripe</span><NavyToggle checked={!!form.stripeEnabled} onChange={value => set('stripeEnabled', value)} /></div>
+          <div className="flex items-center justify-between rounded-lg border px-4 py-3" style={{ borderColor: CARD_BORDER }}><span className="text-sm text-slate-700">PhonePe</span><NavyToggle checked={!!form.phonepeEnabled} onChange={value => set('phonepeEnabled', value)} /></div>
+          <div className="flex items-center justify-between rounded-lg border px-4 py-3" style={{ borderColor: CARD_BORDER }}><span className="text-sm text-slate-700">Cashfree</span><NavyToggle checked={!!form.cashfreeEnabled} onChange={value => set('cashfreeEnabled', value)} /></div>
+          <label className="block text-xs font-semibold text-slate-600">Active Gateway
+            <select value={form.paymentGateway || 'razorpay'} onChange={event => set('paymentGateway', event.target.value)} className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm font-normal text-slate-800">
+              <option value="razorpay">Razorpay</option><option value="phonepe">PhonePe</option><option value="cashfree">Cashfree</option>
+            </select>
+          </label>
           <PaymentField label="Razorpay Key ID" value={form.razorpayKey || ''} onChange={value => set('razorpayKey', value)} />
+          <PaymentField label={`Razorpay Key Secret${form.razorpaySecretConfigured ? ' (configured; leave blank to keep)' : ''}`} type="password" value={form.razorpayKeySecret || ''} onChange={value => set('razorpayKeySecret', value)} />
+          <PaymentField label="PhonePe Client ID" value={form.phonepeClientId || ''} onChange={value => set('phonepeClientId', value)} />
+          <PaymentField label={`PhonePe Client Secret${form.phonepeSecretConfigured ? ' (configured; leave blank to keep)' : ''}`} type="password" value={form.phonepeClientSecret || ''} onChange={value => set('phonepeClientSecret', value)} />
+          <PaymentField label="PhonePe Client Version" value={form.phonepeClientVersion || '1'} onChange={value => set('phonepeClientVersion', value)} />
+          <GatewayEnvironment label="PhonePe Environment" value={form.phonepeEnvironment || 'sandbox'} onChange={value => set('phonepeEnvironment', value)} />
+          <PaymentField label="Cashfree App ID" value={form.cashfreeAppId || ''} onChange={value => set('cashfreeAppId', value)} />
+          <PaymentField label={`Cashfree Secret Key${form.cashfreeSecretConfigured ? ' (configured; leave blank to keep)' : ''}`} type="password" value={form.cashfreeSecretKey || ''} onChange={value => set('cashfreeSecretKey', value)} />
+          <GatewayEnvironment label="Cashfree Environment" value={form.cashfreeEnvironment || 'sandbox'} onChange={value => set('cashfreeEnvironment', value)} />
+          <PaymentField label="Payment Return URL (PhonePe / Cashfree)" type="url" value={form.paymentReturnUrl || ''} onChange={value => set('paymentReturnUrl', value)} />
           <PaymentField label="Payment Currency" value={form.paymentCurrency || 'INR'} onChange={value => set('paymentCurrency', value)} />
           <PaymentField label="Default Commission (%)" value={form.defaultCommission ?? 2.5} type="number" onChange={value => set('defaultCommission', Number(value))} />
           <PaymentField label="Refund Window (days)" value={form.refundWindowDays ?? 7} type="number" onChange={value => set('refundWindowDays', Number(value))} />
@@ -530,9 +557,10 @@ export default function SettingsGenericPage({ pageKey }) {
               <div key={field.key} className={span}>
                 <label className={labelCls}>{field.label}</label>
                 <input
-                  type={field.type === 'number' ? 'number' : field.type === 'email' ? 'email' : 'text'}
+                  type={field.type === 'number' ? 'number' : field.type === 'email' ? 'email' : field.type === 'password' ? 'password' : 'text'}
                   className={`${inputCls} ${field.readOnly ? 'bg-gray-50' : ''}`}
                   readOnly={field.readOnly}
+                  placeholder={field.type === 'password' && form[`${field.key}Configured`] ? 'Configured — leave blank to keep unchanged' : ''}
                   value={form[field.key] ?? ''}
                   onChange={e => set(field.key, field.type === 'number' ? Number(e.target.value) : e.target.value)}
                 />
@@ -569,6 +597,10 @@ function PaymentOption({ checked, onChange, title, description, warning = false 
 
 function PaymentField({ label, value, onChange, type = 'text' }) {
   return <label className="block text-xs font-semibold text-slate-600">{label}<input type={type} value={value} onChange={event => onChange(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm font-normal text-slate-800 outline-none focus:border-blue-400" /></label>;
+}
+
+function GatewayEnvironment({ label, value, onChange }) {
+  return <label className="block text-xs font-semibold text-slate-600">{label}<select value={value} onChange={event => onChange(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm font-normal text-slate-800"><option value="sandbox">Sandbox</option><option value="production">Production</option></select></label>;
 }
 
 function OrderChoice({ checked, onChange, title, description }) {

@@ -43,7 +43,7 @@ function MetaTile({ label, value, valueClass = 'text-gray-800' }) {
   );
 }
 
-export default function OrderDetailView({ order, onStatusChange, onAssignRider, onTransferStore }) {
+export default function OrderDetailView({ order, onStatusChange, onAssignRider, onAssignPartner, onTransferStore }) {
   const [showAssignModal, setShowAssignModal] = useState(false);
   const [assignModalMode, setAssignModalMode] = useState('assign');
   const [showTransferStoreModal, setShowTransferStoreModal] = useState(false);
@@ -57,10 +57,26 @@ export default function OrderDetailView({ order, onStatusChange, onAssignRider, 
 
   if (!order) return null;
 
-  const billing = order.billing || {
+  const shopBill = order.bill || {};
+  const billing = order.billing || (order.bill ? {
+    itemsPrice: shopBill.itemsTotal ?? order.itemsTotal ?? order.amount,
+    subtotal: shopBill.itemsTotal ?? order.itemsTotal ?? order.amount,
+    discount: 0,
+    couponDiscount: shopBill.couponDiscount || 0,
+    deliveryFee: shopBill.deliveryCharge || 0,
+    searchCharge: shopBill.searchCharge || 0,
+    platformFee: shopBill.platformFee || 0,
+    taxAmount: shopBill.taxAmount || 0,
+    taxName: shopBill.taxName || 'GST',
+    taxPercent: shopBill.taxPercent || 0,
+    taxIncluded: shopBill.taxIncluded === true,
+    deliveryTips: 0,
+    handlingFee: 0,
+    total: shopBill.total ?? order.total ?? order.amount,
+  } : {
     itemsPrice: order.amount, subtotal: order.amount, discount: 0,
     couponDiscount: 0, deliveryFee: 0, deliveryTips: 0, handlingFee: 0, total: order.amount,
-  };
+  });
 
   const products = order.products?.length
     ? order.products
@@ -76,10 +92,16 @@ export default function OrderDetailView({ order, onStatusChange, onAssignRider, 
       : [{ name: 'Order Item', qty: order.items || 1, unitPrice: order.amount, total: order.amount, image: null }];
 
   const rider = hasAssignedRider(order.rider) ? order.rider : null;
+  const partnerDelivery = order.partnerDelivery?.bookingReference ? order.partnerDelivery : null;
+  const isEcommerceOrder = ['e_commerce', 'e-commerce', 'ecommerce'].includes(String(order.source || '').toLowerCase());
   const storeInfo = order.storeInfo || {};
-  const phoneDisplay = order.phone ? `+91${order.phone}` : '—';
+  const phoneDisplay = order.phone
+    ? String(order.phone).startsWith('+') ? order.phone : `+91${order.phone}`
+    : '—';
+  const orderStoreName = order.source === 'e_commerce' ? 'My Website' : (order.store || '—');
+  const paymentStatus = order.paymentStatus || 'Unpaid';
 
-  const canAssign = onAssignRider && !rider && STATUSES_ALLOWING_ASSIGN.includes(order.status);
+  const canAssign = onAssignRider && !rider && !partnerDelivery && STATUSES_ALLOWING_ASSIGN.includes(order.status);
   const canTransferRider = onAssignRider && rider && !['Delivered', 'Cancelled'].includes(order.status);
   const canTransferStore = onTransferStore && !['Delivered', 'Cancelled'].includes(order.status);
   const showRiderDetails = !!rider;
@@ -92,7 +114,7 @@ export default function OrderDetailView({ order, onStatusChange, onAssignRider, 
   const handleStatusSelect = (newStatus) => {
     if (newStatus === order.status) return;
     setStatusError('');
-    if (newStatus !== 'Cancelled' && STATUSES_REQUIRING_RIDER.includes(newStatus) && !rider) {
+    if (!isEcommerceOrder && newStatus !== 'Cancelled' && STATUSES_REQUIRING_RIDER.includes(newStatus) && !rider && !partnerDelivery) {
       setStatusError('Pehle delivery man assign karein — bina rider ke Out for Delivery nahi ho sakta.');
       return;
     }
@@ -145,7 +167,7 @@ export default function OrderDetailView({ order, onStatusChange, onAssignRider, 
               <div className="flex flex-wrap items-center gap-x-2.5 gap-y-0.5 mt-1 text-xs text-gray-500">
                 <span className="flex items-center gap-1"><Calendar size={11} /> {order.orderDate || order.date}</span>
                 <span className="text-gray-300 hidden sm:inline">|</span>
-                <span className="flex items-center gap-1 truncate"><Store size={11} /> {order.store}</span>
+                <span className="flex items-center gap-1 truncate"><Store size={11} /> {orderStoreName}</span>
               </div>
             </div>
             <button type="button" onClick={() => printOrderInvoice(order)}
@@ -166,8 +188,8 @@ export default function OrderDetailView({ order, onStatusChange, onAssignRider, 
         <div className="px-4 pb-3 pt-0 border-t border-gray-100/80">
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-2.5">
             <MetaTile label="Payment Method" value={order.paymentMethod || order.payment} />
-            <MetaTile label="Payment Status" value={order.paymentStatus || 'Unpaid'}
-              valueClass={order.paymentStatus === 'Paid' ? 'text-green-600' : 'text-red-500'} />
+            <MetaTile label="Payment Status" value={paymentStatus}
+              valueClass={String(paymentStatus).toLowerCase() === 'paid' ? 'text-green-600' : 'text-red-500'} />
             <MetaTile label="Order Type" value={order.orderType || order.deliveryType} />
             <MetaTile label="Reference Code" value={order.referenceCode || '—'} valueClass="text-primary-600" />
           </div>
@@ -233,6 +255,9 @@ export default function OrderDetailView({ order, onStatusChange, onAssignRider, 
                   ...(billing.discount > 0 && !billing.storeDiscount ? [['Discount', `- ${fmt(billing.discount)}`, 'text-red-500']] : []),
                   ['Coupon discount', `- ${fmt(billing.couponDiscount)}`, 'text-red-500'],
                   ['Delivery fee', `+ ${fmt(billing.deliveryFee)}`, 'text-emerald-600'],
+                  ...(billing.searchCharge > 0 ? [['Search charge', `+ ${fmt(billing.searchCharge)}`, 'text-emerald-600']] : []),
+                  ...(billing.platformFee > 0 ? [['Platform fee', `+ ${fmt(billing.platformFee)}`, 'text-emerald-600']] : []),
+                  ...(billing.taxAmount > 0 ? [[`${billing.taxName || 'GST'} (${billing.taxPercent || 0}%)${billing.taxIncluded ? ' included' : ''}`, `${billing.taxIncluded ? '' : '+ '}${fmt(billing.taxAmount)}`, billing.taxIncluded ? 'text-gray-500' : 'text-emerald-600']] : []),
                   ['Delivery man tips', `+ ${fmt(billing.deliveryTips)}`, 'text-emerald-600'],
                   ['Handling fee', `+ ${fmt(billing.handlingFee)}`, 'text-emerald-600'],
                 ].map(([label, val, cls]) => (
@@ -284,7 +309,7 @@ export default function OrderDetailView({ order, onStatusChange, onAssignRider, 
                     </p>
                   )}
                 </div>
-                {!rider && onAssignRider && !['Delivered', 'Cancelled', 'Out for Delivery'].includes(order.status) && (
+                {!isEcommerceOrder && !rider && !partnerDelivery && onAssignRider && !['Delivered', 'Cancelled', 'Out for Delivery'].includes(order.status) && (
                   <button type="button" onClick={() => (canAssign ? openAssignModal('assign') : setStatusError('Pehle order Accept karein — Pending par rider assign nahi ho sakta'))}
                     className={`w-full py-3 text-sm font-bold rounded-lg transition-all flex items-center justify-center gap-2 ${
                       canAssign
@@ -295,17 +320,22 @@ export default function OrderDetailView({ order, onStatusChange, onAssignRider, 
                     Assign Delivery Man
                   </button>
                 )}
-                {rider && (
+                {!isEcommerceOrder && rider && (
                   <p className="text-xs text-center text-green-600 bg-green-50 border border-green-100 rounded-lg px-3 py-2 font-medium">
                     Rider assigned · {rider.name}
                   </p>
                 )}
-                {!rider && order.status === 'Pending' && (
+                {!isEcommerceOrder && partnerDelivery && (
+                  <p className="text-xs text-center text-blue-700 bg-blue-50 border border-blue-100 rounded-lg px-3 py-2 font-medium">
+                    {partnerDelivery.providerName} booking saved: {partnerDelivery.bookingReference}
+                  </p>
+                )}
+                {!isEcommerceOrder && !rider && !partnerDelivery && order.status === 'Pending' && (
                   <p className="text-xs text-center text-amber-600 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2 font-medium">
                     Pehle order Accept karein — Pending par rider assign nahi ho sakta
                   </p>
                 )}
-                {!rider && order.status !== 'Cancelled' && order.status !== 'Pending' && !canAssign && (
+                {!isEcommerceOrder && !rider && !partnerDelivery && order.status !== 'Cancelled' && order.status !== 'Pending' && !canAssign && (
                   <p className="text-xs text-center text-gray-400 font-medium py-1">
                     Cancel direct ho sakta hai · Out for Delivery ke liye rider zaroori hai
                   </p>
@@ -345,16 +375,16 @@ export default function OrderDetailView({ order, onStatusChange, onAssignRider, 
                   {order.area}
                 </span>
               )}
-              {order.deliveryAddress && (
+              {(order.deliveryAddress || order.address) && (
                 <p className="flex items-start gap-2 text-gray-600 bg-gray-50 rounded-lg p-2.5 border border-gray-100">
                   <MapPin size={13} className="shrink-0 mt-0.5 text-emerald-500" />
-                  <span className="text-xs leading-relaxed">{order.deliveryAddress}</span>
+                  <span className="text-xs leading-relaxed">{[order.deliveryAddress || order.address, order.pincode, order.deliveryState].filter(Boolean).join(', ')}</span>
                 </p>
               )}
             </div>
           </InfoCard>
 
-          <InfoCard title="Rider Information" icon={Bike} iconBg="bg-orange-50"
+          {!isEcommerceOrder && <InfoCard title={partnerDelivery ? 'Delivery Partner' : 'Rider Information'} icon={Bike} iconBg="bg-orange-50"
             action={canTransferRider ? (
               <button type="button" onClick={() => openAssignModal('transfer')}
                 className="text-[11px] font-bold text-orange-600 hover:text-orange-700 flex items-center gap-1 px-2 py-1 rounded-md hover:bg-orange-50 transition border border-orange-200 bg-orange-50/50">
@@ -362,7 +392,16 @@ export default function OrderDetailView({ order, onStatusChange, onAssignRider, 
               </button>
             ) : null}
           >
-            {showRiderDetails ? (
+            {partnerDelivery ? (
+              <div className="space-y-2 rounded-lg border border-blue-100 bg-blue-50/60 p-3 text-sm">
+                <p className="font-bold text-gray-900">{partnerDelivery.providerName}</p>
+                <p className="text-xs text-gray-600">Booking reference: <span className="font-semibold">{partnerDelivery.bookingReference}</span></p>
+                {partnerDelivery.courierName && <p className="text-xs text-gray-600">Courier: {partnerDelivery.courierName}</p>}
+                {partnerDelivery.courierPhone && <p className="flex items-center gap-2 text-xs text-gray-600"><Phone size={12} /> {partnerDelivery.courierPhone}</p>}
+                {partnerDelivery.trackingUrl && <a href={partnerDelivery.trackingUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-xs font-semibold text-blue-700 hover:underline"><Navigation size={12} /> Track partner delivery</a>}
+                <span className="inline-block rounded-full border border-blue-100 bg-white px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-blue-700">Manually booked</span>
+              </div>
+            ) : showRiderDetails ? (
               <div className="space-y-3">
                 <div className="flex items-start gap-3">
                   <div className="w-10 h-10 rounded-full bg-orange-50 border border-orange-100 flex items-center justify-center shrink-0">
@@ -418,7 +457,7 @@ export default function OrderDetailView({ order, onStatusChange, onAssignRider, 
                 <p className="text-sm text-gray-400">Rider abhi assign nahi hua</p>
               </div>
             )}
-          </InfoCard>
+          </InfoCard>}
 
           <InfoCard title="Store Information" icon={Store} iconBg="bg-sky-50">
             <div className="space-y-3">
@@ -459,13 +498,14 @@ export default function OrderDetailView({ order, onStatusChange, onAssignRider, 
         </div>
       </div>
 
-      {showAssignModal && (
+      {!isEcommerceOrder && showAssignModal && (
         <AssignDeliveryManModal
           order={order}
           mode={assignModalMode}
           excludeRiderId={rider?._id}
           onClose={() => setShowAssignModal(false)}
           onAssign={riderId => onAssignRider?.(order._id, riderId)}
+          onAssignPartner={(id, details) => onAssignPartner?.(id, details)}
         />
       )}
 

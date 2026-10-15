@@ -1,100 +1,132 @@
 const { v4: uuidv4 } = require('uuid');
 const { parseCsv } = require('./bulkCsv');
 
-const bool = (v) => ['yes', 'true', '1', 'active'].includes(String(v).toLowerCase());
+const bool = value => ['yes', 'true', '1', 'active'].includes(String(value).toLowerCase());
 const scopeFor = options => ({
   moduleSlug: String(options?.moduleSlug || 'ecommerce').toLowerCase(),
   isInModule: typeof options?.isInModule === 'function' ? options.isInModule : () => true,
 });
+const inputRows = input => Array.isArray(input) ? input : parseCsv(input);
+const cell = (row, key) => String(row?.[key] ?? '').trim();
+const idMatch = (record, value, sequenceKey) => String(record?._id || '') === String(value)
+  || String(record?.[sequenceKey] ?? '') === String(value);
+const nextId = (records, key) => records.reduce((max, item) => Math.max(max, Number(item[key]) || 0), 0) + 1;
+const attributes = row => ({
+  name: cell(row, 'Name'),
+  priority: cell(row, 'Priority') || 'Normal',
+  status: bool(row.Status),
+  featured: bool(row.Featured),
+  image: cell(row, 'Image'),
+});
 
-function importCategories(store, text, mode, options) {
-  const rows = parseCsv(text);
+function importCategories(store, input, mode, options) {
+  const rows = inputRows(input);
   const scope = scopeFor(options);
   let success = 0, failed = 0;
-  rows.forEach(row => {
-    try {
-      if (!row.Name?.trim()) { failed++; return; }
-      const id = parseInt(row.ID);
-      const existing = id ? store.categories.find(c => c.categoryId === id && scope.isInModule(c)) : null;
-      const data = {
-        name: row.Name.trim(), nameEn: row.Name_EN || '', nameHi: row.Name_HI || '',
-        priority: row.Priority || 'Normal', status: bool(row.Status), featured: bool(row.Featured), image: row.Image || ''
-      };
-      if (mode === 'update' && existing) {
-        Object.assign(existing, data, { websiteModuleSlug: scope.moduleSlug });
-      } else if (mode === 'update' && id) {
-        failed++;
-        return;
-      } else if (existing && mode === 'new') {
-        failed++;
-        return;
-      } else {
-        const maxId = store.categories.reduce((m, c) => Math.max(m, c.categoryId || 0), 0);
-        store.categories.push({ _id: uuidv4(), categoryId: id || maxId + 1, ...data, websiteModuleSlug: scope.moduleSlug });
-      }
-      success++;
-    } catch { failed++; }
+  const errors = [];
+  const recordIds = [];
+  rows.forEach((row, index) => {
+    const name = cell(row, 'Name');
+    const moduleId = cell(row, 'Main Module ID');
+    const module = (store.systemModules || []).find(item => String(item._id) === moduleId && scope.isInModule(item));
+    const requestedId = Number.parseInt(cell(row, 'ID'), 10) || 0;
+    if (!name || !moduleId || !module || module.status === false || String(module.status).toLowerCase() === 'inactive') { failed += 1; errors.push({ row: index + 2, reason: 'Name and valid active Main Module ID are required' }); return; }
+
+    const existing = requestedId
+      ? store.categories.find(item => Number(item.categoryId) === requestedId && scope.isInModule(item))
+      : null;
+    const idUsedElsewhere = requestedId && store.categories.some(item => Number(item.categoryId) === requestedId && item !== existing);
+    if ((mode === 'update' && (!requestedId || !existing)) || (mode === 'new' && existing) || idUsedElsewhere) { failed += 1; errors.push({ row: index + 2, reason: 'ID conflicts with upload mode or an existing record' }); return; }
+
+    const data = { ...attributes(row), moduleId: module._id };
+    let saved;
+    if (existing) saved = Object.assign(existing, data, { websiteModuleSlug: scope.moduleSlug });
+    else {
+      saved = { _id: uuidv4(), categoryId: requestedId || nextId(store.categories, 'categoryId'), ...data, websiteModuleSlug: scope.moduleSlug };
+      store.categories.push(saved);
+    }
+    recordIds.push(saved._id);
+    success += 1;
   });
-  return { success, failed, total: rows.length };
+  return { success, failed, total: rows.length, errors, recordIds };
 }
 
-function importSubCategories(store, text, mode, options) {
-  const rows = parseCsv(text);
+function importSubCategories(store, input, mode, options) {
+  const rows = inputRows(input);
   const scope = scopeFor(options);
   let success = 0, failed = 0;
-  rows.forEach(row => {
-    try {
-      if (!row.Name?.trim() || !row.MainCategory?.trim()) { failed++; return; }
-      const main = store.categories.find(c => c.name === row.MainCategory.trim() && scope.isInModule(c));
-      if (!main) { failed++; return; }
-      const id = parseInt(row.ID);
-      const existing = id ? store.subCategories.find(c => c.subCategoryId === id && scope.isInModule(c)) : null;
-      const data = {
-        name: row.Name.trim(), nameEn: row.Name_EN || '', nameHi: row.Name_HI || '',
-        mainCategory: row.MainCategory.trim(), categoryId: main._id,
-        priority: row.Priority || 'Normal', status: bool(row.Status), featured: bool(row.Featured), image: row.Image || ''
-      };
-      if (mode === 'update' && existing) Object.assign(existing, data, { websiteModuleSlug: scope.moduleSlug });
-      else if (mode === 'update' && id) { failed++; return; }
-      else if (existing && mode === 'new') { failed++; return; }
-      else {
-        const maxId = store.subCategories.reduce((m, c) => Math.max(m, c.subCategoryId || 0), 0);
-        store.subCategories.push({ _id: uuidv4(), subCategoryId: id || maxId + 1, ...data, websiteModuleSlug: scope.moduleSlug });
-      }
-      success++;
-    } catch { failed++; }
+  const errors = [];
+  const recordIds = [];
+  rows.forEach((row, index) => {
+    const name = cell(row, 'Name');
+    const categoryId = cell(row, 'Category ID');
+    const category = categoryId
+      ? store.categories.find(item => idMatch(item, categoryId, 'categoryId') && scope.isInModule(item))
+      : null;
+    const requestedId = Number.parseInt(cell(row, 'ID'), 10) || 0;
+    if (!name || !categoryId || !category || !category.moduleId) { failed += 1; errors.push({ row: index + 2, reason: 'Name and valid parent Category ID are required' }); return; }
+
+    const existing = requestedId
+      ? store.subCategories.find(item => Number(item.subCategoryId) === requestedId && scope.isInModule(item))
+      : null;
+    const idUsedElsewhere = requestedId && store.subCategories.some(item => Number(item.subCategoryId) === requestedId && item !== existing);
+    if ((mode === 'update' && (!requestedId || !existing)) || (mode === 'new' && existing) || idUsedElsewhere) { failed += 1; errors.push({ row: index + 2, reason: 'ID conflicts with upload mode or an existing record' }); return; }
+
+    const data = { ...attributes(row), mainCategory: category.name, categoryId: category._id, moduleId: category.moduleId };
+    let saved;
+    if (existing) saved = Object.assign(existing, data, { websiteModuleSlug: scope.moduleSlug });
+    else {
+      saved = { _id: uuidv4(), subCategoryId: requestedId || nextId(store.subCategories, 'subCategoryId'), ...data, websiteModuleSlug: scope.moduleSlug };
+      store.subCategories.push(saved);
+    }
+    recordIds.push(saved._id);
+    success += 1;
   });
-  return { success, failed, total: rows.length };
+  return { success, failed, total: rows.length, errors, recordIds };
 }
 
-function importChildCategories(store, text, mode, options) {
-  const rows = parseCsv(text);
+function importChildCategories(store, input, mode, options) {
+  const rows = inputRows(input);
   const scope = scopeFor(options);
   let success = 0, failed = 0;
-  rows.forEach(row => {
-    try {
-      if (!row.Name?.trim() || !row.SubCategory?.trim()) { failed++; return; }
-      const sub = store.subCategories.find(s => s.name === row.SubCategory.trim() && scope.isInModule(s));
-      if (!sub) { failed++; return; }
-      const id = parseInt(row.ID);
-      const existing = id ? store.childCategories.find(c => c.childCategoryId === id && scope.isInModule(c)) : null;
-      const data = {
-        name: row.Name.trim(), nameEn: row.Name_EN || '', nameHi: row.Name_HI || '',
-        mainCategory: row.MainCategory?.trim() || sub.mainCategory, subCategory: row.SubCategory.trim(),
-        categoryId: sub.categoryId, subCategoryId: sub._id,
-        priority: row.Priority || 'Normal', status: bool(row.Status), featured: bool(row.Featured), image: row.Image || ''
-      };
-      if (mode === 'update' && existing) Object.assign(existing, data, { websiteModuleSlug: scope.moduleSlug });
-      else if (mode === 'update' && id) { failed++; return; }
-      else if (existing && mode === 'new') { failed++; return; }
-      else {
-        const maxId = store.childCategories.reduce((m, c) => Math.max(m, c.childCategoryId || 0), 0);
-        store.childCategories.push({ _id: uuidv4(), childCategoryId: id || maxId + 1, ...data, websiteModuleSlug: scope.moduleSlug });
-      }
-      success++;
-    } catch { failed++; }
+  const errors = [];
+  const recordIds = [];
+  rows.forEach((row, index) => {
+    const name = cell(row, 'Name');
+    const subCategoryId = cell(row, 'Sub Category ID');
+    const subCategory = subCategoryId
+      ? store.subCategories.find(item => idMatch(item, subCategoryId, 'subCategoryId') && scope.isInModule(item))
+      : null;
+    const category = subCategory
+      ? store.categories.find(item => idMatch(item, subCategory.categoryId, 'categoryId') && scope.isInModule(item))
+      : null;
+    const requestedId = Number.parseInt(cell(row, 'ID'), 10) || 0;
+    if (!name || !subCategoryId || !subCategory || !category) { failed += 1; errors.push({ row: index + 2, reason: 'Name and valid parent Sub Category ID are required' }); return; }
+
+    const existing = requestedId
+      ? store.childCategories.find(item => Number(item.childCategoryId) === requestedId && scope.isInModule(item))
+      : null;
+    const idUsedElsewhere = requestedId && store.childCategories.some(item => Number(item.childCategoryId) === requestedId && item !== existing);
+    if ((mode === 'update' && (!requestedId || !existing)) || (mode === 'new' && existing) || idUsedElsewhere) { failed += 1; errors.push({ row: index + 2, reason: 'ID conflicts with upload mode or an existing record' }); return; }
+
+    const data = {
+      ...attributes(row),
+      mainCategory: category.name,
+      subCategory: subCategory.name,
+      categoryId: category._id,
+      subCategoryId: subCategory._id,
+      moduleId: category.moduleId,
+    };
+    let saved;
+    if (existing) saved = Object.assign(existing, data, { websiteModuleSlug: scope.moduleSlug });
+    else {
+      saved = { _id: uuidv4(), childCategoryId: requestedId || nextId(store.childCategories, 'childCategoryId'), ...data, websiteModuleSlug: scope.moduleSlug };
+      store.childCategories.push(saved);
+    }
+    recordIds.push(saved._id);
+    success += 1;
   });
-  return { success, failed, total: rows.length };
+  return { success, failed, total: rows.length, errors, recordIds };
 }
 
 module.exports = { importCategories, importSubCategories, importChildCategories };

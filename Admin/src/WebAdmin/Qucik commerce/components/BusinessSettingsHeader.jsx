@@ -7,7 +7,7 @@ const sections = [
   { label: 'Business Info', path: '/settings/business' },
   { label: 'Email & SMS', path: '/settings/email-sms' },
   { label: 'App Settings', path: '/settings/app' },
-  { label: 'Payment', path: '/settings/payment' },
+  { label: 'Payment', path: '/settings/business/payment' },
   { label: 'Vendor', path: '/settings/vendor' },
   { label: 'Order', path: '/settings/order' },
   { label: 'Refund', path: '/settings/refund' },

@@ -56,7 +56,7 @@ export default function FlashSaleFormPage() {
   const visibleProducts = useMemo(() => {
     const query = productSearch.trim().toLowerCase();
     return products.filter(product => {
-      const name = String(product.name || product.nameEn || '').toLowerCase();
+      const name = String(product.name || '').toLowerCase();
       const sku = String(product.sku || '').toLowerCase();
       const code = String(product.productCode || '').toLowerCase();
       return !query || name.includes(query) || sku.includes(query) || code.includes(query);
@@ -162,7 +162,7 @@ export default function FlashSaleFormPage() {
         ...current,
         [key]: {
           productId: product._id || product.productId || product.id,
-          name: product.name || product.nameEn || 'Product',
+          name: product.name || 'Product',
           sku: product.sku || '',
           productCode: product.productCode || '',
           storeId: product.storeId || '',
@@ -328,7 +328,7 @@ export default function FlashSaleFormPage() {
                   <label key={key} className="flex cursor-pointer items-center gap-3 px-5 py-3 hover:bg-slate-50">
                     <input type="checkbox" checked={selected} onChange={() => toggleProduct(product)} className="h-4 w-4 rounded border-slate-300 text-blue-700 focus:ring-blue-600" />
                     <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-medium text-slate-800">{product.name || product.nameEn || 'Product'}</p>
+                      <p className="truncate text-sm font-medium text-slate-800">{product.name || 'Product'}</p>
                       <p className="text-xs text-slate-500">{product.sku || product.productCode || 'No SKU'}{product.store ? ' · ' + product.store : ''}</p>
                     </div>
                     <span className="text-sm font-semibold text-slate-700">₹{Number(product.price || 0).toFixed(2)}</span>

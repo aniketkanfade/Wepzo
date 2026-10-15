@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import {
-  Trash2, Monitor, Globe, Download, ShoppingBag, ExternalLink,
+  Trash2, Monitor, Globe, ShoppingBag, ExternalLink,
   Megaphone, Layout, ChevronRight, IndianRupee, LogOut
 } from 'lucide-react';
 import api from '../../../api/axios';
@@ -13,7 +13,7 @@ const MODULES = [
   { type: 'e-commerce', name: 'E-Commerce', icon: ShoppingBag, color: 'bg-orange-600', desc: 'Build your E-Commerce storefront' },
   { type: 'store-single', name: 'Store Singlepage Web', icon: Layout, color: 'bg-indigo-600', desc: 'Build a single-page store website' },
   { type: 'marketing', name: 'Marketing', icon: Megaphone, color: 'bg-purple-500', desc: 'Landing pages, newsletters & promotions' },
-  { type: 'general', name: 'General', icon: Layout, color: 'bg-green-500', desc: 'Basic website with header, footer & contact' },
+  { type: 'general', name: 'Web Page', icon: Layout, color: 'bg-green-500', desc: 'Basic website with header, footer & contact' },
 ];
 
 const normalizeModuleType = (moduleType) => {
@@ -26,11 +26,11 @@ const normalizeModuleType = (moduleType) => {
 
 const displayModuleName = (moduleType, moduleKey) => {
   const value = normalizeModuleType(moduleType);
-  if (moduleKey === 'information-web') return 'Information Web';
+  if (moduleKey === 'information-web') return 'Web Page';
   if (moduleKey === 'store-single') return 'Store Singlepage Web';
   if (value === 'ecommerce') return moduleKey === 'e-commerce' ? 'E-Commerce' : 'Quick Commerce';
   if (value === 'marketing') return 'Marketing';
-  if (value === 'general') return 'General';
+  if (value === 'general') return 'Web Page';
   return value ? value.replace(/[-_]/g, ' ') : 'Quick Commerce';
 };
 
@@ -103,6 +103,7 @@ export default function WebsiteBuilder() {
   const [domainError, setDomainError] = useState('');
   const [subscriptionPlans, setSubscriptionPlans] = useState([]);
   const [selectedPlanId, setSelectedPlanId] = useState('');
+  const [paymentMode, setPaymentMode] = useState('full');
   const [checkoutError, setCheckoutError] = useState('');
   const [componentError, setComponentError] = useState('');
   const [checkoutLoading, setCheckoutLoading] = useState(false);
@@ -115,18 +116,16 @@ export default function WebsiteBuilder() {
     ? (isEditOnly ? ['design'] : ['design', 'domain', 'payment'])
     : ['module', 'design', 'domain', 'publish'];
   const selectedPlan = subscriptionPlans.find(plan => String(plan._id) === String(selectedPlanId)) || subscriptionPlans[0];
-  const subscriptionAmount = selectedPlan
-    ? selectedPlan.priceMode === 'fixed'
-      ? Math.min(Number(totalAmount) || 0, Number(selectedPlan.fixedAmount) || 0)
-      : Math.round((Number(totalAmount) || 0) * Number(selectedPlan.percent) / 100)
-    : 0;
+  const subscriptionAmount = selectedPlan?.priceMode === 'fixed' ? Number(selectedPlan.fixedAmount) || 0 : 0;
+  const domainAmount = Number(domain?.price) || 0;
+  const subscriptionTotalAmount = subscriptionAmount + domainAmount;
   const planDurationLabel = plan => `${plan.durationValue || 30} ${plan.durationUnit || 'day'}${Number(plan.durationValue || 30) === 1 ? '' : 's'}`;
 
   useEffect(() => {
     if (website?.name) setWebsiteName(website.name);
     if (website?.domain) {
-      setDomainName(website.domain.name || '');
-      setDomainType(website.domain.type || 'subdomain');
+      setDomainName(website.domain.type === 'subdomain' ? website.domain.name || '' : '');
+      setDomainType('subdomain');
     }
   }, [website?._id]);
 
@@ -235,19 +234,17 @@ export default function WebsiteBuilder() {
     if (!website) return false;
     setDomainError('');
     try {
-      if (domainType !== 'none') {
-        const { data: availability } = await api.get('/domains/availability', {
-          params: { name: domainName, type: domainType, websiteId: website._id },
-        });
-        setBaseDomain(availability.baseDomain || 'wepzo.in');
-        if (!availability.available) {
-          setDomainError(availability.message || 'Domain not available. Choose another name.');
-          return false;
-        }
+      const { data: availability } = await api.get('/domains/availability', {
+        params: { name: domainName, type: 'subdomain', websiteId: website._id },
+      });
+      setBaseDomain(availability.baseDomain || 'wepzo.in');
+      if (!availability.available) {
+        setDomainError(availability.message || 'Domain not available. Choose another name.');
+        return false;
       }
       const { data } = await api.post(`/websites/${website._id}/domain`, {
-        domainName: domainType === 'none' ? '' : domainName,
-        type: domainType,
+        domainName,
+        type: 'subdomain',
       });
       setWebsite(data);
       return true;
@@ -304,6 +301,11 @@ export default function WebsiteBuilder() {
         purchaseType,
         planId: purchaseType === 'subscription' ? selectedPlan?._id : undefined,
       });
+      if (order.free) {
+        setWebsite(order.website);
+        navigate('/website-dashboard');
+        return;
+      }
       const loaded = await loadRazorpayCheckout();
       if (!loaded || !window.Razorpay) throw new Error('Payment checkout could not be loaded. Check your connection and retry.');
       const checkout = new window.Razorpay({
@@ -339,11 +341,6 @@ export default function WebsiteBuilder() {
       setCheckoutError(error.response?.data?.message || error.message || 'Checkout could not be started.');
       setCheckoutLoading(false);
     }
-  };
-
-  const handleExportZip = () => {
-    if (!website) return;
-    window.open(`/api/export/${website._id}/zip`, '_blank');
   };
 
   const orderedComponents = [...components].sort((a, b) => a.order - b.order);
@@ -532,51 +529,26 @@ export default function WebsiteBuilder() {
                   <span className="font-bold text-primary-600">₹500</span>
                 </label>
 
-                <label className={`flex items-center gap-3 p-4 border rounded-xl cursor-pointer transition ${domainType === 'custom' ? 'border-primary-500 bg-primary-50' : 'border-gray-200'}`}>
-                  <input type="radio" name="domainType" value="custom" checked={domainType === 'custom'} onChange={() => { setDomainType('custom'); setDomainError(''); setDomain(null); }} />
-                  <Globe size={20} className="text-purple-600" />
-                  <div className="flex-1">
-                    <p className="font-medium text-sm">Custom Domain</p>
-                    <p className="text-xs text-gray-500">www.yourdomain.com</p>
-                  </div>
-                  <span className="font-bold text-purple-600">₹2000</span>
-                </label>
-
-                <label className={`flex items-center gap-3 p-4 border rounded-xl cursor-pointer transition ${domainType === 'none' ? 'border-primary-500 bg-primary-50' : 'border-gray-200'}`}>
-                  <input type="radio" name="domainType" value="none" checked={domainType === 'none'} onChange={() => { setDomainType('none'); setDomainError(''); setDomain(null); }} />
-                  <Download size={20} className="text-green-600" />
-                  <div className="flex-1">
-                    <p className="font-medium text-sm">ZIP Export Only</p>
-                    <p className="text-xs text-gray-500">Download code, deploy anywhere</p>
-                  </div>
-                  <span className="font-bold text-green-600">Free</span>
-                </label>
               </div>
 
-              {domainType !== 'none' && (
-                <div>
-                  <label className="text-sm font-medium text-gray-700">Domain Name</label>
-                  <div className="flex mt-1">
-                    <input
-                      value={domainName} onChange={e => { setDomainName(e.target.value); setDomainError(''); setDomain(null); }}
-                      className="flex-1 px-3 py-2 border border-gray-300 rounded-l-lg text-sm focus:ring-2 focus:ring-primary-500 outline-none"
-                      placeholder="yourstore"
-                    />
-                    {domainType === 'subdomain' && (
-                      <span className="px-3 py-2 bg-gray-100 border border-l-0 border-gray-300 rounded-r-lg text-sm text-gray-500">.{baseDomain}</span>
-                    )}
-                  </div>
-                  <button
-                    type="button"
-                    onClick={handleAddDomain}
-                    className="mt-3 w-full bg-primary-600 text-white py-2 rounded-lg text-sm font-medium hover:bg-primary-700 transition"
-                  >
-                    Check & Save Domain
-                  </button>
+              <div>
+                <label className="text-sm font-medium text-gray-700">Domain Name</label>
+                <div className="flex mt-1">
+                  <input
+                    value={domainName} onChange={e => { setDomainName(e.target.value); setDomainError(''); setDomain(null); }}
+                    className="flex-1 px-3 py-2 border border-gray-300 rounded-l-lg text-sm focus:ring-2 focus:ring-primary-500 outline-none"
+                    placeholder="yourstore"
+                  />
+                  <span className="px-3 py-2 bg-gray-100 border border-l-0 border-gray-300 rounded-r-lg text-sm text-gray-500">.{baseDomain}</span>
                 </div>
-              )}
-
-              {domainType === 'none' && <button type="button" onClick={handleAddDomain} className="w-full rounded-lg border border-gray-300 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50">Continue without a domain</button>}
+                <button
+                  type="button"
+                  onClick={handleAddDomain}
+                  className="mt-3 w-full bg-primary-600 text-white py-2 rounded-lg text-sm font-medium hover:bg-primary-700 transition"
+                >
+                  Check & Save Domain
+                </button>
+              </div>
 
               {domainError && <p role="alert" className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{domainError}</p>}
 
@@ -591,21 +563,33 @@ export default function WebsiteBuilder() {
 
           {step === 'payment' && isWebsiteUser && (
             <div className="p-5 space-y-4">
-              <div><h3 className="font-semibold text-gray-800">Choose how to pay</h3><p className="mt-1 text-sm text-gray-500">Payment is calculated from the full website amount.</p></div>
-              <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm">
-                <div className="flex justify-between"><span className="text-slate-500">Website and domain total</span><strong>₹{Number(totalAmount).toLocaleString('en-IN')}</strong></div>
-                {domain?.fullDomain && <p className="mt-1 text-xs text-slate-500">Domain: {domain.fullDomain}</p>}
-              </div>
-              {subscriptionPlans.length > 0 ? <div className="space-y-2">
+              <div><h3 className="font-semibold text-gray-800">Choose a payment option</h3><p className="mt-1 text-sm text-gray-500">Buy the website once or choose a separately priced subscription.</p></div>
+              <fieldset className="space-y-2">
+                <legend className="text-xs font-semibold uppercase text-slate-500">Payment type</legend>
+                <label className={`flex cursor-pointer items-start gap-3 rounded-xl border p-3 transition ${paymentMode === 'full' ? 'border-blue-400 bg-blue-50' : 'border-slate-200 bg-white opacity-60 hover:opacity-80'}`}>
+                  <input type="radio" name="paymentMode" value="full" checked={paymentMode === 'full'} onChange={() => setPaymentMode('full')} className="mt-1 accent-blue-700"/>
+                  <span className="min-w-0 flex-1"><span className="block text-sm font-semibold text-slate-800">Full Buy</span><span className="mt-0.5 block text-xs text-slate-500">Pay the full website amount now</span><span className="mt-1 block text-sm font-semibold text-slate-800">₹{Number(totalAmount).toLocaleString('en-IN')}</span></span>
+                </label>
+                <label className={`flex items-start gap-3 rounded-xl border p-3 transition ${subscriptionPlans.length === 0 ? 'cursor-not-allowed border-slate-200 bg-slate-50 opacity-50' : `cursor-pointer ${paymentMode === 'subscription' ? 'border-blue-400 bg-blue-50' : 'border-slate-200 bg-white opacity-60 hover:opacity-80'}`}`}>
+                  <input type="radio" name="paymentMode" value="subscription" checked={paymentMode === 'subscription'} onChange={() => setPaymentMode('subscription')} disabled={subscriptionPlans.length === 0} className="mt-1 accent-blue-700"/>
+                  <span className="min-w-0 flex-1"><span className="block text-sm font-semibold text-slate-800">Subscription</span><span className="mt-0.5 block text-xs text-slate-500">{selectedPlan ? `${selectedPlan.name} · ${planDurationLabel(selectedPlan)}` : 'Subscription unavailable'}</span><span className="mt-1 block text-sm font-semibold text-slate-800">{selectedPlan ? selectedPlan.priceMode === 'free' ? 'Free' : `₹${subscriptionAmount.toLocaleString('en-IN')}` : 'No active plans'}</span></span>
+                </label>
+              </fieldset>
+              {paymentMode === 'subscription' && subscriptionPlans.length > 0 && <div className="space-y-2">
                 <p className="text-xs font-semibold uppercase text-slate-500">Subscription plan</p>
                 {subscriptionPlans.map(plan => <label key={plan._id} className={`flex cursor-pointer items-start gap-3 rounded-xl border p-3 ${String(selectedPlanId || subscriptionPlans[0]?._id) === String(plan._id) ? 'border-blue-400 bg-blue-50' : 'border-slate-200 bg-white'}`}>
                   <input type="radio" name="subscriptionPlan" checked={String(selectedPlanId || subscriptionPlans[0]?._id) === String(plan._id)} onChange={() => setSelectedPlanId(plan._id)} className="mt-1"/>
-                  <span className="min-w-0 flex-1"><span className="block text-sm font-semibold text-slate-800">{plan.name} · {plan.priceMode === 'fixed' ? `₹${Number(plan.fixedAmount).toLocaleString('en-IN')}` : `${plan.percent}%`} · {planDurationLabel(plan)}</span>{plan.description && <span className="mt-0.5 block text-xs text-slate-500">{plan.description}</span>}<span className="mt-1 block text-xs text-slate-600">Pay now ₹{(plan.priceMode === 'fixed' ? Math.min(Number(totalAmount) || 0, Number(plan.fixedAmount) || 0) : Math.round((Number(totalAmount) || 0) * Number(plan.percent) / 100)).toLocaleString('en-IN')}; balance after payment ₹{Math.max(0, (Number(totalAmount) || 0) - (plan.priceMode === 'fixed' ? Math.min(Number(totalAmount) || 0, Number(plan.fixedAmount) || 0) : Math.round((Number(totalAmount) || 0) * Number(plan.percent) / 100))).toLocaleString('en-IN')}</span></span>
+                  <span className="min-w-0 flex-1"><span className="block text-sm font-semibold text-slate-800">{plan.name} · {plan.priceMode === 'free' ? 'Free' : `₹${Number(plan.fixedAmount || 0).toLocaleString('en-IN')}`} · {planDurationLabel(plan)}</span>{plan.description && <span className="mt-0.5 block text-xs text-slate-500">{plan.description}</span>}</span>
                 </label>)}
-              </div> : <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">No active subscription plans are available. You can choose Full Buy.</p>}
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm">
+                  <div className="flex justify-between"><span className="text-slate-600">Subscription</span><strong>{selectedPlan?.priceMode === 'free' ? 'Free' : `₹${subscriptionAmount.toLocaleString('en-IN')}`}</strong></div>
+                  <div className="mt-1 flex justify-between"><span className="text-slate-600">Domain</span><strong>₹{domainAmount.toLocaleString('en-IN')}</strong></div>
+                  <div className="mt-2 flex justify-between border-t border-slate-200 pt-2"><span className="font-semibold">Due now</span><strong>₹{subscriptionTotalAmount.toLocaleString('en-IN')}</strong></div>
+                </div>
+              </div>}
+              {subscriptionPlans.length === 0 && <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">No active subscription plans are available. You can choose Full Buy.</p>}
               {checkoutError && <p role="alert" className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{checkoutError}</p>}
-              <button type="button" disabled={checkoutLoading} onClick={() => handleCheckout('full')} className="w-full rounded-xl bg-blue-700 py-3 font-semibold text-white hover:bg-blue-800 disabled:opacity-50">{checkoutLoading ? 'Opening secure checkout…' : `Full Buy · ₹${Number(totalAmount).toLocaleString('en-IN')}`}</button>
-              <button type="button" disabled={checkoutLoading || !selectedPlan} onClick={() => handleCheckout('subscription')} className="w-full rounded-xl border border-blue-200 bg-white py-3 font-semibold text-blue-800 hover:bg-blue-50 disabled:opacity-50">{checkoutLoading ? 'Opening secure checkout…' : selectedPlan ? `Subscription · ${selectedPlan.priceMode === 'fixed' ? `₹${Number(selectedPlan.fixedAmount).toLocaleString('en-IN')}` : `${selectedPlan.percent}%`} · ₹${subscriptionAmount.toLocaleString('en-IN')}` : 'Subscription unavailable'}</button>
+              <button type="button" disabled={checkoutLoading || (paymentMode === 'subscription' && !selectedPlan)} onClick={() => handleCheckout(paymentMode)} className="w-full rounded-xl bg-blue-700 py-3 font-semibold text-white hover:bg-blue-800 disabled:opacity-50">{checkoutLoading ? 'Opening secure checkout…' : paymentMode === 'subscription' ? subscriptionTotalAmount > 0 ? `Pay Subscription & Domain · ₹${subscriptionTotalAmount.toLocaleString('en-IN')}` : `Activate Free Plan · ${planDurationLabel(selectedPlan)}` : `Full Buy · ₹${Number(totalAmount).toLocaleString('en-IN')}`}</button>
               <p className="text-center text-xs text-slate-400">Secure payment powered by Razorpay. Your website publishes after payment verification.</p>
             </div>
           )}
@@ -613,7 +597,7 @@ export default function WebsiteBuilder() {
           {/* Step 4: Publish */}
           {step === 'publish' && (
             <div className="p-5 space-y-4">
-              <h3 className="font-semibold text-gray-800">Publish & Export</h3>
+              <h3 className="font-semibold text-gray-800">Publish Website</h3>
 
               <div className="bg-gray-50 rounded-xl p-4 space-y-3">
                 <div className="flex justify-between text-sm">
@@ -660,16 +644,6 @@ export default function WebsiteBuilder() {
                 </a>
               )}
 
-              <button
-                onClick={handleExportZip}
-                className="w-full bg-green-600 text-white py-3 rounded-xl font-medium hover:bg-green-700 transition flex items-center justify-center gap-2"
-              >
-                <Download size={18} /> Download ZIP
-              </button>
-
-              <p className="text-xs text-gray-400 text-center">
-                ZIP file contains complete HTML/CSS code. Deploy on any server with your own domain.
-              </p>
             </div>
           )}
         </div>

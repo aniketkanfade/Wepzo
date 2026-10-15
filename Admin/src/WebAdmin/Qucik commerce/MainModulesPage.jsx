@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
-import { Layers, Plus, Trash2, Save, Pencil, Image as ImageIcon, X, UploadCloud } from 'lucide-react';
+import { Layers, Plus, Trash2, Save, Pencil, Image as ImageIcon, X, UploadCloud, Download, Upload } from 'lucide-react';
 import api from '../../api/axios';
+import { downloadFile } from '../../api/download';
 import NavyToggle from './components/NavyToggle';
 import { LIST_CARD_BORDER as CARD_BORDER, listBtnNavy, listBtnOutline, listTheadClass, listTheadStyle, listThClass, listTdClass } from '../../constants/listTheme';
 
@@ -19,6 +20,8 @@ export default function MainModulesPage() {
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
+  const [importing, setImporting] = useState(false);
+  const importInputRef = useRef(null);
   const inputClass = 'w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100';
 
   const load = async () => {
@@ -94,11 +97,42 @@ export default function MainModulesPage() {
       alert(error.response?.data?.message || 'Module delete failed');
     }
   };
+  const exportModules = async () => {
+    const filename = `main_modules_${new Date().toISOString().slice(0, 10)}.xlsx`;
+    try { await downloadFile('/system-modules/export?format=xlsx', filename); }
+    catch (error) { alert(error.response?.data?.message || error.message || 'Module export failed'); }
+  };
+  const importModules = async event => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    const extension = file.name.split('.').pop()?.toLowerCase();
+    if (extension !== 'xlsx') {
+      alert('Please choose an .xlsx Excel workbook.');
+      event.target.value = '';
+      return;
+    }
+    const body = new FormData();
+    body.append('file', file);
+    body.append('mode', 'new');
+    setImporting(true);
+    try {
+      const { data } = await api.post('/system-modules/bulk-import', body, { headers: { 'Content-Type': undefined } });
+      const details = (data.errors || []).slice(0, 5).map(error => `Row ${error.row}: ${error.reason}`).join('\n');
+      alert(`Module import done! Success: ${data.success}, Failed: ${data.failed}${details ? `\n\n${details}` : ''}`);
+      await load();
+    } catch (error) { alert(error.response?.data?.message || 'Module import failed'); }
+    finally { setImporting(false); event.target.value = ''; }
+  };
 
   return <div className="mx-auto max-w-[1500px] space-y-5">
     <div className="flex flex-wrap items-center justify-between gap-3">
       <div><div className="flex items-center gap-2 text-slate-900"><Layers size={22} className="text-blue-800"/><h1 className="text-xl font-bold">Main Modules</h1></div><p className="mt-1 text-sm text-slate-500">Add and manage product modules here. This list does not change the Header dropdown.</p></div>
-      {!formOpen && <button type="button" onClick={openAdd} className={'inline-flex items-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-900 ' + listBtnNavy}><Plus size={16}/> Add Module</button>}
+      <div className="flex flex-wrap items-center gap-2">
+        <input ref={importInputRef} type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" className="hidden" onChange={importModules}/>
+        <button type="button" disabled={importing} onClick={() => importInputRef.current?.click()} className={'inline-flex items-center gap-2 rounded-lg border px-3 py-2.5 text-sm font-semibold disabled:opacity-50 ' + listBtnOutline}><Upload size={15}/>{importing ? 'Importing...' : 'Import'}</button>
+        <button type="button" onClick={exportModules} className={'inline-flex items-center gap-2 rounded-lg border px-3 py-2.5 text-sm font-semibold ' + listBtnOutline}><Download size={15}/>Export</button>
+        {!formOpen && <button type="button" onClick={openAdd} className={'inline-flex items-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-900 ' + listBtnNavy}><Plus size={16}/> Add Module</button>}
+      </div>
     </div>
 
     {formOpen && <form onSubmit={submit} className="overflow-hidden rounded-xl border bg-white shadow-sm" style={{ borderColor: CARD_BORDER }}>

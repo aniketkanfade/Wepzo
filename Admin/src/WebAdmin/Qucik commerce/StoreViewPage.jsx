@@ -10,7 +10,7 @@ import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import api from '../../api/axios';
 import { useModuleStore } from '../../store/useStore';
-import { getAdminModuleLabel } from '../../constants/adminModules';
+import { getAdminModuleKey, getAdminModuleLabel } from '../../constants/adminModules';
 import { ORDER_STATUS_STYLE } from '../../constants/orderStatus';
 import StoreItemsTab from './components/store/StoreItemsTab';
 import StoreQrCodeTab from './components/store/StoreQrCodeTab';
@@ -355,6 +355,7 @@ export default function StoreViewPage() {
         return (
           <StoreSettingsTab
             store={store}
+            isEcommerce={getAdminModuleKey(activeModule) === 'e-commerce'}
             onStorePatch={(patch) => setStore(prev => ({ ...prev, ...patch }))}
           />
         );
@@ -438,7 +439,7 @@ export default function StoreViewPage() {
       <div className="bg-white border border-gray-100 rounded-t-xl px-5 py-4 flex flex-wrap items-center justify-between gap-3 shadow-sm">
         <div>
           <h1 className="text-xl font-bold text-slate-800">{store.name}</h1>
-          <p className="text-xs text-gray-400 mt-0.5">Store ID: {store.storeId} · {store.productCount ?? 0} products · {store.orderCount ?? 0} orders</p>
+          <p className="text-xs text-gray-400 mt-0.5">{store.productCount ?? 0} products · {store.orderCount ?? 0} orders</p>
         </div>
         <div className="flex items-center gap-2">
           <Link to={`/stores/edit/${store.storeId}`}

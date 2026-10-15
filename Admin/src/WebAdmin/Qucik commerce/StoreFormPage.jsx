@@ -8,9 +8,9 @@ import { useDeliveryZones } from '../../hooks/useDeliveryZones';
 import { useModuleStore } from '../../store/useStore';
 import { getAdminModuleKey } from '../../constants/adminModules';
 const EMPTY = {
-  name: '', nameEn: '', nameHi: '',
+  name: '',
   address: '', addressEn: '', addressHi: '',
-  zone: '', deliveryMin: '', deliveryMax: '', deliveryUnit: 'Minutes',
+  zone: '', zoneId: '', pincode: '', deliveryMin: '', deliveryMax: '', deliveryUnit: 'Minutes', packagingTime: '',
   lat: 21.1458, lng: 79.0882,
   coverImage: '', logoImage: '',
   firstName: '', lastName: '', phone: '',
@@ -130,15 +130,16 @@ function storeToForm(s) {
   return {
     ...EMPTY,
     name: s.name || '',
-    nameEn: s.nameEn || s.name || '',
-    nameHi: s.nameHi || '',
     address: s.address || '',
     addressEn: s.addressEn || s.address || '',
     addressHi: s.addressHi || '',
     zone: s.area || s.zone || '',
+    zoneId: s.zoneId || '',
+    pincode: s.pincode || '',
     deliveryMin: s.deliveryMin ?? '',
     deliveryMax: s.deliveryMax ?? '',
     deliveryUnit: s.deliveryUnit || 'Minutes',
+    packagingTime: s.packagingTime || '',
     lat: s.lat ?? 21.1458,
     lng: s.lng ?? 79.0882,
     coverImage: s.coverImage || '',
@@ -156,19 +157,22 @@ function storeToForm(s) {
   };
 }
 
-function formToPayload(form, isEdit) {
+function formToPayload(form, isEdit, selectedZone, commerceType) {
   const payload = {
+    websiteModuleSlug: commerceType === 'ecommerce' ? 'e-commerce' : 'quick-commerce',
+    commerceType,
     name: form.name,
-    nameEn: form.nameEn,
-    nameHi: form.nameHi,
     address: form.address,
     addressEn: form.addressEn,
     addressHi: form.addressHi,
-    area: form.zone,
-    zone: form.zone,
+    area: selectedZone?.name || form.zone,
+    zone: selectedZone?.name || form.zone,
+    zoneId: selectedZone?._id || form.zoneId,
+    pincode: form.pincode,
     deliveryMin: form.deliveryMin,
     deliveryMax: form.deliveryMax,
     deliveryUnit: form.deliveryUnit,
+    packagingTime: form.packagingTime,
     lat: form.lat,
     lng: form.lng,
     coverImage: form.coverImage,
@@ -206,9 +210,14 @@ export default function StoreFormPage() {
   const availableZones = zones.filter(zone => isEcommerceModule
     ? zone.commerceType === 'ecommerce'
     : zone.commerceType !== 'ecommerce');
-  const selectedZone = zones.find(z => z.name === form.zone);
+  const selectedZone = isEcommerceModule
+    ? availableZones.find(z => (z.pincodes || []).includes(form.pincode))
+    : zones.find(z => String(z._id) === String(form.zoneId))
+    || zones.find(z => z.name === form.zone);
 
-  const inside = (la, ln) => selectedZone
+  const inside = (la, ln) => isEcommerceModule
+    ? true
+    : selectedZone
     ? (selectedZone.commerceType === 'ecommerce' && ['country', 'state', 'city'].includes(selectedZone.scope)
       ? true
       : isInsideDeliveryZone(selectedZone, la, ln))
@@ -235,8 +244,15 @@ export default function StoreFormPage() {
   const set = (k, v) => setForm(prev => ({ ...prev, [k]: v }));
 
   const handleZoneChange = (newZone) => {
-    set('zone', newZone);
     const z = zones.find(x => x.name === newZone);
+    setForm(current => ({
+      ...current,
+      zone: newZone,
+      zoneId: z?._id || '',
+      pincode: z?.commerceType === 'ecommerce'
+        ? (z.pincodes || []).includes(current.pincode) ? current.pincode : (z.pincodes || []).length === 1 ? z.pincodes[0] : ''
+        : current.pincode,
+    }));
     const ok = z
       ? isInsideDeliveryZone(z, form.lat, form.lng)
       : isInsideZone(newZone, form.lat, form.lng);
@@ -246,9 +262,13 @@ export default function StoreFormPage() {
     }
   };
 
-  const handleLocationChange = ({ lat, lng, address }) => {
-    set('lat', lat);
-    set('lng', lng);
+  const handleLocationChange = ({ lat, lng, address, pincode }) => {
+    setForm(current => ({
+      ...current,
+      lat,
+      lng,
+      pincode: /^\d{6}$/.test(pincode || '') ? pincode : '',
+    }));
     if (address) {
       set('address', address);
       set('addressEn', address);
@@ -259,8 +279,17 @@ export default function StoreFormPage() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!form.name || !form.address || !form.zone || !form.firstName || !form.phone || !form.email) {
+    if (!form.name || !form.address || (!isEcommerceModule && !form.zone) || !form.firstName || !form.phone || !form.email) {
       alert('Required fields fill karein (* marked)');
+      return;
+    }
+
+    if (isEcommerceModule && !['1', '2', '3'].includes(String(form.packagingTime))) {
+      alert('Packaging time select karein');
+      return;
+    }
+    if (form.pincode && !/^\d{6}$/.test(form.pincode)) {
+      alert('PIN code 6 digits ka hona chahiye');
       return;
     }
     if (form.lat && form.lng && !inside(form.lat, form.lng)) {
@@ -281,7 +310,7 @@ export default function StoreFormPage() {
     }
     setSaving(true);
     try {
-      const payload = formToPayload(form, isEdit);
+      const payload = formToPayload(form, isEdit, selectedZone, commerceType);
       if (isEdit) {
         const { data } = await api.put(`/stores/${storeId}`, payload);
         setStoreRecord(data);
@@ -290,8 +319,8 @@ export default function StoreFormPage() {
         const { data } = await api.post('/stores', payload);
         navigate(`/stores/edit/${data.storeId}`);
       }
-    } catch {
-      alert('Save failed');
+    } catch (error) {
+      alert(error.response?.data?.message || 'Save failed');
     } finally {
       setSaving(false);
     }
@@ -301,11 +330,11 @@ export default function StoreFormPage() {
     if (!confirm('Store approve karna hai?')) return;
     setSaving(true);
     try {
-      await api.put(`/stores/${storeId}`, formToPayload(form, true));
+      await api.put(`/stores/${storeId}`, formToPayload(form, true, selectedZone, commerceType));
       await api.post(`/stores/${storeId}/approve`);
       navigate('/stores/new-requests');
-    } catch {
-      alert('Approve failed');
+    } catch (error) {
+      alert(error.response?.data?.message || 'Approve failed');
     } finally {
       setSaving(false);
     }
@@ -381,7 +410,7 @@ export default function StoreFormPage() {
               <Field label="Business name" required>
                 <TextInput value={form.name} onChange={v => set('name', v)} placeholder="Business name" />
               </Field>
-              <Field label="Business zone" required hint="Pehle zone select karein — map usi area ke andar location dikhayega">
+              {!isEcommerceModule && <Field label="Business zone" required hint="Pehle zone select karein — map usi area ke andar location dikhayega">
                 <select value={form.zone} onChange={e => handleZoneChange(e.target.value)}
                   className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm bg-white outline-none focus:ring-2 focus:ring-primary-500/25">
                   <option value="">Select zone</option>
@@ -391,33 +420,54 @@ export default function StoreFormPage() {
                     ))}
                   </optgroup>
                 </select>
-              </Field>
+              </Field>}
+              {isEcommerceModule && (
+                <div className="space-y-2">
+                  <p className="text-xs text-gray-500">
+                    Map par business location add karein. Product sales configured active service zones mein available rahengi.
+                  </p>
+                </div>
+              )}
               <Field label="Business address" required hint="Map se location select karte hi address auto-fill hoga">
                 <textarea value={form.address || ''} onChange={e => set('address', e.target.value)} rows={3} placeholder="Map par location select karein ya manually likhein"
                   className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm outline-none resize-none focus:ring-2 focus:ring-primary-500/25" />
               </Field>
-              <Field label="Estimated Delivery Time (Min & Maximum Time)" required>
-                <div className="flex gap-2">
-                  <TextInput value={form.deliveryMin} onChange={v => set('deliveryMin', v)} placeholder="Ex : 30" />
-                  <TextInput value={form.deliveryMax} onChange={v => set('deliveryMax', v)} placeholder="Ex : 60" />
-                  <select value={form.deliveryUnit} onChange={e => set('deliveryUnit', e.target.value)}
-                    className="border border-gray-200 rounded-lg px-2 py-2 text-sm bg-white shrink-0">
-                    <option>Minutes</option>
-                    <option>Hours</option>
+              {isEcommerceModule ? (
+                <Field label="Packaging Time" required hint="Order ko pack karke ready karne ka estimated time">
+                  <select value={form.packagingTime} onChange={e => set('packagingTime', e.target.value)}
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm bg-white outline-none focus:ring-2 focus:ring-primary-500/25">
+                    <option value="">Select packaging time</option>
+                    <option value="1">1 day</option>
+                    <option value="2">2 days</option>
+                    <option value="3">3 days</option>
                   </select>
-                </div>
-              </Field>
+                </Field>
+              ) : (
+                <Field label="Estimated Delivery Time (Min & Maximum Time)" required>
+                  <div className="flex gap-2">
+                    <TextInput value={form.deliveryMin} onChange={v => set('deliveryMin', v)} placeholder="Ex : 30" />
+                    <TextInput value={form.deliveryMax} onChange={v => set('deliveryMax', v)} placeholder="Ex : 60" />
+                    <select value={form.deliveryUnit} onChange={e => set('deliveryUnit', e.target.value)}
+                      className="border border-gray-200 rounded-lg px-2 py-2 text-sm bg-white shrink-0">
+                      <option>Minutes</option>
+                      <option>Hours</option>
+                    </select>
+                  </div>
+                </Field>
+              )}
             </div>
 
             <div>
               <p className="text-sm font-semibold text-gray-800 mb-1">Set Business Location on Map</p>
               <p className="text-xs text-gray-500 mb-2">Exact business location map par mark karein</p>
               <StoreLocationMap
-                zone={form.zone}
-                zoneData={selectedZone}
+                zone={isEcommerceModule ? '' : form.zone}
+                zoneData={isEcommerceModule ? null : selectedZone}
                 lat={form.lat}
                 lng={form.lng}
                 onLocationChange={handleLocationChange}
+                allowAnyLocation={isEcommerceModule}
+                locationSelected={isEcommerceModule ? !!form.address : /^\d{6}$/.test(form.pincode)}
               />
               <div className="grid grid-cols-2 gap-2 mt-2">
                 <Field label="Latitude">

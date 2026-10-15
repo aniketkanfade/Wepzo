@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useEffect, useState } from 'react'
 import { mergeMarketingSiteContent } from './siteDefaults.js'
 
-const BrandingContext = createContext({ businessName: 'Wepzo', businessLogo: '' })
+const BrandingContext = createContext({ businessName: 'Wepzo', businessLogo: '', primaryColor: '', themeColors: {} })
 const API = (import.meta.env.VITE_MARKETING_API_URL || import.meta.env.VITE_API_URL || '/api').replace(/\/$/, '')
 const routeQuery = window.location.hash.includes('?') ? window.location.hash.slice(window.location.hash.indexOf('?') + 1) : ''
 const params = new URLSearchParams(`${window.location.search.replace(/^\?/, '')}&${routeQuery}`)
@@ -20,7 +20,7 @@ export async function marketingRequest(path, options = {}) {
   }
   const token = localStorage.getItem('token')
   if (token) headers.Authorization = `Bearer ${token}`
-  const response = await fetch(`${API}${path}`, { ...options, headers })
+  const response = await fetch(`${API}${path}`, { ...options, headers, cache: options.cache || 'no-store' })
   const data = await response.json().catch(() => ({}))
   if (!response.ok) throw new Error(data.message || 'Request failed. Please try again.')
   return data
@@ -36,14 +36,14 @@ export async function marketingPublicRequest(path, options = {}) {
     ...(moduleId ? { 'X-Website-Module-Id': moduleId } : {}),
     ...(options.headers || {}),
   }
-  const response = await fetch(`${API}${path}`, { ...options, headers })
+  const response = await fetch(`${API}${path}`, { ...options, headers, cache: options.cache || 'no-store' })
   const data = await response.json().catch(() => ({}))
   if (!response.ok) throw new Error(data.message || 'Request failed. Please try again.')
   return data
 }
 
 export function BrandingProvider({ children }) {
-  const [branding, setBranding] = useState({ businessName: 'Wepzo', businessLogo: '', siteContent: mergeMarketingSiteContent() })
+  const [branding, setBranding] = useState({ businessName: 'Wepzo', businessLogo: '', primaryColor: '', themeColors: {}, siteContent: mergeMarketingSiteContent() })
 
   useEffect(() => {
     let active = true
@@ -55,6 +55,8 @@ export function BrandingProvider({ children }) {
           ...current,
           businessName: current.siteContent?.brand?.name || data.business.businessName || 'Wepzo',
           businessLogo: current.siteContent?.brand?.logo || data.business.businessLogo || '',
+          primaryColor: data.business.primaryColor || current.primaryColor || '',
+          themeColors: data.business.themeColors || current.themeColors || {},
         }))
       })
       .catch(() => {})
@@ -81,9 +83,24 @@ export function BrandingProvider({ children }) {
   }, [branding.businessName])
 
   useEffect(() => {
-    const color = branding.siteContent?.brand?.primaryColor
-    document.documentElement.style.setProperty('--orange', /^#[0-9a-f]{6}$/i.test(String(color || '')) ? color : '#ff4b12')
-  }, [branding.siteContent?.brand?.primaryColor])
+    const theme = branding.themeColors || {}
+    const root = document.documentElement
+    const primaryColor = branding.siteContent?.brand?.primaryColor || branding.primaryColor
+    const validColor = value => /^#[0-9a-f]{6}$/i.test(String(value || ''))
+    const brandColor = validColor(primaryColor) ? primaryColor : '#ff4b12'
+    root.style.setProperty('--orange', brandColor)
+    root.style.setProperty('--brand-color', brandColor)
+    root.style.setProperty('--button-background', validColor(theme.buttonBackground) ? theme.buttonBackground : brandColor)
+    root.style.setProperty('--button-text', theme.buttonText || '#ffffff')
+    root.style.setProperty('--header-background', theme.headerBackground || '#ffffff')
+    root.style.setProperty('--header-text', theme.headerText || '#172744')
+    root.style.setProperty('--search-background', theme.searchBackground || '#f8f9fb')
+    root.style.setProperty('--search-button', validColor(theme.searchButton) ? theme.searchButton : brandColor)
+    root.style.setProperty('--footer-background', theme.footerBackground || '#10223b')
+    root.style.setProperty('--footer-text', theme.footerText || '#ffffff')
+    root.style.setProperty('--page-background', theme.pageBackground || '#ffffff')
+    root.style.setProperty('--surface-background', theme.surfaceBackground || '#ffffff')
+  }, [branding.primaryColor, branding.themeColors, branding.siteContent?.brand?.primaryColor])
 
   return <BrandingContext.Provider value={branding}>{children}</BrandingContext.Provider>
 }

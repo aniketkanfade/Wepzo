@@ -16,12 +16,12 @@ import {
 } from '../../constants/listTheme';
 
 const EMPTY = {
-  name: '', displayName: '', nameEn: '', nameHi: '',
-  displayNameEn: '', displayNameHi: '',
+  name: '', displayName: '',
   commerceType: 'quick_commerce',
   country: '',
   scope: 'pincode',
   state: '',
+  selectedStates: [],
   city: '',
   radiusKm: 0,
   lat: 21.1458,
@@ -153,6 +153,7 @@ export default function SettingsZonesPage() {
     (z.pincodes || []).some(p => String(p).includes(search)) ||
     (z.city || '').toLowerCase().includes(search.toLowerCase()) ||
     (z.state || '').toLowerCase().includes(search.toLowerCase()) ||
+    (z.selectedStates || []).some(state => state.toLowerCase().includes(search.toLowerCase())) ||
     (z.country || '').toLowerCase().includes(search.toLowerCase());
 
   const listZones = zones
@@ -170,8 +171,9 @@ export default function SettingsZonesPage() {
     );
   }, [pinQuery, statePins]);
   const manualPin = pinQuery.trim();
+  const manualPinEntry = statePins.find(item => item.pin === manualPin);
   const canAddManualPin = /^\d{6}$/.test(manualPin)
-    && !statePins.some(item => item.pin === manualPin)
+    && !!manualPinEntry
     && !form.pincodes.includes(manualPin);
 
   const switchType = (type) => {
@@ -221,12 +223,11 @@ export default function SettingsZonesPage() {
         return {
           ...f,
           commerceType: 'ecommerce',
-          scope: 'pincode',
+          scope: z.scope === 'country' ? 'country' : z.scope === 'state' ? 'state' : 'pincode',
           pincodes: [...f.pincodes, entry.pin],
           pinAreas,
           name: f.name || `${f.state} E-Com`,
           displayName: f.displayName || entry.area,
-          nameEn: f.nameEn || f.name || entry.area,
           lat: geo.lat,
           lng: geo.lng,
           polygon,
@@ -251,25 +252,34 @@ export default function SettingsZonesPage() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    const coverageScope = !isQuick && (form.countryWide === true || form.scope === 'country')
+      ? 'country'
+      : isQuick ? 'city' : form.scope;
     if (!form.name.trim()) return alert('Business zone name zaroori hai');
     if (isQuick) {
       if (!form.state || !form.city) return alert('State aur city select karo');
       if ((form.polygon || []).length < 3 || !form.polygonClosed) {
         return alert('City ke andar points jodo — last point first (green) point par wapas lao tab zone close hoga');
       }
-    } else if (!form.state) {
-      return alert('State select karo');
-    } else if (form.scope === 'pincode' && form.pincodes.length === 0) {
-      return alert('E-Commerce: kam se kam 1 pin code select karo');
+    } else {
+      if (coverageScope === 'pincode' && !form.state) return alert('State select karo');
+      if (coverageScope === 'state' && !form.selectedStates.length) return alert('Kam se kam ek state select karo');
+      if (coverageScope === 'pincode' && form.pincodes.length === 0) {
+        return alert('Selected PIN codes coverage ke liye kam se kam 1 PIN code select karo');
+      }
     }
     setSaving(true);
     try {
       const payload = {
         ...form,
+        scope: coverageScope,
+        countryWide: !isQuick && (form.countryWide === true || coverageScope === 'country'),
         radiusKm: isQuick ? Number(form.radiusKm) || 0 : 0,
-        pincodes: isQuick || form.scope !== 'pincode' ? [] : form.pincodes,
-        pinAreas: isQuick || form.scope !== 'pincode' ? [] : form.pinAreas,
-        polygon: isQuick ? form.polygon : (form.scope === 'pincode' ? (form.pinAreas || []).flatMap(a => a.polygon || []) : []),
+        selectedStates: !isQuick && coverageScope === 'state' ? form.selectedStates : [],
+        state: !isQuick && coverageScope !== 'pincode' ? '' : form.state,
+        pincodes: !isQuick && coverageScope === 'pincode' ? form.pincodes : [],
+        pinAreas: !isQuick && coverageScope === 'pincode' ? form.pinAreas : [],
+        polygon: isQuick ? form.polygon : (coverageScope === 'pincode' ? (form.pinAreas || []).flatMap(a => a.polygon || []) : []),
       };
       if (editingId) await api.put(`/zones/${editingId}`, payload);
       else await api.post('/zones', payload);
@@ -302,14 +312,11 @@ export default function SettingsZonesPage() {
       ...EMPTY,
       name: z.name || '',
       displayName: z.displayName || z.name || '',
-      nameEn: z.nameEn || '',
-      nameHi: z.nameHi || '',
-      displayNameEn: z.displayNameEn || '',
-      displayNameHi: z.displayNameHi || '',
       commerceType: z.commerceType === 'ecommerce' ? 'ecommerce' : 'quick_commerce',
       country: 'India',
       scope: 'pincode',
       state: z.state || '',
+      selectedStates: Array.isArray(z.selectedStates) ? z.selectedStates : (z.state ? [z.state] : []),
       city: z.city || '',
       radiusKm: z.radiusKm || 0,
       lat: z.lat || 21.1458,
@@ -342,7 +349,7 @@ export default function SettingsZonesPage() {
   const exportCsv = () => {
     const rows = [['Zone Id', 'Name', 'Type', 'Country', 'State', 'City', 'Scope', 'Pincodes', 'Vendors', 'Deliverymen', 'Status']];
     listZones.forEach(z => {
-      rows.push([z.zoneId, z.name, z.commerceType, z.country || '', z.state || '', z.city || '', z.scope || 'pincode', (z.pincodes || []).join('|'), z.vendors || 0, z.deliveryMen || 0, z.status ? 'Active' : 'Inactive']);
+      rows.push([z.zoneId, z.name, z.commerceType, z.country || '', (z.selectedStates || []).join('|') || z.state || '', z.city || '', z.scope || 'pincode', (z.pincodes || []).join('|'), z.vendors || 0, z.deliveryMen || 0, z.status ? 'Active' : 'Inactive']);
     });
     const blob = new Blob([rows.map(r => r.join(',')).join('\n')], { type: 'text/csv' });
     const a = document.createElement('a');
@@ -364,7 +371,7 @@ export default function SettingsZonesPage() {
         <p className="text-sm text-sky-700 mt-2 bg-sky-50 border border-sky-100 rounded-lg px-3 py-2">
           {isQuick
             ? 'Quick Commerce: city select karo, phir city ke andar points jodo. Last point first (green) point par wapas aao — tab zone close hoga. Har point drag karke adjust hoga.'
-            : 'E-Commerce: ek state select karein, phir us state ke PIN codes me se jitne chahen service ke liye add karein.'}
+            : 'E-Commerce: All India, selected states ya selected PIN codes me se coverage choose karein. All India coverage baaki E-Commerce zones ko band kar degi.'}
         </p>
       </div>
 
@@ -439,6 +446,59 @@ export default function SettingsZonesPage() {
               ) : (
                 <>
                   <div>
+                    <label className={labelCls}>Service coverage</label>
+                    <div className="flex flex-wrap gap-2">
+                      {[
+                        { value: 'country', label: 'All India' },
+                        { value: 'state', label: 'Selected states' },
+                        { value: 'pincode', label: 'Selected PIN codes' },
+                      ].map(option => (
+                        <button
+                          key={option.value}
+                          type="button"
+                          onClick={() => setForm(current => ({
+                            ...current,
+                            scope: option.value,
+                            countryWide: option.value === 'country',
+                            state: option.value === 'pincode' ? current.state : '',
+                            pincodes: option.value === 'pincode' ? current.pincodes : [],
+                            pinAreas: option.value === 'pincode' ? current.pinAreas : [],
+                            selectedStates: option.value === 'state'
+                              ? (current.selectedStates.length ? current.selectedStates : (current.state ? [current.state] : []))
+                              : [],
+                          }))}
+                          className={`rounded-lg border px-3 py-2 text-sm font-semibold ${form.scope === option.value ? 'border-[#1a3a8a] bg-[#1a3a8a] text-white' : 'border-gray-200 bg-white text-gray-700'}`}
+                        >
+                          {option.label}
+                        </button>
+                      ))}
+                    </div>
+                    <p className="mt-1 text-[11px] text-gray-400">
+                      All India coverage takes priority and automatically turns off the other E-Commerce zones.
+                    </p>
+                  </div>
+                  {form.scope === 'state' && <div>
+                    <label className={labelCls}>States with full-state delivery</label>
+                    <div className="grid max-h-56 grid-cols-1 gap-2 overflow-y-auto rounded-lg border border-gray-200 p-3 sm:grid-cols-2">
+                      {states.map(state => (
+                        <label key={state} className="flex cursor-pointer items-center gap-2 text-sm text-gray-700">
+                          <input
+                            type="checkbox"
+                            checked={form.selectedStates.includes(state)}
+                            onChange={event => setForm(current => ({
+                              ...current,
+                              selectedStates: event.target.checked
+                                ? [...new Set([...current.selectedStates, state])]
+                                : current.selectedStates.filter(item => item !== state),
+                            }))}
+                          />
+                          {state}
+                        </label>
+                      ))}
+                    </div>
+                    <p className="mt-1 text-[11px] text-gray-400">Har selected state ke sabhi valid PIN codes serviceable honge.</p>
+                  </div>}
+                  {form.scope === 'pincode' && <div>
                     <label className={labelCls}>State / Province</label>
                     <select className={inputCls} value={form.state} disabled={geoLoading || pinsLoading || pinLoading}
                       onChange={e => selectState(e.target.value)}>
@@ -446,7 +506,8 @@ export default function SettingsZonesPage() {
                       {states.map(state => <option key={state} value={state}>{state}</option>)}
                     </select>
                     <p className="mt-1 text-[11px] text-gray-400">PIN codes is state ki postal directory se load honge.</p>
-                  </div>
+                  </div>}
+                  {form.scope === 'pincode' && <>
                   <div className="relative">
                     <div className="mb-1.5 flex items-center justify-between gap-2">
                       <label className="text-sm font-medium text-gray-700">Service PIN codes</label>
@@ -460,7 +521,7 @@ export default function SettingsZonesPage() {
                       onKeyDown={e => {
                         if (e.key === 'Enter' && canAddManualPin) {
                           e.preventDefault();
-                          selectPincode({ pin: manualPin, area: findPin(manualPin)?.area || 'Manual PIN code' });
+                          selectPincode(manualPinEntry);
                         }
                       }}
                       onFocus={() => form.state && setPinOpen(true)}
@@ -473,9 +534,9 @@ export default function SettingsZonesPage() {
                         {canAddManualPin && <button
                           type="button"
                           onMouseDown={e => e.preventDefault()}
-                          onClick={() => selectPincode({ pin: manualPin, area: findPin(manualPin)?.area || 'Manual PIN code' })}
+                          onClick={() => selectPincode(manualPinEntry)}
                           className="w-full border-b border-gray-100 px-3 py-2 text-left text-sm font-medium text-[#1a3a8a] hover:bg-sky-50"
-                        >Add PIN {manualPin} manually</button>}
+                        >Add valid PIN {manualPinEntry.pin} — {manualPinEntry.area}</button>}
                         {pinOptions.length === 0 && (
                           !canAddManualPin && <p className="px-3 py-2 text-xs text-gray-400">Koi PIN code nahi mila</p>
                         )}
@@ -508,11 +569,12 @@ export default function SettingsZonesPage() {
                       })}
                     </div>
                   </div>
+                  </>}
                 </>
               )}
             </div>
 
-            <div>
+            {isQuick || form.scope === 'pincode' ? <div>
               <><p className="text-sm font-medium text-gray-700 mb-1.5">{isQuick ? 'Select Area' : 'Selected PIN code areas'}</p><ZoneDrawMap
                 mode={isQuick ? 'draw' : 'pins'}
                 lat={form.lat}
@@ -527,7 +589,11 @@ export default function SettingsZonesPage() {
                 onPolygonChange={polygon => setForm(f => ({ ...f, polygon }))}
                 onClosedChange={closed => set('polygonClosed', closed)}
               /></>
-            </div>
+            </div> : <div className="rounded-lg border border-blue-100 bg-blue-50 p-4 text-sm text-blue-800">
+               {form.scope === 'country'
+                 ? 'All India service will be active after saving. Other E-Commerce zones will be switched off.'
+                 : `Full-state service will cover: ${form.selectedStates.join(', ') || 'select at least one state above'}.`}
+             </div>}
           </div>
 
           <div className="flex justify-end gap-2 pt-2">
@@ -562,7 +628,7 @@ export default function SettingsZonesPage() {
         onEdit={startEdit}
         onConnect={(z) => {
           setMenuId(null);
-          navigate(`/settings/zones/delivery?city=${encodeURIComponent(z.city || '')}&zoneId=${encodeURIComponent(z._id)}`);
+          navigate(`/settings/zones/delivery?zoneId=${encodeURIComponent(z._id)}${z.city ? `&city=${encodeURIComponent(z.city)}` : ''}`);
         }}
         onSearchCharge={(z) => { setMenuId(null); navigate(`/settings/zones/${z._id}/search-charges`); }}
         onDelete={handleDelete}
@@ -581,7 +647,7 @@ export default function SettingsZonesPage() {
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs mb-3">
               <div className="bg-gray-50 rounded-lg p-2"><span className="text-gray-400 block">Country</span>{viewZone.country || '—'}</div>
               <div className="bg-gray-50 rounded-lg p-2"><span className="text-gray-400 block">Scope</span>{viewZone.scope || 'Pincode'}</div>
-              <div className="bg-gray-50 rounded-lg p-2"><span className="text-gray-400 block">State</span>{viewZone.state || '—'}</div>
+              <div className="bg-gray-50 rounded-lg p-2"><span className="text-gray-400 block">State</span>{viewZone.selectedStates?.join(', ') || viewZone.state || '—'}</div>
               <div className="bg-gray-50 rounded-lg p-2"><span className="text-gray-400 block">Type</span>{viewZone.commerceType === 'ecommerce' ? 'E-Commerce' : 'Quick Commerce'}</div>
               <div className="bg-gray-50 rounded-lg p-2"><span className="text-gray-400 block">Date / Time</span>{viewZone.createdAt ? new Date(viewZone.createdAt).toLocaleString('en-IN') : '—'}</div>
               <div className="bg-gray-50 rounded-lg p-2"><span className="text-gray-400 block">Status</span>{viewZone.status ? 'Active' : 'Inactive'}</div>
@@ -599,7 +665,7 @@ export default function SettingsZonesPage() {
               pinAreas={viewZone.pinAreas || []}
               drawEnabled={false}
             />
-              : <p className="rounded-lg bg-gray-50 p-4 text-sm text-gray-700">Service area: {[viewZone.city, viewZone.state, viewZone.country].filter(Boolean).join(', ') || '—'}. Zone covers the selected {viewZone.scope || 'area'}.</p>}
+              : <p className="rounded-lg bg-gray-50 p-4 text-sm text-gray-700">Service area: {[viewZone.city, ...(viewZone.selectedStates || []), viewZone.state, viewZone.country].filter(Boolean).join(', ') || '—'}. Zone covers the selected {viewZone.scope || 'area'}.</p>}
             {!isReadOnly && <div className="flex justify-end gap-2 mt-4">
               <button type="button" onClick={() => startEdit(viewZone)}
                 className={`inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold ${listBtnNavy}`}>
@@ -672,7 +738,7 @@ function ZoneTable({ title, rows, pager, searchInput, onSearchInputChange, onSea
                 <td className={`${listTdClass} text-gray-500`}>{(page - 1) * perPage + i + 1}</td>
                 <td className={`${listTdClass} tabular-nums`}>{z.zoneId}</td>
                 <td className={`${listTdClass} font-medium`}>{z.name}</td>
-                <td className={listTdClass}>{[z.city, z.state, z.country].filter(Boolean).join(', ') || '—'} <small className="ml-1 text-gray-400">{coverKind === 'ecom' ? `(${z.scope || 'pincode'})` : ''}</small></td>
+                <td className={listTdClass}>{[z.city, ...(z.selectedStates || []), z.state, z.country].filter(Boolean).join(', ') || '—'} <small className="ml-1 text-gray-400">{coverKind === 'ecom' ? `(${z.scope || 'pincode'})` : ''}</small></td>
                 <td className={listTdClass}>{z.vendors ?? 0}</td>
                 <td className={listTdClass}>{z.deliveryMen ?? 0}</td>
                 <td className={listTdClass}>

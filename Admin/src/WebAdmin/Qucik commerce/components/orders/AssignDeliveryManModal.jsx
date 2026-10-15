@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react';
-import { X, Bike, MapPin, Star, Phone, CheckCircle, Loader2, Search, Navigation, Store } from 'lucide-react';
+import { X, Bike, MapPin, Star, Phone, CheckCircle, Loader2, Search, Navigation, Store, ExternalLink } from 'lucide-react';
 import api from '../../../../api/axios';
+import { searchAddress } from '../../../../utils/geocode';
+import RiderAvailabilityMap from './RiderAvailabilityMap';
 import RouteMapView from '../RouteMapView';
 
 function RiderMapPopup({ rider, storeRef, onClose, onAssign, assigning, isTransfer }) {
@@ -60,14 +62,51 @@ function RiderMapPopup({ rider, storeRef, onClose, onAssign, assigning, isTransf
   );
 }
 
-export default function AssignDeliveryManModal({ order, onClose, onAssign, mode = 'assign', excludeRiderId }) {
+export default function AssignDeliveryManModal({ order, onClose, onAssign, onAssignPartner, mode = 'assign', excludeRiderId }) {
   const isTransfer = mode === 'transfer';
   const [riders, setRiders] = useState([]);
   const [storeRef, setStoreRef] = useState(null);
+  const [partnerSettings, setPartnerSettings] = useState({});
+  const [partnerSettingsLoading, setPartnerSettingsLoading] = useState(true);
   const [loading, setLoading] = useState(true);
   const [assigning, setAssigning] = useState(null);
   const [search, setSearch] = useState('');
   const [mapRider, setMapRider] = useState(null);
+  const [customerLocation, setCustomerLocation] = useState(null);
+  const [selectedPartner, setSelectedPartner] = useState('');
+  const [partnerForm, setPartnerForm] = useState({ bookingReference: '', courierName: '', courierPhone: '', trackingUrl: '' });
+  const [partnerError, setPartnerError] = useState('');
+
+  useEffect(() => {
+    let cancelled = false;
+    api.get('/settings/business')
+      .then(({ data }) => { if (!cancelled) setPartnerSettings(data || {}); })
+      .catch(() => { if (!cancelled) setPartnerSettings({}); })
+      .finally(() => { if (!cancelled) setPartnerSettingsLoading(false); });
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    const lat = order?.deliveryLat ?? order?.customerLat ?? order?.lat;
+    const lng = order?.deliveryLng ?? order?.customerLng ?? order?.lng;
+    if (Number.isFinite(Number(lat)) && Number.isFinite(Number(lng)) && Number(lat) !== 0 && Number(lng) !== 0) {
+      setCustomerLocation({ lat: Number(lat), lng: Number(lng), address: order?.deliveryAddress || order?.address || '' });
+      return () => { cancelled = true; };
+    }
+
+    setCustomerLocation(null);
+    const address = order?.deliveryAddress || order?.address;
+    if (address) {
+      searchAddress(address, '', {
+        city: order?.deliveryCity || order?.city || 'Nagpur',
+        state: order?.deliveryState || order?.state || 'Maharashtra',
+      }, true).then(results => {
+        if (!cancelled && results[0]) setCustomerLocation({ ...results[0], address, approximate: true });
+      });
+    }
+    return () => { cancelled = true; };
+  }, [order?._id, order?.deliveryLat, order?.deliveryLng, order?.customerLat, order?.customerLng, order?.lat, order?.lng, order?.deliveryAddress, order?.address, order?.deliveryCity, order?.city, order?.deliveryState, order?.state]);
 
   useEffect(() => {
     const t = setTimeout(() => {
@@ -96,12 +135,31 @@ export default function AssignDeliveryManModal({ order, onClose, onAssign, mode 
   const availableRiders = riders.filter(r => r._id !== excludeRiderId);
   const nearRiders = availableRiders.filter(r => r.nearStore || (r.distanceM != null && r.distanceM <= 800));
   const farRiders = availableRiders.filter(r => !nearRiders.includes(r));
+  const partnerOptions = [
+    { id: 'porter', name: 'Porter', settingKey: 'deliveryPartnerPorterEnabled', url: 'https://oms.porter.in/' },
+    { id: 'shadowfax', name: 'Shadowfax', settingKey: 'deliveryPartnerShadowfaxEnabled', url: 'https://vendor.shadowfax.in/' },
+    { id: 'shiprocket', name: 'Shiprocket', settingKey: 'deliveryPartnerShiprocketEnabled', url: 'https://my.shiprocket.in/' },
+  ].filter(partner => partnerSettings.deliveryPartnerEnabled === true && partnerSettings[partner.settingKey] === true);
 
   const handleAssign = async (rider) => {
     setAssigning(rider._id);
     try {
       await onAssign(rider._id);
       onClose();
+    } finally {
+      setAssigning(null);
+    }
+  };
+
+  const handleAssignPartner = async () => {
+    if (!selectedPartner || !partnerForm.bookingReference.trim()) return;
+    setPartnerError('');
+    setAssigning(`partner:${selectedPartner}`);
+    try {
+      await onAssignPartner?.(order._id, { provider: selectedPartner, ...partnerForm });
+      onClose();
+    } catch (error) {
+      setPartnerError(error.response?.data?.message || 'Partner booking save nahi ho saki.');
     } finally {
       setAssigning(null);
     }
@@ -185,15 +243,71 @@ export default function AssignDeliveryManModal({ order, onClose, onAssign, mode 
           </div>
 
           <div className="overflow-y-auto flex-1 p-4 space-y-3 bg-gray-50">
+            <section className="space-y-2">
+              <div className="flex items-center justify-between px-1">
+                <p className="text-xs font-bold text-gray-700">Store, customer aur riders</p>
+                <span className="rounded-full bg-emerald-50 px-2 py-1 text-[10px] font-bold text-emerald-700">
+                  {loading ? 'Riders load ho rahe hain...' : `${availableRiders.length} available`}
+                </span>
+              </div>
+              <RiderAvailabilityMap storeRef={storeRef} customerLocation={customerLocation} riders={availableRiders} />
+              {customerLocation?.approximate && <p className="px-1 text-[10px] text-amber-700">Customer pin delivery address se approximate hai.</p>}
+            </section>
             {loading ? (
               <div className="flex flex-col items-center py-12 text-gray-400 gap-2">
                 <Loader2 size={24} className="animate-spin text-primary-500" />
                 <p className="text-sm">Riders load ho rahe hain...</p>
               </div>
             ) : availableRiders.length === 0 ? (
-              <div className="text-center py-12">
-                <Bike size={32} className="text-gray-300 mx-auto mb-2" />
-                <p className="text-sm text-gray-400">{Number(order?.pickupRadiusKm) > 0 ? `${order.pickupRadiusKm} km pickup range mein koi online rider nahi hai` : isTransfer ? 'Transfer ke liye koi rider nahi' : 'Koi online rider nahi hai'}</p>
+              <div className="space-y-3">
+                <div className="text-center py-7">
+                  <Bike size={32} className="text-gray-300 mx-auto mb-2" />
+                  <p className="text-sm text-gray-500">{Number(order?.pickupRadiusKm) > 0 ? `${order.pickupRadiusKm} km pickup range mein koi online rider nahi hai` : isTransfer ? 'Transfer ke liye koi rider nahi' : 'Koi online rider nahi hai'}</p>
+                </div>
+                <section className="rounded-xl border border-blue-100 bg-white p-3.5">
+                  <div className="mb-3">
+                    <p className="text-sm font-bold text-gray-800">Use a delivery partner</p>
+                    <p className="mt-0.5 text-xs text-gray-500">Partner portal mein booking karein, phir uska reference yahan save karein.</p>
+                  </div>
+                  {partnerSettingsLoading ? (
+                    <p className="text-xs text-gray-400">Partner settings check ho rahi hain...</p>
+                  ) : partnerOptions.length ? (
+                    <div className="space-y-2">
+                      <div className="flex flex-wrap gap-2">
+                        {partnerOptions.map(partner => (
+                          <button key={partner.id} type="button" onClick={() => { setSelectedPartner(partner.id); setPartnerForm({ bookingReference: '', courierName: '', courierPhone: '', trackingUrl: '' }); setPartnerError(''); }}
+                            className={`rounded-lg border px-3 py-2 text-xs font-semibold transition ${selectedPartner === partner.id ? 'border-blue-700 bg-blue-50 text-blue-800' : 'border-gray-200 text-gray-700 hover:border-blue-300 hover:bg-blue-50'}`}>
+                            {partner.name}
+                          </button>
+                        ))}
+                      </div>
+                      {selectedPartner && (() => {
+                        const partner = partnerOptions.find(item => item.id === selectedPartner);
+                        return partner ? (
+                          <div className="space-y-2.5 rounded-lg bg-gray-50 p-3">
+                            <a href={partner.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 text-xs font-semibold text-blue-700 hover:underline">
+                              Open {partner.name} portal <ExternalLink size={12} />
+                            </a>
+                            <input value={partnerForm.bookingReference} onChange={event => setPartnerForm(current => ({ ...current, bookingReference: event.target.value }))} placeholder="Partner booking / order reference *" className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs outline-none focus:border-blue-500" />
+                            <div className="grid grid-cols-2 gap-2">
+                              <input value={partnerForm.courierName} onChange={event => setPartnerForm(current => ({ ...current, courierName: event.target.value }))} placeholder="Courier name (optional)" className="min-w-0 rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs outline-none focus:border-blue-500" />
+                              <input value={partnerForm.courierPhone} onChange={event => setPartnerForm(current => ({ ...current, courierPhone: event.target.value }))} placeholder="Courier phone (optional)" className="min-w-0 rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs outline-none focus:border-blue-500" />
+                            </div>
+                            <input value={partnerForm.trackingUrl} onChange={event => setPartnerForm(current => ({ ...current, trackingUrl: event.target.value }))} placeholder="Tracking link (optional)" className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs outline-none focus:border-blue-500" />
+                            {partnerError && <p role="alert" className="text-xs text-rose-600">{partnerError}</p>}
+                            <button type="button" onClick={handleAssignPartner} disabled={!partnerForm.bookingReference.trim() || assigning === `partner:${selectedPartner}`}
+                              className="flex w-full items-center justify-center gap-2 rounded-lg bg-blue-800 px-3 py-2.5 text-xs font-bold text-white hover:bg-blue-900 disabled:cursor-not-allowed disabled:opacity-50">
+                              {assigning === `partner:${selectedPartner}` ? <Loader2 size={13} className="animate-spin" /> : <CheckCircle size={13} />}
+                              Save {partner.name} booking
+                            </button>
+                          </div>
+                        ) : null;
+                      })()}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-gray-500">Settings → Third Party → Delivery Partners mein partner enable karein.</p>
+                  )}
+                </section>
               </div>
             ) : (
               <>

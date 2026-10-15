@@ -8,6 +8,7 @@ export const WEBSITE_HEADER_ACCESS_OPTIONS = [
     label: 'Settings',
     children: [
       ...BUSINESS_SETTINGS_SECTIONS.map(({ path, label }) => ({ path, label })),
+      { path: '/settings/third-party', label: '3rd Party' },
       {
         label: 'Zone Setup',
         children: [

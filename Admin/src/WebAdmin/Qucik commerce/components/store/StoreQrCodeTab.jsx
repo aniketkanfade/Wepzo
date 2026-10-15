@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import QRCode from 'qrcode';
 import html2canvas from 'html2canvas';
 import { jsPDF } from 'jspdf';
+import api from '../../../../api/axios';
 import {
   ArrowLeft, Printer, Share2, Download, Link2, RotateCcw, Check,
 } from 'lucide-react';
@@ -99,11 +100,9 @@ function ShowToggle({ label, checked, onChange }) {
   );
 }
 
-function StoreCardPreview({ store, design, qrDataUrl, ownerName, phone, address, storeUrl, cardRef }) {
+function StoreCardPreview({ store, design, qrDataUrl, ownerName, phone, address, websiteLabel, cardRef }) {
   const { colors, show, logoShape, cornerRadius, template } = design;
   const storeIdBadge = `#${String(store.storeId).padStart(4, '0')}`;
-  const domain = store.subdomain || store.slug;
-  const websiteLabel = `${domain}.wepzo.com`;
 
   const logoStyle = {
     borderRadius: logoShape === 'circle' ? '50%' : `${Math.min(cornerRadius, 12)}px`,
@@ -252,13 +251,53 @@ export default function StoreQrCodeTab({ store, phone, address, ownerName }) {
   const [qrDataUrl, setQrDataUrl] = useState('');
   const [busy, setBusy] = useState('');
   const [copied, setCopied] = useState(false);
-
-  const storeUrl = useMemo(
-    () => `https://${store.subdomain || store.slug}.wepzo.com`,
-    [store.subdomain, store.slug],
-  );
+  const [websiteDomain, setWebsiteDomain] = useState('');
+  const [domainLoading, setDomainLoading] = useState(!!store.websiteId);
+  const [domainError, setDomainError] = useState('');
 
   useEffect(() => {
+    if (!store.websiteId) {
+      setWebsiteDomain('');
+      setDomainLoading(false);
+      setDomainError('Is store ke saath website linked nahi hai.');
+      return undefined;
+    }
+    let active = true;
+    setWebsiteDomain('');
+    setDomainLoading(true);
+    setDomainError('');
+    api.get(`/stores/${store.storeId}/website-domain`)
+      .then(({ data }) => {
+        if (!active) return;
+        if (String(data.tenantId || '') !== String(store.websiteId)) {
+          setWebsiteDomain('');
+          setDomainError('Store tenant ID mismatch hai; sahi website domain load nahi hua.');
+          return;
+        }
+        const fullDomain = String(data.domain || '').trim();
+        setWebsiteDomain(fullDomain);
+        if (!fullDomain) setDomainError(data.name
+          ? `${data.name} website par domain set nahi hai.`
+          : 'Is tenant website par domain set nahi hai.');
+      })
+      .catch(error => {
+        if (active) setDomainError(error.response?.data?.message || 'Website domain load nahi ho paya.');
+      })
+      .finally(() => { if (active) setDomainLoading(false); });
+    return () => { active = false; };
+  }, [store.websiteId]);
+
+  const storeUrl = useMemo(() => {
+    if (!websiteDomain) return '';
+    return /^https?:\/\//i.test(websiteDomain) ? websiteDomain : `https://${websiteDomain}`;
+  }, [websiteDomain]);
+  const websiteLabel = websiteDomain || (domainLoading ? 'Loading website domain...' : 'Website domain not connected');
+
+  useEffect(() => {
+    if (!storeUrl) {
+      setQrDataUrl('');
+      return;
+    }
     QRCode.toDataURL(storeUrl, { width: 280, margin: 1, color: { dark: '#1a2b4b', light: '#ffffff' } })
       .then(setQrDataUrl)
       .catch(() => setQrDataUrl(''));
@@ -348,6 +387,10 @@ export default function StoreQrCodeTab({ store, phone, address, ownerName }) {
   };
 
   const handleCopyLink = async () => {
+    if (!storeUrl) {
+      alert(domainError || 'Website domain available nahi hai.');
+      return;
+    }
     try {
       await navigator.clipboard.writeText(storeUrl);
       setCopied(true);
@@ -358,6 +401,10 @@ export default function StoreQrCodeTab({ store, phone, address, ownerName }) {
   };
 
   const handleShare = async () => {
+    if (!storeUrl) {
+      alert(domainError || 'Website domain available nahi hai.');
+      return;
+    }
     if (navigator.share) {
       try {
         await navigator.share({ title: store.name, text: `${store.name} — Wepzo Store`, url: storeUrl });
@@ -396,35 +443,36 @@ export default function StoreQrCodeTab({ store, phone, address, ownerName }) {
                 ownerName={ownerName}
                 phone={phone}
                 address={address}
-                storeUrl={storeUrl}
+                websiteLabel={websiteLabel}
                 cardRef={cardRef}
               />
             </div>
+            {domainError && <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">{domainError}</p>}
 
             <div className="flex flex-wrap gap-2">
-              <button type="button" onClick={handlePrint} disabled={!!busy}
+              <button type="button" onClick={handlePrint} disabled={!!busy || !storeUrl}
                 className={`inline-flex items-center gap-1.5 px-4 py-2.5 rounded-lg text-sm font-semibold transition disabled:opacity-50 ${btnNavy}`}>
                 <Printer size={15} /> {busy === 'print' ? 'Printing...' : 'Print'}
               </button>
-              <button type="button" onClick={handleShare} disabled={!!busy}
+              <button type="button" onClick={handleShare} disabled={!!busy || !storeUrl}
                 className={`inline-flex items-center gap-1.5 px-4 py-2.5 rounded-lg text-sm font-medium transition disabled:opacity-50 ${btnOutline}`}>
                 <Share2 size={15} /> Share
               </button>
-              <button type="button" onClick={handleDownload} disabled={!!busy}
+              <button type="button" onClick={handleDownload} disabled={!!busy || !storeUrl}
                 className={`inline-flex items-center gap-1.5 px-4 py-2.5 rounded-lg text-sm font-semibold transition disabled:opacity-50 ${btnNavy}`}>
                 <Download size={15} /> {busy === 'download' ? 'Saving...' : 'Download'}
               </button>
-              <button type="button" onClick={handleDownloadPdf} disabled={!!busy}
+              <button type="button" onClick={handleDownloadPdf} disabled={!!busy || !storeUrl}
                 className={`inline-flex items-center gap-1.5 px-4 py-2.5 rounded-lg text-sm font-semibold transition disabled:opacity-50 ${btnNavy}`}>
                 <Download size={15} /> {busy === 'pdf' ? 'Creating...' : 'Download PDF'}
               </button>
             </div>
-            <button type="button" onClick={handleCopyLink}
-              className={`inline-flex items-center gap-1.5 px-4 py-2.5 rounded-lg text-sm font-medium transition ${btnOutline}`}>
+            <button type="button" onClick={handleCopyLink} disabled={!storeUrl}
+              className={`inline-flex items-center gap-1.5 px-4 py-2.5 rounded-lg text-sm font-medium transition disabled:opacity-50 ${btnOutline}`}>
               <Link2 size={15} />
               {copied ? 'Link Copied!' : 'Copy Link'}
             </button>
-            <p className="text-xs text-gray-400 font-mono break-all">{storeUrl}</p>
+            <p className="text-xs text-gray-400 font-mono break-all">{websiteLabel}</p>
           </div>
 
           {/* Design panel */}

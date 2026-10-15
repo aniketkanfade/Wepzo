@@ -1,0 +1,406 @@
+.delivery-address-backdrop {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 50;
+  overflow-y: auto;
+  padding: 20px;
+  background: rgb(15 23 42 / 66%);
+}
+
+.delivery-address-modal {
+  position: relative;
+  width: min(100%, 540px);
+  max-height: min(94vh, 760px);
+  overflow-y: auto;
+  padding: 24px 28px 15px;
+  border: 1px solid rgb(226 232 240 / 80%);
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 24px 70px rgb(15 23 42 / 28%);
+  color: #172033;
+}
+
+.delivery-address-close {
+  position: absolute;
+  top: 13px;
+  right: 13px;
+  display: grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  background: #eef1f5;
+  color: #475569;
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.delivery-address-eyebrow {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: #68758a;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: .04em;
+}
+
+.delivery-address-eyebrow span {
+  color: #ff5a0a;
+  font-size: 11px;
+}
+
+.delivery-address-modal h2 {
+  margin: 5px 38px 2px 0;
+  color: #172744;
+  font-size: 24px;
+  font-weight: 750;
+  letter-spacing: -.04em;
+  line-height: 1.15;
+}
+
+.delivery-address-intro {
+  margin: 0 0 15px;
+  color: #778195;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.delivery-address-form {
+  display: grid;
+  gap: 9px;
+}
+
+.delivery-address-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 9px;
+}
+
+.delivery-address-field {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+  color: #263449;
+  font-size: 9px;
+  font-weight: 700;
+}
+
+.delivery-address-field > span {
+  display: inline;
+  color: #929baa;
+  font-weight: 400;
+}
+
+.delivery-address-field input,
+.delivery-address-field select {
+  width: 100%;
+  min-width: 0;
+  height: 35px;
+  padding: 0 10px;
+  border: 1px solid #e0e5ec;
+  border-radius: 6px;
+  outline: none;
+  background: #fff;
+  color: #263449;
+  font-size: 10px;
+  font-weight: 400;
+}
+
+.delivery-address-field input::placeholder {
+  color: #9aa3b1;
+  opacity: 1;
+}
+
+.delivery-address-field input:focus,
+.delivery-address-field select:focus {
+  border-color: #ff6a25;
+  box-shadow: 0 0 0 2px rgb(255 90 10 / 12%);
+}
+
+.delivery-address-location-row {
+  grid-template-columns: .9fr 1.2fr 1.1fr;
+}
+
+.delivery-address-pin-row {
+  display: flex;
+  min-width: 0;
+  gap: 5px;
+}
+
+.delivery-address-pin-row input {
+  min-width: 0;
+  padding: 0 7px;
+}
+
+.delivery-address-check {
+  flex: 0 0 auto;
+  min-width: 43px;
+  padding: 0 8px;
+  border: 1px solid #ff5a0a;
+  border-radius: 6px;
+  background: #fff;
+  color: #f0520a;
+  font-size: 9px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.delivery-address-check:disabled {
+  cursor: wait;
+  opacity: .65;
+}
+
+.delivery-address-status,
+.delivery-address-hint {
+  margin: -2px 0 0;
+  padding: 7px 9px;
+  border-radius: 6px;
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+.delivery-address-status.is-available {
+  background: #ecfdf3;
+  color: #087443;
+}
+
+.delivery-address-status.is-unavailable,
+.delivery-address-status.is-error {
+  background: #fff1f0;
+  color: #b42318;
+}
+
+.delivery-address-types {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  min-width: 0;
+  margin: 1px 0 0;
+  padding: 0;
+  border: 0;
+}
+
+.delivery-address-types legend {
+  margin-bottom: 6px;
+  color: #263449;
+  font-size: 9px;
+  font-weight: 700;
+}
+
+.delivery-address-types label {
+  display: flex;
+  min-width: 0;
+  height: 34px;
+  align-items: center;
+  gap: 6px;
+  padding: 0 9px;
+  border: 1px solid #dfe4eb;
+  border-radius: 6px;
+  color: #4b586c;
+  font-size: 9px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.delivery-address-types label.is-selected {
+  border-color: #ff5a0a;
+  background: #fff7f2;
+  color: #ed5108;
+}
+
+.delivery-address-types input {
+  width: 11px;
+  height: 11px;
+  margin: 0;
+  accent-color: #ff5a0a;
+}
+
+.delivery-address-types label > span {
+  font-size: 12px;
+}
+
+.delivery-address-current {
+  display: flex;
+  min-height: 44px;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 7px;
+  background: #fff5ef;
+  color: #f15a13;
+  text-align: left;
+  cursor: pointer;
+}
+
+.delivery-address-current-icon {
+  font-size: 20px;
+}
+
+.delivery-address-current > span:nth-child(2) {
+  display: grid;
+  gap: 2px;
+}
+
+.delivery-address-current b {
+  color: #c9470b;
+  font-size: 9px;
+}
+
+.delivery-address-current small {
+  color: #9b8b80;
+  font-size: 8px;
+}
+
+.delivery-address-current-arrow {
+  margin-left: auto;
+  font-size: 22px;
+}
+
+.delivery-address-hint {
+  background: #f8fafc;
+  color: #526176;
+}
+
+.delivery-address-save {
+  display: flex;
+  width: 100%;
+  min-height: 39px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 0 13px;
+  border: 0;
+  border-radius: 6px;
+  background: linear-gradient(100deg, #ff680f, #ef4d00);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.delivery-address-save span:first-child {
+  font-size: 11px;
+}
+
+.delivery-address-save span:last-child {
+  margin-left: auto;
+  font-size: 15px;
+}
+
+.delivery-address-save:disabled {
+  cursor: not-allowed;
+  opacity: .55;
+}
+
+.delivery-address-cancel {
+  display: block;
+  margin: 8px auto 0;
+  padding: 3px 12px;
+  border: 0;
+  background: transparent;
+  color: #263449;
+  font-size: 9px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+@media (max-width: 520px) {
+  .delivery-address-backdrop {
+    align-items: center;
+    padding: 10px;
+  }
+
+  .delivery-address-modal {
+    width: min(100%, 390px);
+    max-height: 94vh;
+    padding: 17px 16px 11px;
+    border-radius: 8px;
+  }
+
+  .delivery-address-close {
+    top: 9px;
+    right: 9px;
+    width: 25px;
+    height: 25px;
+    font-size: 17px;
+  }
+
+  .delivery-address-modal h2 {
+    font-size: 19px;
+  }
+
+  .delivery-address-intro {
+    margin-bottom: 11px;
+    font-size: 9px;
+  }
+
+  .delivery-address-form {
+    gap: 7px;
+  }
+
+  .delivery-address-grid {
+    gap: 6px;
+  }
+
+  .delivery-address-field {
+    gap: 3px;
+    font-size: 8px;
+  }
+
+  .delivery-address-field input,
+  .delivery-address-field select {
+    height: 31px;
+    padding: 0 7px;
+    font-size: 9px;
+  }
+
+  .delivery-address-location-row {
+    grid-template-columns: .85fr 1.05fr 1.1fr;
+    gap: 5px;
+  }
+
+  .delivery-address-pin-row {
+    gap: 3px;
+  }
+
+  .delivery-address-pin-row input {
+    padding: 0 5px;
+  }
+
+  .delivery-address-check {
+    min-width: 38px;
+    padding: 0 5px;
+    font-size: 8px;
+  }
+
+  .delivery-address-types {
+    gap: 5px;
+  }
+
+  .delivery-address-types label {
+    height: 31px;
+    gap: 4px;
+    padding: 0 6px;
+    font-size: 8px;
+  }
+
+  .delivery-address-types input {
+    width: 10px;
+    height: 10px;
+  }
+
+  .delivery-address-current {
+    min-height: 39px;
+    gap: 7px;
+    padding: 5px 8px;
+  }
+
+  .delivery-address-save {
+    min-height: 35px;
+  }
+}

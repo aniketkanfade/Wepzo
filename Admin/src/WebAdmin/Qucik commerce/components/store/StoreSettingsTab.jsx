@@ -30,7 +30,7 @@ function Hint({ text }) {
   );
 }
 
-export default function StoreSettingsTab({ store, onStorePatch }) {
+export default function StoreSettingsTab({ store, onStorePatch, isEcommerce = false }) {
   const [form, setForm] = useState(null);
   const [original, setOriginal] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -87,6 +87,10 @@ export default function StoreSettingsTab({ store, onStorePatch }) {
   };
 
   const handleSave = async () => {
+    if (isEcommerce && !['1', '2', '3'].includes(String(form.packagingTime))) {
+      alert('Packaging time select karein');
+      return;
+    }
     setSaving(true);
     try {
       const { data } = await api.put(`/stores/${store.storeId}/settings`, form);
@@ -96,13 +100,14 @@ export default function StoreSettingsTab({ store, onStorePatch }) {
         deliveryMin: data.deliveryMin,
         deliveryMax: data.deliveryMax,
         deliveryUnit: data.deliveryUnit,
+        packagingTime: data.packagingTime,
         minimumOrderAmount: data.minimumOrderAmount,
         storeSettings: data,
       });
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
-    } catch {
-      alert('Settings save nahi hui');
+    } catch (error) {
+      alert(error.response?.data?.message || 'Settings save nahi hui');
     } finally {
       setSaving(false);
     }
@@ -144,7 +149,7 @@ export default function StoreSettingsTab({ store, onStorePatch }) {
               onChange={e => set('minimumOrderAmount', Number(e.target.value))}
               className={inputCls} style={{ borderColor: CARD_BORDER }} />
           </div>
-          <div>
+          {!isEcommerce && <div>
             <label className="text-sm font-medium text-gray-700 flex items-center gap-1.5 mb-1.5">
               Approx Delivery Time <span className="text-red-500">*</span> <Hint text="Customer ko dikhne wala estimated time" />
             </label>
@@ -160,7 +165,21 @@ export default function StoreSettingsTab({ store, onStorePatch }) {
                 {UNITS.map(u => <option key={u} value={u}>{u}</option>)}
               </select>
             </div>
-          </div>
+          </div>}
+          {isEcommerce && (
+            <div>
+              <label className="text-sm font-medium text-gray-700 flex items-center gap-1.5 mb-1.5">
+                Packaging Time <span className="text-red-500">*</span> <Hint text="Order ko pack karke ready karne ka estimated time" />
+              </label>
+              <select value={form.packagingTime || ''} onChange={e => set('packagingTime', e.target.value)}
+                className={inputCls} style={{ borderColor: CARD_BORDER }}>
+                <option value="">Select packaging time</option>
+                <option value="1">1 day</option>
+                <option value="2">2 days</option>
+                <option value="3">3 days</option>
+              </select>
+            </div>
+          )}
         </div>
 
         <div className="flex justify-end gap-2 mt-6">

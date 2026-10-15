@@ -36,9 +36,7 @@ export default function useAdminOrderAlerts(enabled = true) {
 
     const poll = async () => {
       try {
-        const { data } = await api.get('/orders/new-count', {
-          params: { source: 'quick_commerce' },
-        });
+        const { data } = await api.get('/orders/new-count');
         if (cancelled) return;
         const orders = Array.isArray(data?.orders) ? data.orders : [];
         const ids = orders.map(o => String(o._id || o.orderNo));

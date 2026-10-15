@@ -103,7 +103,7 @@ const seed = async () => {
       components: components.filter(c => ['marketing', 'general'].includes(c.moduleType)).map(c => c._id)
     },
     {
-      name: 'General', slug: 'general', type: 'general',
+      name: 'Web Page', slug: 'general', type: 'general',
       description: 'Basic website with header, footer, and contact',
       components: components.filter(c => c.moduleType === 'general').map(c => c._id)
     }

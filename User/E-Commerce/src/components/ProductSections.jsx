@@ -1,11 +1,12 @@
+import { useEffect, useMemo, useState } from 'react'
 import ProductCard from './ProductCard'
 import { imageOf } from '../lib/storefront'
 
-function ProductSection({ title, products, prefix, loading, error, onRetry, business, showFavorites, showCart, favorites, cartItem, toggleFavorite, changeQty, setMessage, canOpenDetails, setSelected, className = '', sectionId, gridClassName = 'product-grid grid grid-cols-6 gap-2' }) {
+function ProductSection({ title, products, prefix, loading, error, onRetry, business, showFavorites, showCart, favorites, cartItem, toggleFavorite, changeQty, setMessage, canOpenDetails, setSelected, className = '', sectionId, hideTitle = false, gridClassName = 'product-grid grid grid-cols-6 gap-2' }) {
   return <section id={sectionId} className={`product-section ${className}`}>
-    <div className="section-heading"><h2>{title}</h2></div>
+    {!hideTitle && <div className="section-heading"><h2>{title}</h2></div>}
     {loading
-      ? <div className="loading">Loading {title.toLowerCase()}...</div>
+      ? <div className="loading">Loading {hideTitle ? 'items' : title.toLowerCase()}...</div>
       : error
         ? <div className="error-box"><span>{error}</span><button onClick={onRetry}>Try again</button></div>
         : <div className={gridClassName}>
@@ -17,12 +18,76 @@ function ProductSection({ title, products, prefix, loading, error, onRetry, busi
   </section>
 }
 
-export function FlashDealsSection(props) {
-  return <ProductSection {...props} title="Flash Deals" sectionId="collection" gridClassName="product-grid deal-grid grid grid-cols-6 gap-2" />
+function formatCountdown(milliseconds) {
+  const totalSeconds = Math.max(0, Math.floor(milliseconds / 1000))
+  const days = Math.floor(totalSeconds / 86400)
+  const hours = Math.floor((totalSeconds % 86400) / 3600)
+  const minutes = Math.floor((totalSeconds % 3600) / 60)
+  const seconds = totalSeconds % 60
+  return [days ? `${days}d` : '', `${String(hours).padStart(2, '0')}h`, `${String(minutes).padStart(2, '0')}m`, `${String(seconds).padStart(2, '0')}s`]
+    .filter(Boolean).join(' ')
+}
+
+export function FlashDealsSection({ sales = [], products = [], ...props }) {
+  const [now, setNow] = useState(Date.now())
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 1000)
+    return () => window.clearInterval(timer)
+  }, [])
+
+  const deals = useMemo(() => sales.map(sale => {
+    const start = sale.startDate ? new Date(sale.startDate).getTime() : null
+    const end = sale.endDate ? new Date(sale.endDate).getTime() : null
+    if (sale.status?.toLowerCase() === 'ended' || (end != null && (!Number.isFinite(end) || end <= now))) return null
+    if (start != null && !Number.isFinite(start)) return null
+    const upcoming = start != null && start > now
+    if (upcoming && sale.status?.toLowerCase() !== 'active' && sale.status?.toLowerCase() !== 'scheduled') return null
+    if (upcoming && end != null && end <= start) return null
+    const saleProducts = (Array.isArray(sale.productItems) ? sale.productItems : []).map(item => {
+      const key = String(item.productId || '')
+      const product = products.find(entry => [entry.id, entry._id, entry.productId].some(id => id != null && String(id) === key))
+      if (!product) return null
+      const regularPrice = Number(item.price) || Number(product.mrp) || Number(product.price) || 0
+      const salePrice = Number(item.salePrice) || regularPrice * (1 - (Number(item.discountPercent) || 0) / 100)
+      return { ...product, mrp: regularPrice, salePrice, discount: Number(item.discountPercent) || 0 }
+    }).filter(Boolean)
+    if (!saleProducts.length) return null
+    return { ...sale, start, end, upcoming, saleProducts }
+  }).filter(Boolean), [sales, products, now])
+
+  if (!deals.length) return null
+  const activeDeals = deals.filter(deal => !deal.upcoming)
+  const countdownDeal = (activeDeals.length ? activeDeals : deals)
+    .filter(deal => activeDeals.length ? deal.end != null : deal.start != null)
+    .sort((a, b) => (activeDeals.length ? a.end - b.end : a.start - b.start))[0]
+  const visibleProducts = activeDeals.flatMap(deal => deal.saleProducts)
+    .filter((product, index, list) => list.findIndex(entry => String(entry.id || entry._id || entry.productId) === String(product.id || product._id || product.productId)) === index)
+
+  return <section id="collection" className="product-section">
+    <div className="section-heading flex flex-wrap items-center justify-between gap-2">
+      <h2>Flash Deals</h2>
+      <span className="rounded-md bg-red-50 px-3 py-1.5 text-sm font-semibold tabular-nums text-red-700" aria-live="off">
+        {countdownDeal
+          ? `${countdownDeal.upcoming ? 'Starts in' : 'Ends in'} ${formatCountdown((countdownDeal.upcoming ? countdownDeal.start : countdownDeal.end) - now)}`
+          : 'Live now'}
+      </span>
+    </div>
+    {activeDeals.length > 0 && (props.loading
+      ? <div className="loading">Loading flash deals...</div>
+      : props.error
+        ? <div className="error-box"><span>{props.error}</span><button onClick={props.onRetry}>Try again</button></div>
+        : <div className="product-grid deal-grid grid grid-cols-6 gap-2">
+          {visibleProducts.map((product, index) => <ProductCard key={`deal-${product.id || product._id || product.productId || index}`} {...{
+            product, index, prefix: 'deal', business: props.business, showFavorites: props.showFavorites, showCart: props.showCart,
+            favorites: props.favorites, cartItem: props.cartItem, toggleFavorite: props.toggleFavorite, changeQty: props.changeQty,
+            setMessage: props.setMessage, canOpenDetails: props.canOpenDetails, setSelected: props.setSelected,
+          }} />)}
+        </div>)}
+  </section>
 }
 
 export function ProductGridSection(props) {
-  return <ProductSection {...props} title="Products" sectionId="collection" />
+  return <ProductSection {...props} title="Products" hideTitle sectionId="collection" />
 }
 
 export function TrendingProductsSection({ city, ...props }) {
@@ -30,7 +95,8 @@ export function TrendingProductsSection({ city, ...props }) {
 }
 
 export function WishlistSection({ products, favorites, ...props }) {
-  return <ProductSection {...props} title="Wishlist" prefix="wishlist" sectionId="wishlist" products={products.filter(product => favorites.includes(product._id || product.id))} />
+  const savedIds = new Set(favorites.map(String))
+  return <ProductSection {...props} favorites={favorites} title="Wishlist" prefix="wishlist" sectionId="wishlist" products={products.filter(product => savedIds.has(String(product._id || product.id || '')))} />
 }
 
 export function StoresSection({ stores, visible }) {

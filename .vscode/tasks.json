@@ -1,0 +1,104 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Remove AdminApp WebView",
+			"type": "shell",
+			"command": "npm",
+			"args": [
+				"--prefix",
+				"AdminApp",
+				"uninstall",
+				"react-native-webview"
+			],
+			"isBackground": false,
+			"problemMatcher": []
+		},
+		{
+			"label": "Validate native Admin app",
+			"type": "shell",
+			"command": "Set-Location AdminApp; npm run typecheck; if ($?) { npx expo export --platform android --output-dir C:\\Users\\anike\\AppData\\Local\\Temp\\wepzo-adminapp-native-check }",
+			"isBackground": false,
+			"problemMatcher": []
+		},
+		{
+			"label": "Remove unused app navigation deps",
+			"type": "shell",
+			"command": "npm",
+			"args": [
+				"--prefix",
+				"AdminApp",
+				"uninstall",
+				"@react-navigation/bottom-tabs",
+				"@react-navigation/native",
+				"@react-navigation/native-stack",
+				"react-native-screens"
+			],
+			"isBackground": false,
+			"problemMatcher": []
+		},
+		{
+			"label": "Verify React Native admin build",
+			"type": "shell",
+			"command": "Set-Location AdminApp; npm run typecheck; if ($?) { npx expo export --platform android --output-dir C:\\Users\\anike\\AppData\\Local\\Temp\\wepzo-adminapp-native-final }",
+			"isBackground": false,
+			"problemMatcher": []
+		},
+		{
+			"label": "Cleanup native app build output",
+			"type": "shell",
+			"command": "Remove-Item -LiteralPath 'C:\\Users\\anike\\AppData\\Local\\Temp\\wepzo-adminapp-native-final' -Recurse -Force; git status --short -- AdminApp",
+			"isBackground": false,
+			"problemMatcher": []
+		},
+		{
+			"label": "Verify native screens and registration",
+			"type": "shell",
+			"command": "Set-Location AdminApp; npm run typecheck; if ($?) { npx expo export --platform android --output-dir C:\\Users\\anike\\AppData\\Local\\Temp\\wepzo-adminapp-native-final }",
+			"isBackground": false,
+			"problemMatcher": []
+		},
+		{
+			"label": "Cleanup native Admin bundle",
+			"type": "shell",
+			"command": "Remove-Item -LiteralPath 'C:\\Users\\anike\\AppData\\Local\\Temp\\wepzo-adminapp-native-final' -Recurse -Force; git status --short -- AdminApp",
+			"isBackground": false,
+			"problemMatcher": []
+		},
+		{
+			"label": "Validate AdminApp final code",
+			"type": "shell",
+			"command": "Set-Location AdminApp; npm run typecheck; if ($?) { npx expo export --platform android --output-dir C:\\Users\\anike\\AppData\\Local\\Temp\\wepzo-adminapp-native-final }",
+			"isBackground": false,
+			"problemMatcher": []
+		},
+		{
+			"label": "Cleanup Admin validation output",
+			"type": "shell",
+			"command": "Remove-Item -LiteralPath 'C:\\Users\\anike\\AppData\\Local\\Temp\\wepzo-adminapp-native-final' -Recurse -Force; git status --short -- AdminApp",
+			"isBackground": false,
+			"problemMatcher": []
+		},
+		{
+			"label": "Validate AdminApp module flows",
+			"type": "shell",
+			"command": "Set-Location AdminApp; npm run typecheck; if ($?) { npx expo export --platform android --output-dir C:\\Users\\anike\\AppData\\Local\\Temp\\wepzo-adminapp-flow-check }",
+			"isBackground": false,
+			"problemMatcher": []
+		},
+		{
+			"label": "Cleanup admin flow bundle",
+			"type": "shell",
+			"command": "Remove-Item -LiteralPath 'C:\\Users\\anike\\AppData\\Local\\Temp\\wepzo-adminapp-flow-check' -Recurse -Force; git status --short -- AdminApp",
+			"isBackground": false,
+			"problemMatcher": []
+		},
+		{
+			"label": "Install Expo image picker",
+			"type": "shell",
+			"command": "Set-Location AdminApp; npx expo install expo-image-picker",
+			"isBackground": false,
+			"problemMatcher": []
+		}
+	]
+}

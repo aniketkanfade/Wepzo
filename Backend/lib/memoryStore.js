@@ -12,6 +12,7 @@ const store = {
   plans: [],
   websiteSubscriptionPlans: [],
   websites: [],
+  ownDomainOrders: [],
   mainAdminStorefrontSeededFor: [],
   stores: [],
   nextStoreId: 1001,
@@ -41,7 +42,10 @@ const store = {
   campaigns: [],
   marketingContent: [],
   marketingSiteContents: [],
+  generalSiteContents: [],
   marketingIntegrations: [],
+  marketingOAuth: {},
+  socialTokenEncryptionKey: '',
   banners: [],
   otherBanners: [],
   coupons: [],
@@ -72,7 +76,7 @@ const PERSIST_PATH = process.env.DATA_FILE
 
 const PERSIST_KEYS = [
   'productItems', 'products', 'productImportHistory', 'productExportHistory', 'orders', 'customers', 'deliveryZones', 'stores',
-  'websiteSubscriptionPlans',
+  'websiteSubscriptionPlans', 'ownDomainOrders',
   'users', 'nextStoreId', 'nextZoneId', 'employees', 'employeeLoginHistory',
   'categories', 'subCategories', 'childCategories', 'brands', 'attributes', 'units',
   'storeDiscounts', 'productRequests', 'productReviews', 'businessSettings', 'businessSettingsByModule',
@@ -80,7 +84,10 @@ const PERSIST_KEYS = [
   'campaigns', 'banners', 'otherBanners', 'coupons', 'pushNotifications',
   'marketingContent',
   'marketingSiteContents',
+  'generalSiteContents',
   'marketingIntegrations',
+  'marketingOAuth',
+  'socialTokenEncryptionKey',
   'advertisements', 'deliveryMen', 'systemModules', 'websiteModules', 'websiteModuleCatalogSeeded', 'websiteModuleContentSeeded', 'websites', 'mainAdminStorefrontSeededFor',
 ];
 
@@ -243,19 +250,31 @@ async function fillEmptyCollections() {
 }
 
 function ensureWebsiteModuleCatalog() {
-  if (store.websiteModuleCatalogSeeded) return;
+  let renamedGeneralModule = false;
+  [store.websiteModules, store.modules].forEach(modules => {
+    (modules || []).forEach(module => {
+      if (String(module.slug || module.type || '').toLowerCase() === 'general' && ['general', 'information web'].includes(String(module.name || '').toLowerCase())) {
+        module.name = 'Web Page';
+        renamedGeneralModule = true;
+      }
+    });
+  });
+  if (renamedGeneralModule) persistNow();
   if (!Array.isArray(store.websiteModules)) store.websiteModules = [];
 
   const defaultModules = [
     { name: 'Quick Commerce', slug: 'quick-commerce', type: 'quick-commerce' },
+    { name: 'E-Commerce', slug: 'e-commerce', type: 'e-commerce' },
     { name: 'Marketing', slug: 'marketing', type: 'marketing' },
-    { name: 'General', slug: 'general', type: 'general' },
+    { name: 'Web Page', slug: 'general', type: 'general' },
   ];
   const sourceModules = [...defaultModules, ...(store.modules || [])];
   const additions = [];
   sourceModules.forEach(module => {
-    const slug = module.slug || module.type;
-    if (!slug || store.websiteModules.some(existing => existing.slug === slug) || additions.some(existing => existing.slug === slug)) return;
+    const slug = normalizeWebsiteModuleKey(module.slug || module.type);
+    if (!slug
+      || store.websiteModules.some(existing => normalizeWebsiteModuleKey(existing.slug || existing.type) === slug)
+      || additions.some(existing => normalizeWebsiteModuleKey(existing.slug || existing.type) === slug)) return;
     additions.push({
       _id: uuidv4(),
       name: module.name || slug,
@@ -266,7 +285,20 @@ function ensureWebsiteModuleCatalog() {
     });
   });
 
-  store.websiteModules = [...additions, ...store.websiteModules];
+  const moduleRank = module => defaultModules.findIndex(item =>
+    normalizeWebsiteModuleKey(item.slug || item.type) === normalizeWebsiteModuleKey(module.slug || module.type)
+  );
+  const catalog = [...store.websiteModules];
+  additions.forEach(module => {
+    const rank = moduleRank(module);
+    const nextDefaultModuleIndex = catalog.findIndex(existing => {
+      const existingRank = moduleRank(existing);
+      return existingRank >= 0 && rank >= 0 && existingRank > rank;
+    });
+    if (nextDefaultModuleIndex < 0) catalog.push(module);
+    else catalog.splice(nextDefaultModuleIndex, 0, module);
+  });
+  store.websiteModules = catalog;
   store.websiteModuleCatalogSeeded = true;
   persistNow();
 }
@@ -275,6 +307,11 @@ function ensureWebsiteModuleContent() {
     ecommerce: {
       description: 'Launch a quick-commerce storefront with a branded homepage, product catalog, cart and checkout.',
       image: 'https://images.unsplash.com/photo-1542838132-92c53300491e?w=1200&auto=format&fit=crop&q=80',
+      videoUrl: '',
+    },
+    'e-commerce': {
+      description: 'Launch a full online store with product collections, a branded storefront, cart and secure checkout.',
+      image: 'https://images.unsplash.com/photo-1472851294608-062f824d29cc?w=1200&auto=format&fit=crop&q=80',
       videoUrl: '',
     },
     marketing: {
@@ -440,7 +477,7 @@ async function seedMemory() {
       components: store.components.filter(c => ['ecommerce','general'].includes(c.moduleType)).map(c => c._id) },
     { _id: uuidv4(), name: 'Marketing', slug: 'marketing', type: 'marketing', status: 'active',
       components: store.components.filter(c => ['marketing','general'].includes(c.moduleType)).map(c => c._id) },
-    { _id: uuidv4(), name: 'General', slug: 'general', type: 'general', status: 'active',
+    { _id: uuidv4(), name: 'Web Page', slug: 'general', type: 'general', status: 'active',
       components: store.components.filter(c => c.moduleType === 'general').map(c => c._id) },
   ];
 

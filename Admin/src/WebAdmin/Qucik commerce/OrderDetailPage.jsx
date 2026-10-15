@@ -51,6 +51,12 @@ export default function OrderDetailPage() {
     setAllOrders(prev => prev.map(o => o._id === data._id ? data : o));
   };
 
+  const assignPartner = async (id, partnerDetails) => {
+    const { data } = await api.put(`/orders/${id}/assign-partner`, partnerDetails);
+    setOrder(data);
+    setAllOrders(prev => prev.map(o => o._id === data._id ? data : o));
+  };
+
   const transferStore = async (id, storeId) => {
     const { data } = await api.put(`/orders/${id}/transfer-store`, { storeId });
     setOrder(data);
@@ -108,7 +114,7 @@ export default function OrderDetailPage() {
         </div>
       </div>
 
-      <OrderDetailView order={order} onStatusChange={updateStatus} onAssignRider={assignRider} onTransferStore={transferStore} />
+      <OrderDetailView order={order} onStatusChange={updateStatus} onAssignRider={assignRider} onAssignPartner={assignPartner} onTransferStore={transferStore} />
     </div>
   );
 }

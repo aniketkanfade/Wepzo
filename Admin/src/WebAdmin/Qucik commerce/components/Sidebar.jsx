@@ -6,7 +6,7 @@ import {
   ChevronDown, ChevronRight, Search, Settings, Users, Shield, Layers, CreditCard, Pencil,
   ShoppingBasket, ReceiptText, Grid3X3, Image, Gift, Bell, Tag, List, PackagePlus,
   PackageSearch, Barcode, Upload, Download, RotateCcw, Zap, Smartphone, Truck, Mail, FileText,
-  UserCircle, UserRoundCheck, UserRoundX, MapPin, Star, MessageSquareText, Globe2
+  UserCircle, UserRoundCheck, UserRoundX, MapPin, Star, MessageSquareText, Globe2, Link2
 } from 'lucide-react';
 import { useAuthStore } from '../../../store/useStore';
 import { useModuleStore } from '../../../store/useStore';
@@ -119,10 +119,15 @@ const MARKETING_MENU_ITEMS = [
   { label: 'Content Add', path: '/marketing/content-add', icon: FileText },
   { label: 'Users', path: '/marketing/users', icon: Users },
   { label: 'Subscriptions', path: '/marketing/subscriptions', icon: CreditCard },
+  { label: 'Social APIs', path: '/marketing/social-apis', icon: Link2 },
   ...menuItems.filter(item => item.label === 'Promotion Management'),
 ];
 const QUICK_COMMERCE_MENU_ITEMS = [getDashboardItem({ slug: 'quick-commerce' }), ...menuItems.filter(item => ['Quick Commerce', 'Promotion Management', 'Store Management', 'Customer Management'].includes(item.label))];
-const INFORMATION_WEB_MENU_ITEMS = [getDashboardItem({ slug: 'information-web' }), ...menuItems.filter(item => item.label === 'Design Website')];
+const INFORMATION_WEB_MENU_ITEMS = [
+  getDashboardItem({ slug: 'information-web' }),
+  { label: 'Website Content', path: '/information-web/content', icon: Globe2 },
+  ...menuItems.filter(item => item.label === 'Design Website'),
+];
 const E_COMMERCE_MENU_ITEMS = [
   getDashboardItem({ slug: 'e-commerce' }),
   ...menuItems.filter(item => ['Quick Commerce', 'Promotion Management', 'Store Management', 'Customer Management'].includes(item.label))
@@ -191,8 +196,8 @@ function MenuItem({ item, depth = 0, openKey, openDepth, onOpenChange, badgeCoun
             className={`w-full flex items-center gap-3 px-3 py-2 text-sm transition ${depth > 0 ? 'pl-6' : ''} text-gray-700 hover:bg-[#f5f8fd] hover:text-blue-300`}
             style={depth > 0 ? { paddingLeft: '1.5rem' } : {}}
           >
-            {item.icon && <item.icon size={16} className="shrink-0" />}
-            <span className={isTopLevelGroup ? 'text-xs font-semibold text-gray-400 uppercase tracking-wider' : 'flex-1 text-left font-medium'}>{item.label}</span>
+            {item.icon && item.label !== 'E-Commerce Storefront' && <item.icon size={16} className="shrink-0" />}
+            {item.label !== 'E-Commerce Storefront' && <span className={isTopLevelGroup ? 'text-xs font-semibold text-gray-400 uppercase tracking-wider' : 'flex-1 text-left font-medium'}>{item.label}</span>}
             {!isTopLevelGroup && (expanded ? <ChevronDown size={14} className="shrink-0" /> : <ChevronRight size={14} className="shrink-0" />)}
           </button>
         )}
@@ -233,7 +238,7 @@ function MenuItem({ item, depth = 0, openKey, openDepth, onOpenChange, badgeCoun
       style={isNestedLeaf ? { paddingLeft: '0.75rem', paddingRight: '0.5rem' } : depth > 0 ? { paddingLeft: '1.5rem' } : {}}
     >
       {isNestedLeaf ? (
-        <span className="shrink-0 text-gray-300 text-sm leading-none">â€¢</span>
+        <span className="shrink-0 text-gray-300 text-sm leading-none">•</span>
       ) : item.icon ? (
         <item.icon size={16} className="shrink-0" />
       ) : null}
@@ -382,6 +387,7 @@ export default function Sidebar({ mobileOpen, onClose, websiteAccess }) {
           {isWebsiteUser && hasPaidWebsite && allowedSidebarPaths.has('/website-builder') && <div className="mb-3 border-b border-slate-100 pb-3">
             <p className="mb-1 px-3 pt-2 text-[10px] font-bold uppercase tracking-wider text-gray-400">My Website</p>
             <NavLink to="/website-builder" className={({ isActive }) => `flex items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm font-medium ${isActive ? 'bg-[#f0f4ff] text-[#1a3a8a]' : 'text-gray-700 hover:bg-gray-50'}`}><Pencil size={16}/>Edit Website</NavLink>
+            <NavLink to="/on-domain" className={({ isActive }) => `flex items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm font-medium ${isActive ? 'bg-[#f0f4ff] text-[#1a3a8a]' : 'text-gray-700 hover:bg-gray-50'}`}><Globe2 size={16}/>On Domain</NavLink>
             <NavLink to="/website-subscription" className={({ isActive }) => `flex items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm font-medium ${isActive ? 'bg-[#f0f4ff] text-[#1a3a8a]' : 'text-gray-700 hover:bg-gray-50'}`}><CreditCard size={16}/>Plan & Subscription</NavLink>
           </div>}
           {renderMenu(visibleMenuItems)}
@@ -390,4 +396,3 @@ export default function Sidebar({ mobileOpen, onClose, websiteAccess }) {
     </>
   );
 }
-

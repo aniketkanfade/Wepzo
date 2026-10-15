@@ -1,10 +1,11 @@
 import { useState } from 'react';
-import { useNavigate, useSearchParams, Link } from 'react-router-dom';
+import { useLocation, useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { shop } from '../api';
 import { useAuthStore } from '../store/auth';
 
 export default function LoginPage() {
   const navigate = useNavigate();
+  const location = useLocation();
   const [params] = useSearchParams();
   const next = params.get('next') || '/';
   const setSession = useAuthStore(s => s.setSession);
@@ -34,7 +35,7 @@ export default function LoginPage() {
         ? await shop.login(email.includes('@') ? { email, password: form.password } : { phone: loginPhone, password: form.password })
         : await shop.register({ ...form, email, phone });
       setSession(data.token, data.user);
-      navigate(next);
+      navigate(next, { state: location.state?.backgroundLocation ? { backgroundLocation: location.state.backgroundLocation } : undefined });
     } catch (ex) {
       setErr(ex.response?.data?.message || 'Login fail');
     } finally {

@@ -25,6 +25,7 @@ export function getShopAuthStorageKey() {
 }
 
 api.interceptors.request.use((config) => {
+  config.headers['X-Website-Module'] = 'quick-commerce';
   const urlParams = new URLSearchParams(window.location.search);
   const templatePreview = urlParams.get('templatePreview') === '1';
   if (templatePreview) {
@@ -89,6 +90,8 @@ export const shop = {
   login: (body) => api.post('/shop/auth/login', body).then(r => r.data),
   register: (body) => api.post('/shop/auth/register', body).then(r => r.data),
   me: () => api.get('/shop/auth/me', { headers: authHeaders() }).then(r => r.data),
+  updateProfile: (body) => api.put('/shop/auth/me', body, { headers: authHeaders() }).then(r => r.data),
+  orders: () => api.get('/shop/orders', { headers: authHeaders() }).then(r => r.data),
 };
 
 export default api;

@@ -10,7 +10,7 @@ const DEFAULT_MODULE_OPTIONS = [
   { _id: 'e-commerce', name: 'E-Commerce', slug: 'e-commerce', type: 'e-commerce' },
   { _id: 'store-singlepage-web', name: 'Store Singlepage Web', slug: 'store-singlepage-web', type: 'store-singlepage-web' },
   { _id: 'marketing', name: 'Marketing', slug: 'marketing', type: 'marketing' },
-  { _id: 'general', name: 'Information Web', slug: 'general', type: 'general' },
+  { _id: 'general', name: 'Web Page', slug: 'general', type: 'general' },
 ];
 
 export default function ModuleSwitcher() {
@@ -52,13 +52,13 @@ export default function ModuleSwitcher() {
     return () => window.removeEventListener('wepzo:website-modules-updated', loadModules);
   }, [activeModuleKey, lockedSlug, setActiveModule]);
 
-  const selectedSlug = useMemo(() => {
+  const selectedModuleValue = useMemo(() => {
     const selected = modules.find(module => getAdminModuleKey(module) === activeModuleKey);
-    return String(selected?.slug || selected?.type || modules[0]?.slug || modules[0]?.type || 'quick-commerce').toLowerCase();
+    return String(selected?._id || selected?.id || selected?.slug || selected?.type || modules[0]?._id || modules[0]?.id || modules[0]?.slug || modules[0]?.type || 'quick-commerce').toLowerCase();
   }, [modules, activeModuleKey]);
 
   const selectModule = event => {
-    const module = modules.find(option => String(option.slug || option.type).toLowerCase() === event.target.value);
+    const module = modules.find(option => String(option._id || option.id || option.slug || option.type).toLowerCase() === event.target.value);
     if (!module) return;
     setActiveModule(module);
     navigate(getAdminModulePath(module));
@@ -67,8 +67,8 @@ export default function ModuleSwitcher() {
   return (
     <label className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm">
       <LayoutGrid size={16} className="shrink-0 text-slate-500" />
-      <select aria-label="Active website module" value={selectedSlug} onChange={selectModule} disabled={!!lockedSlug} className="max-w-44 cursor-pointer bg-transparent outline-none disabled:cursor-default">
-        {modules.map(module => <option key={module._id || module.id || module.slug} value={String(module.slug || module.type).toLowerCase()}>{module.name || module.slug}</option>)}
+      <select aria-label="Active website module" value={selectedModuleValue} onChange={selectModule} disabled={!!lockedSlug} className="max-w-44 cursor-pointer bg-transparent outline-none disabled:cursor-default">
+        {modules.map(module => <option key={module._id || module.id || module.slug} value={String(module._id || module.id || module.slug || module.type).toLowerCase()}>{module.name || module.slug}</option>)}
       </select>
     </label>
   );

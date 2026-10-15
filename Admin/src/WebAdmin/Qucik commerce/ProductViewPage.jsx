@@ -162,7 +162,7 @@ export default function ProductViewPage() {
 
   const tags = Array.isArray(product.tags) ? product.tags.join(' / ') : (product.tags || '—');
 
-  const shortDesc = product.shortDesc || product.shortDescEn || `${product.name} — ${product.mainCategory || ''} product from ${product.store || 'store'}.`;
+  const shortDesc = product.shortDesc || `${product.name} — ${product.mainCategory || ''} product from ${product.store || 'store'}.`;
 
 
 
@@ -202,7 +202,7 @@ export default function ProductViewPage() {
 
               <p className="text-xs text-gray-400 mt-0.5">
 
-                ID: {product.productId} · SKU: {product.sku || '—'} · Store ID: {product.storeId || storeInfo?.storeId || '—'}
+                SKU: {product.sku || '—'}
 
               </p>
 
@@ -370,7 +370,6 @@ export default function ProductViewPage() {
 
                 </Link>
 
-                <p className="text-xs text-gray-400 mt-0.5">Store ID: {product.storeId || storeInfo?.storeId || '—'}</p>
 
                 <p className="text-xs text-gray-500 mt-2 flex items-start gap-1.5 leading-relaxed">
 
@@ -639,5 +638,4 @@ export default function ProductViewPage() {
   );
 
 }
-
 

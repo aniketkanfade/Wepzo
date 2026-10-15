@@ -13,7 +13,6 @@ import {
   listTheadClass, listTheadStyle, listThClass, listRowClass, listRowStyle, listTdClass,
 } from '../../constants/listTheme';
 
-const tabs = ['Default', 'English (EN)', 'Hindi - हिन्दी (HI)'];
 const priorities = ['Normal', 'High', 'Low'];
 
 function Toggle({ checked, onChange, label }) {
@@ -32,7 +31,6 @@ function Toggle({ checked, onChange, label }) {
 export default function CategoriesPage() {
   const [categories, setCategories] = useState([]);
   const [modules, setModules] = useState([]);
-  const [activeTab, setActiveTab] = useState(0);
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
   const [editingId, setEditingId] = useState(null);
@@ -40,7 +38,7 @@ export default function CategoriesPage() {
   const formCardRef = useRef(null);
 
   const [form, setForm] = useState({
-    name: '', nameEn: '', nameHi: '', priority: 'Normal', moduleId: '',
+    name: '', priority: 'Normal', moduleId: '',
     status: true, featured: false, image: ''
   });
 
@@ -62,9 +60,8 @@ export default function CategoriesPage() {
   const paginated = filtered.slice((page - 1) * perPage, page * perPage);
 
   const resetForm = () => {
-    setForm({ name: '', nameEn: '', nameHi: '', priority: 'Normal', moduleId: '', status: true, featured: false, image: '' });
+    setForm({ name: '', priority: 'Normal', moduleId: '', status: true, featured: false, image: '' });
     setEditingId(null);
-    setActiveTab(0);
   };
 
   const handleImage = (e) => {
@@ -95,7 +92,7 @@ export default function CategoriesPage() {
   const handleEdit = (cat) => {
     setEditingId(cat._id);
     setForm({
-      name: cat.name, nameEn: cat.nameEn || '', nameHi: cat.nameHi || '',
+      name: cat.name,
       priority: cat.priority, moduleId: cat.moduleId || '', status: cat.status, featured: cat.featured, image: cat.image || ''
     });
     requestAnimationFrame(() => formCardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
@@ -127,29 +124,10 @@ export default function CategoriesPage() {
         />
 
         <form ref={formCardRef} onSubmit={handleSubmit} className="p-6 scroll-mt-4">
-          {/* Language Tabs */}
-          <div className="flex gap-1 border-b border-gray-200 mb-6">
-            {tabs.map((tab, i) => (
-              <button
-                key={tab}
-                type="button"
-                onClick={() => setActiveTab(i)}
-                className={`px-4 py-2.5 text-sm font-medium border-b-2 transition -mb-px ${
-                  activeTab === i
-                    ? 'border-primary-600 text-primary-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700'
-                }`}
-              >
-                {tab}
-              </button>
-            ))}
-          </div>
-
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
             {/* Left: Form Fields */}
             <div className="space-y-5">
-              {activeTab === 0 && (
-                <div>
+              <div>
                   <label className="flex items-center gap-1.5 text-sm font-medium text-gray-700 mb-1.5">
                     <Tag size={14} className="text-gray-400" /> Name (Default) <span className="text-red-500">*</span>
                   </label>
@@ -160,30 +138,7 @@ export default function CategoriesPage() {
                     className="w-full px-4 py-2.5 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 outline-none"
                     required
                   />
-                </div>
-              )}
-              {activeTab === 1 && (
-                <div>
-                  <label className="text-sm font-medium text-gray-700 mb-1.5 block">Name (English)</label>
-                  <input
-                    value={form.nameEn}
-                    onChange={e => setForm({ ...form, nameEn: e.target.value })}
-                    placeholder="Enter English name"
-                    className="w-full px-4 py-2.5 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 outline-none"
-                  />
-                </div>
-              )}
-              {activeTab === 2 && (
-                <div>
-                  <label className="text-sm font-medium text-gray-700 mb-1.5 block">Name (Hindi)</label>
-                  <input
-                    value={form.nameHi}
-                    onChange={e => setForm({ ...form, nameHi: e.target.value })}
-                    placeholder="श्रेणी का नाम दर्ज करें"
-                    className="w-full px-4 py-2.5 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 outline-none"
-                  />
-                </div>
-              )}
+              </div>
 
               <div>
                 <label className="flex items-center gap-1.5 text-sm font-medium text-gray-700 mb-1.5">

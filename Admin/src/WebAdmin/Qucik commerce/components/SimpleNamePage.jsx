@@ -24,7 +24,7 @@ export default function SimpleNamePage({
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
   const [editingId, setEditingId] = useState(null);
-  const [form, setForm] = useState({ name: '', nameEn: '', nameHi: '' });
+  const [form, setForm] = useState({ name: '' });
 
   useEffect(() => { load(); }, []);
 
@@ -35,7 +35,7 @@ export default function SimpleNamePage({
   const paginated = filtered.slice((page - 1) * perPage, page * perPage);
 
   const resetForm = () => {
-    setForm({ name: '', nameEn: '', nameHi: '' });
+    setForm({ name: '' });
     setEditingId(null);
   };
 
@@ -56,7 +56,7 @@ export default function SimpleNamePage({
 
   const handleEdit = (item) => {
     setEditingId(item._id);
-    setForm({ name: item.name, nameEn: item.nameEn || '', nameHi: item.nameHi || '' });
+    setForm({ name: item.name });
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
@@ -67,7 +67,7 @@ export default function SimpleNamePage({
   };
 
   const handleExport = () => {
-    const rows = items.map(i => ({ ID: i[idKey], Name: i.name, Name_EN: i.nameEn || '', Name_HI: i.nameHi || '' }));
+    const rows = items.map(i => ({ ID: i[idKey], Name: i.name }));
     const blob = new Blob([toCsv(rows)], { type: 'text/csv' });
     const link = document.createElement('a');
     link.href = URL.createObjectURL(blob);

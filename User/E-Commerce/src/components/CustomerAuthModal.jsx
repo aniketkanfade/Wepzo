@@ -3,7 +3,7 @@ export default function CustomerAuthModal({ open, onClose, mode, setMode, submit
 
   return <div className="modal-backdrop fixed inset-0 z-30 flex items-center justify-center bg-slate-900/70 p-4" onMouseDown={event => event.target === event.currentTarget && onClose()}>
     <div className="modal relative rounded-lg bg-white p-8 shadow-2xl">
-      <button className="close modal-close" onClick={onClose}>Ã—</button>
+      <button className="close modal-close" onClick={onClose}>×</button>
       <span className="eyebrow">YOUR LITTLE CORNER</span>
       <h2>{mode === 'login' ? <>Welcome <em>back.</em></> : <>Join the <em>everyday.</em></>}</h2>
       <p>Sign in to check out and keep your orders close.</p>
@@ -12,7 +12,7 @@ export default function CustomerAuthModal({ open, onClose, mode, setMode, submit
         <label className="field">Email address<input type="email" name="email" placeholder="you@example.com" required /></label>
         <label className="field">Password<input type="password" name="password" placeholder="At least 6 characters" minLength="6" required /></label>
         <button className="button button-dark wide" disabled={busy}>
-          {busy ? 'One momentâ€¦' : mode === 'login' ? 'Sign in' : 'Create account'} <span>*</span>
+          {busy ? 'One moment…' : mode === 'login' ? 'Sign in' : 'Create account'} <span>*</span>
         </button>
       </form>
       <button className="text-button" onClick={() => setMode(mode === 'login' ? 'register' : 'login')}>

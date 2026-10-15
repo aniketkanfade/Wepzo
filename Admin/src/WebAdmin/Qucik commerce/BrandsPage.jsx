@@ -22,7 +22,7 @@ export default function BrandsPage() {
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
   const [editingId, setEditingId] = useState(null);
-  const [form, setForm] = useState({ name: '', nameEn: '', nameHi: '', image: '' });
+  const [form, setForm] = useState({ name: '', image: '' });
   const fileRef = useRef(null);
 
   useEffect(() => { load(); }, []);
@@ -34,7 +34,7 @@ export default function BrandsPage() {
   const paginated = filtered.slice((page - 1) * perPage, page * perPage);
 
   const resetForm = () => {
-    setForm({ name: '', nameEn: '', nameHi: '', image: '' });
+    setForm({ name: '', image: '' });
     setEditingId(null);
     if (fileRef.current) fileRef.current.value = '';
   };
@@ -65,7 +65,7 @@ export default function BrandsPage() {
 
   const handleEdit = (item) => {
     setEditingId(item._id);
-    setForm({ name: item.name, nameEn: item.nameEn || '', nameHi: item.nameHi || '', image: item.image || '' });
+    setForm({ name: item.name, image: item.image || '' });
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
@@ -76,7 +76,7 @@ export default function BrandsPage() {
   };
 
   const handleExport = () => {
-    const rows = items.map(i => ({ ID: i.brandId, Name: i.name, Name_EN: i.nameEn || '', Name_HI: i.nameHi || '', Image: i.image || '' }));
+    const rows = items.map(i => ({ ID: i.brandId, Name: i.name, Image: i.image || '' }));
     const blob = new Blob([toCsv(rows)], { type: 'text/csv' });
     const link = document.createElement('a');
     link.href = URL.createObjectURL(blob);

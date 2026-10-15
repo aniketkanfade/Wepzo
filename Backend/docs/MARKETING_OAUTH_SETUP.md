@@ -2,6 +2,8 @@
 
 Marketing workspace users can authorize Instagram, Facebook, Meta Business, YouTube, Google Ads, and LinkedIn from their own account. The backend stores OAuth tokens encrypted with AES-256-GCM; provider secrets and tokens never go to the browser.
 
+You can also save Meta, Google, and LinkedIn app credentials in Admin → Marketing → Social APIs (or 3rd Party social logins). Env values still override stored values.
+
 ## Backend environment
 
 Add these values to `Backend/.env` (keep the encryption key private and stable across restarts):

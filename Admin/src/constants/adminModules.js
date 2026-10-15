@@ -20,7 +20,7 @@
     aliases: ['marketing', 'promotion', 'promotions'],
   },
   'information-web': {
-    label: 'Information Web',
+    label: 'Web Page',
     path: '/information-web',
     aliases: ['information-web', 'information_web', 'website', 'web', 'general'],
   },

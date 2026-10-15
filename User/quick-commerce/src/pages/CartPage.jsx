@@ -70,7 +70,7 @@ export default function CartPage() {
       </div>
       <div className="bg-white rounded-2xl border border-slate-100 p-5 h-fit">
         <h2 className="font-bold mb-3">Price Details</h2>
-        <BillBreakdown quote={quote} />
+        <BillBreakdown quote={quote} items={items} />
         <button type="button" onClick={goCheckout}
           className="w-full mt-4 py-3 rounded-xl bg-brand-600 text-white font-bold">
           {user ? 'Proceed to Checkout' : 'Login to Checkout'}

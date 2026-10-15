@@ -97,19 +97,14 @@ export default function SettingsSidebar({ mobileOpen, onClose, allowedPaths = nu
     if (location.pathname.includes('/settings/access')) setOpenKey('Access Control');
     else if (location.pathname.includes('/settings/employee')) setOpenKey('Employee Management');
     else if (location.pathname === '/settings/zones' || (location.pathname.startsWith('/settings/zones/') && !location.pathname.startsWith('/settings/zones/tax'))) setOpenKey('Zone Setup');
-    else if (location.pathname.startsWith('/settings/business') || ['/settings/email-sms', '/settings/app', '/settings/payment', '/settings/vendor', '/settings/order', '/settings/refund', '/settings/deliveryman', '/settings/customer', '/settings/priority-setup', '/settings/disbursement', '/settings/automated-message'].includes(location.pathname)) setOpenKey('Business Settings');
-    else if (location.pathname === '/settings' || location.pathname === '/settings/website' || location.pathname === '/settings/website-access' || ['/settings/business', '/settings/payment', '/settings/vendor', '/settings/order', '/settings/refund', '/settings/deliveryman', '/settings/customer', '/settings/priority-setup', '/settings/disbursement', '/settings/automated-message', '/settings/delivery', '/settings/zones/tax', '/settings/tax', '/settings/email-sms', '/settings/notifications'].some(path => location.pathname === path || location.pathname.startsWith(`${path}/`))) setOpenKey('Business Management');
+    else if (location.pathname === '/settings/third-party') setOpenKey('3rd Party & Configuration');
+    else if (location.pathname.startsWith('/settings/business') || ['/settings/email-sms', '/settings/app', '/settings/business/payment', '/settings/vendor', '/settings/order', '/settings/refund', '/settings/deliveryman', '/settings/customer', '/settings/priority-setup', '/settings/disbursement', '/settings/automated-message'].includes(location.pathname)) setOpenKey('Business Settings');
+    else if (location.pathname === '/settings' || location.pathname === '/settings/website' || location.pathname === '/settings/website-access' || ['/settings/business', '/settings/business/payment', '/settings/third-party', '/settings/vendor', '/settings/order', '/settings/refund', '/settings/deliveryman', '/settings/customer', '/settings/priority-setup', '/settings/disbursement', '/settings/automated-message', '/settings/delivery', '/settings/zones/tax', '/settings/tax', '/settings/email-sms', '/settings/notifications'].some(path => location.pathname === path || location.pathname.startsWith(`${path}/`))) setOpenKey('Business Management');
   }, [location.pathname, variant]);
 
   const q = query.trim().toLowerCase();
   const moduleKey = getAdminModuleKey(activeModule);
-  const marketingSettings = new Set([
-    'General Settings', 'App Settings', 'Website Settings', 'Website Visibility',
-    'Business Settings', 'Notification Settings',
-    'Business Management', 'Zone Setup', 'Module Setup', 'Website Module', 'Website Access', 'System Tax',
-    'Security Settings', 'User Management', 'Roles & Permissions',
-    'API & Integration', 'Backup & Restore', 'Audit & Activity Logs', 'System Logs', 'Access Control',
-  ]);
+  const marketingSettings = new Set(['Business Management', 'Business Settings']);
   const moduleItems = moduleKey === 'marketing'
     ? config.items.filter(item => marketingSettings.has(item.label))
     : config.items;

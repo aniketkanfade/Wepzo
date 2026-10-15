@@ -114,7 +114,7 @@ export default function ProductListPage() {
   useEffect(() => { load(); }, [load]);
 
   const storeOptions = useMemo(
-    () => storeList.map(s => ({ value: String(s.storeId), label: `${s.name} (ID: ${s.storeId})` })),
+    () => storeList.map(s => ({ value: String(s.storeId), label: s.name })),
     [storeList]
   );
   const categories = useMemo(() => [...new Set(items.map(i => i.mainCategory).filter(Boolean))].sort(), [items]);
@@ -184,7 +184,7 @@ export default function ProductListPage() {
   };
 
   const filterLabels = [
-    appliedFilters.storeId && `Store: ${storeNameMap[appliedFilters.storeId] || appliedFilters.storeId} (ID: ${appliedFilters.storeId})`,
+    appliedFilters.storeId && `Store: ${storeNameMap[appliedFilters.storeId] || 'Selected store'}`,
     appliedFilters.store && !appliedFilters.storeId && `Store: ${appliedFilters.store}`,
     appliedFilters.zone && `Zone: ${appliedFilters.zone}`,
     appliedFilters.category && `Category: ${appliedFilters.category}`,
@@ -353,8 +353,8 @@ export default function ProductListPage() {
                     </div>
                   </td>
                   <td className={listTdClass}>
-                    <span className="font-medium text-sm hover:underline" style={{ color: TEAL }} title={`Store ID: ${item.storeId || '—'}`}>
-                      {item.store}{item.storeId ? ` (#${item.storeId})` : ''}
+                    <span className="font-medium text-sm hover:underline" style={{ color: TEAL }}>
+                      {item.store || storeNameMap[item.storeId] || '—'}
                     </span>
                   </td>
                   {topSelling && (

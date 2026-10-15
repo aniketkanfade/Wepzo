@@ -141,17 +141,16 @@ export default function UserDetailPage() {
                   <p className="mt-1 text-sm text-slate-600">Domain: {site.domain?.fullDomain || site.domain?.name || 'Not selected'}</p>
                 </div>
                 <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${purchase.status === 'paid' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600'}`}>
-                  {label(purchase.status || 'not paid')}
+                  {purchase.priceMode === 'free' ? 'Free' : label(purchase.status || 'not paid')}
                 </span>
               </div>
               <div className="mt-3 grid gap-3 border-t border-slate-100 pt-3 sm:grid-cols-2 lg:grid-cols-4">
                 <div><p className="text-xs text-slate-500">Payment type</p><p className="mt-1 text-sm font-semibold text-slate-800">{purchase.type === 'subscription' ? 'Subscription' : purchase.type === 'full' ? 'Full payment' : '—'}</p></div>
-                <div><p className="text-xs text-slate-500">Paid amount</p><p className="mt-1 text-sm font-semibold text-slate-800">₹{Number(purchase.amount || 0).toLocaleString('en-IN')}</p></div>
+                <div><p className="text-xs text-slate-500">{purchase.priceMode === 'free' ? 'Plan price' : 'Paid amount'}</p><p className="mt-1 text-sm font-semibold text-slate-800">{purchase.priceMode === 'free' ? `Free${Number(purchase.domainAmount) > 0 ? ` · Domain ₹${Number(purchase.domainAmount).toLocaleString('en-IN')}` : ''}` : `₹${Number(purchase.amount || 0).toLocaleString('en-IN')}`}</p></div>
                 <div><p className="text-xs text-slate-500">Plan duration</p><p className="mt-1 text-sm font-semibold text-slate-800">{purchase.type === 'subscription' ? `${purchase.planName || 'Plan'} · ${durationValue} ${durationUnit}${durationValue === 1 ? '' : 's'}` : purchase.type === 'full' ? 'No expiry' : '—'}</p></div>
                 <div><p className="text-xs text-slate-500">Time remaining</p><p className={`mt-1 text-sm font-semibold ${remaining === 'Expired' ? 'text-rose-700' : 'text-slate-800'}`}>{purchase.type === 'subscription' ? remaining : purchase.type === 'full' ? 'No expiry' : '—'}</p></div>
               </div>
-              {Number(purchase.balanceDue) > 0 && <p className="mt-3 text-xs font-medium text-amber-700">Balance due: ₹{Number(purchase.balanceDue).toLocaleString('en-IN')}</p>}
-              {purchase.paidAt && <p className="mt-2 text-xs text-slate-400">Payment verified: {toDate(purchase.paidAt)}{purchase.expiresAt ? ` · Expires: ${toDate(purchase.expiresAt)}` : ''}</p>}
+              {purchase.paidAt && <p className="mt-2 text-xs text-slate-400">{purchase.priceMode === 'free' ? 'Plan activated' : 'Payment verified'}: {toDate(purchase.paidAt)}{purchase.expiresAt ? ` · Expires: ${toDate(purchase.expiresAt)}` : ''}</p>}
             </article>
           );
         })}

@@ -7,13 +7,13 @@ export default function CartDrawer({ open, onClose, cart, count, subtotal, busin
     <aside className="drawer flex h-full flex-col bg-white p-6 shadow-2xl">
       <div className="drawer-head">
         <div><span className="eyebrow">THE GOOD STUFF</span><h2>Your bag <em>({count})</em></h2></div>
-        <button className="close" onClick={onClose}>Ã—</button>
+        <button className="close" onClick={onClose}>×</button>
       </div>
       {cart.length ? <>
-        <div className="cart-lines">{cart.map(item => <div className="cart-line" key={item.id}>
+        <div className="cart-lines">{cart.map(item => <div className="cart-line" key={`${item.id}:${item.variantId || 'default'}`}>
           <div className="cart-thumb">{item.image ? <img src={item.image} alt="" /> : '?'}</div>
           <div className="line-info">
-            <b>{item.name}</b><span>{money(item.price, business)}</span>
+            <b>{item.name}</b>{item.variantLabel && <small className="cart-variant-label">{item.variantLabel}</small>}<span>{money(item.price, business)}</span>
             <div className="quantity"><button onClick={() => changeQty(item, -1)}>-</button><span>{item.qty}</span><button onClick={() => changeQty(item, 1)}>+</button></div>
           </div>
           <b>{money(item.price * item.qty, business)}</b>
@@ -25,7 +25,7 @@ export default function CartDrawer({ open, onClose, cart, count, subtotal, busin
             <label className="field">Delivery address<textarea value={address} onChange={event => setAddress(event.target.value)} placeholder="House, street, area and city" /></label>
             <label className="field">Phone number<input value={phone} onChange={event => setPhone(event.target.value)} placeholder="10-digit mobile number" /></label>
             <div className="checkout-location">Delivering to {location.pincode || 'your selected location'} <button onClick={() => setLocationOpen(true)}>Change</button></div>
-            <button className="button button-dark wide" disabled={busy} onClick={placeOrder}>{busy ? 'Placing orderâ€¦' : 'Place order Â· Cash on delivery'}</button>
+            <button className="button button-dark wide" disabled={busy} onClick={placeOrder}>{busy ? 'Placing order…' : 'Place order · Cash on delivery'}</button>
           </>}
           {!checkout && <button className="button button-dark wide" onClick={() => {
             setCheckout(true)

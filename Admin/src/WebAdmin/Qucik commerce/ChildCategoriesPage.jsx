@@ -23,7 +23,7 @@ export default function ChildCategoriesPage() {
   const perPage = 25;
 
   const [form, setForm] = useState({
-    name: '', nameEn: '', nameHi: '', categoryId: '', subCategoryId: '',
+    name: '', categoryId: '', subCategoryId: '',
     priority: 'Normal', status: true, featured: false, image: ''
   });
 
@@ -33,7 +33,8 @@ export default function ChildCategoriesPage() {
     api.get('/sub-categories').then(res => setSubCategories(res.data)).catch(() => {});
   }, []);
 
-  const filteredSubs = subCategories.filter(s => !form.categoryId || s.categoryId === form.categoryId);
+  const selectedCategory = categories.find(category => String(category._id) === String(form.categoryId));
+  const filteredSubs = subCategories.filter(s => !form.categoryId || [selectedCategory?._id, selectedCategory?.categoryId].some(id => id != null && String(s.categoryId) === String(id)));
 
   const filtered = items.filter(i =>
     i.name.toLowerCase().includes(search.toLowerCase()) ||
@@ -44,7 +45,7 @@ export default function ChildCategoriesPage() {
   const paginated = filtered.slice((page - 1) * perPage, page * perPage);
 
   const resetForm = () => {
-    setForm({ name: '', nameEn: '', nameHi: '', categoryId: '', subCategoryId: '', priority: 'Normal', status: true, featured: false, image: '' });
+    setForm({ name: '', categoryId: '', subCategoryId: '', priority: 'Normal', status: true, featured: false, image: '' });
     setEditingId(null);
   };
 
@@ -83,7 +84,7 @@ export default function ChildCategoriesPage() {
   const handleEdit = (item) => {
     setEditingId(item._id);
     setForm({
-      name: item.name, nameEn: item.nameEn || '', nameHi: item.nameHi || '',
+      name: item.name,
       categoryId: item.categoryId, subCategoryId: item.subCategoryId,
       priority: item.priority, status: item.status, featured: item.featured, image: item.image || ''
     });

@@ -4,11 +4,12 @@ import {
 } from 'lucide-react';
 import api from '../../api/axios';
 import { downloadFile } from '../../api/download';
+import CategoryImportRowsModal from './components/CategoryImportRowsModal';
 
 const steps = [
   { num: 1, title: 'Download Excel File', desc: 'Download the format file and fill it with proper data. You can see the example file for reference.', icon: FileSpreadsheet, color: 'text-green-600 bg-green-50' },
-  { num: 2, title: 'Match Spreadsheet Data', desc: 'Fill the spreadsheet with category data. Parent category position is 0, sub-category position is 1.', icon: FileSpreadsheet, color: 'text-blue-600 bg-blue-50' },
-  { num: 3, title: 'Validate Data and Import', desc: 'Upload .csv or .xlsx file. System validates automatically. Copy image paths from gallery for images.', icon: CheckCircle, color: 'text-emerald-600 bg-emerald-50' },
+  { num: 2, title: 'Enter Parent ID', desc: 'Use the required parent ID column. Names are not used to link categories.', icon: FileSpreadsheet, color: 'text-blue-600 bg-blue-50' },
+  { num: 3, title: 'Validate Data and Import', desc: 'Upload an .xlsx workbook. System validates automatically. Copy image paths from gallery for images.', icon: CheckCircle, color: 'text-emerald-600 bg-emerald-50' },
 ];
 
 const types = [
@@ -23,6 +24,7 @@ export default function CategoryBulkImportPage() {
   const [file, setFile] = useState(null);
   const [history, setHistory] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [viewItem, setViewItem] = useState(null);
   const [dragOver, setDragOver] = useState(false);
   const fileRef = useRef(null);
 
@@ -33,12 +35,12 @@ export default function CategoryBulkImportPage() {
   };
 
   const downloadTemplate = (withData) => {
-    downloadFile(`/bulk/${dataType}/template?withData=${withData}`, `${dataType}_template.csv`);
+    downloadFile(`/bulk/${dataType}/template?withData=${withData}&format=xlsx`, `${dataType}_${withData ? 'with_data' : 'template'}.xlsx`);
   };
 
   const handleFile = (f) => {
-    if (f && (f.name.endsWith('.csv') || f.name.endsWith('.xlsx') || f.name.endsWith('.xls'))) setFile(f);
-    else alert('Please upload .csv or .xlsx file');
+    if (f && f.name.toLowerCase().endsWith('.xlsx')) setFile(f);
+    else alert('Please upload an .xlsx file');
   };
 
   const handleUpload = async () => {
@@ -51,7 +53,8 @@ export default function CategoryBulkImportPage() {
       const { data } = await api.post(`/bulk/${dataType}/import`, form, {
         headers: { 'Content-Type': 'multipart/form-data' }
       });
-      alert(`Import done! Success: ${data.success}, Failed: ${data.failed}`);
+      const errorDetails = (data.errors || []).slice(0, 5).map(error => `Row ${error.row}: ${error.reason}`).join('\n');
+      alert(`Import done! Success: ${data.success}, Failed: ${data.failed}${errorDetails ? `\n\n${errorDetails}` : ''}`);
       setFile(null);
       loadHistory();
     } catch (err) {
@@ -100,7 +103,7 @@ export default function CategoryBulkImportPage() {
       {/* Template download */}
       <div className="bg-white rounded-xl border border-gray-100 p-6 shadow-sm">
         <h3 className="font-semibold text-gray-900 mb-4">Download Spreadsheet Template</h3>
-        <div className="flex flex-wrap gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           <button onClick={() => downloadTemplate(true)}
             className="px-5 py-2.5 border-2 border-primary-600 text-primary-600 rounded-lg text-sm font-medium hover:bg-primary-50">
             Template With Existing Data
@@ -110,6 +113,7 @@ export default function CategoryBulkImportPage() {
             Template Without Data
           </button>
         </div>
+        <p className="mt-3 text-xs text-gray-500">Templates include a sample row and an available parent ID when one exists. Required parent IDs: Category needs Main Module ID; Sub Category needs Category ID; Child Category needs Sub Category ID. Parent names are not used for matching.</p>
       </div>
 
       {/* Upload */}
@@ -130,7 +134,7 @@ export default function CategoryBulkImportPage() {
 
         <div>
           <h3 className="font-semibold text-gray-900 mb-3">Import File</h3>
-          <input ref={fileRef} type="file" accept=".csv,.xlsx,.xls" className="hidden"
+          <input ref={fileRef} type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" className="hidden"
             onChange={e => handleFile(e.target.files?.[0])} />
           <div
             onDragOver={e => { e.preventDefault(); setDragOver(true); }}
@@ -142,7 +146,7 @@ export default function CategoryBulkImportPage() {
             <Upload size={32} className="mx-auto text-gray-400 mb-3" />
             <p className="font-medium text-gray-700">Drag & Drop your Excel file here or <span className="text-primary-600">Choose File</span></p>
             {file && <p className="text-sm text-primary-600 mt-2 font-medium">{file.name}</p>}
-            <p className="text-xs text-gray-400 mt-2">Supported: .csv, .xls, .xlsx (Max 10MB)</p>
+            <p className="text-xs text-gray-400 mt-2">Supported: .xlsx (Max 10MB)</p>
           </div>
         </div>
 
@@ -194,7 +198,7 @@ export default function CategoryBulkImportPage() {
                     <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${h.status === 'Completed' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>{h.status}</span>
                   </td>
                   <td className="px-4 py-3">
-                    <button className="flex items-center gap-1 text-primary-600 text-xs font-medium hover:underline">
+                    <button onClick={() => setViewItem(h)} className="flex items-center gap-1 text-primary-600 text-xs font-medium hover:underline">
                       <Eye size={14} /> View
                     </button>
                   </td>
@@ -207,6 +211,7 @@ export default function CategoryBulkImportPage() {
           </table>
         </div>
       </div>
+      {viewItem && <CategoryImportRowsModal item={viewItem} onClose={() => setViewItem(null)} onChanged={loadHistory} />}
     </div>
   );
 }

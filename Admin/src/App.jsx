@@ -1,4 +1,6 @@
-import { Navigate, Route, Routes } from 'react-router-dom';
+import { useEffect, useState } from 'react';
+import { Link, Navigate, Route, Routes } from 'react-router-dom';
+import api from './api/axios';
 import { useAuthStore } from './store/useStore';
 import Login from './pages/Login';
 import Register from './pages/Register';
@@ -46,7 +48,9 @@ import MarketingWebsiteContentPage from './WebAdmin/Marketing/MarketingWebsiteCo
 import MarketingUsersPage from './WebAdmin/Marketing/MarketingUsersPage';
 import MarketingSubscriptionsPage from './WebAdmin/Marketing/MarketingSubscriptionsPage';
 import MarketingUserAccountsPage from './WebAdmin/Marketing/MarketingUserAccountsPage';
+import MarketingSocialApisPage from './WebAdmin/Marketing/MarketingSocialApisPage';
 import InformationWebDashboardPage from './WebAdmin/informastion web/InformationWebDashboardPage';
+import WebPageContentPage from './WebAdmin/informastion web/WebPageContentPage';
 import OrderDetailPage from './WebAdmin/Qucik commerce/OrderDetailPage';
 import RefundsPage from './WebAdmin/Qucik commerce/RefundsPage';
 import RefundDetailPage from './WebAdmin/Qucik commerce/RefundDetailPage';
@@ -55,6 +59,7 @@ import FlashSaleFormPage from './WebAdmin/Qucik commerce/FlashSaleFormPage';
 import Layout from './WebAdmin/Qucik commerce/components/Layout';
 import WebsiteBuilder from './WebAdmin/Qucik commerce/components/WebsiteBuilder';
 import SettingsBusinessPage from './pages/settings/SettingsBusinessPage';
+import ThirdPartySettingsPage from './pages/settings/ThirdPartySettingsPage';
 import BusinessSettingsLayout from './pages/settings/BusinessSettingsLayout';
 import SettingsEmployeeRolesPage from './pages/settings/SettingsEmployeeRolesPage';
 import SettingsEmployeesPage from './pages/settings/SettingsEmployeesPage';
@@ -75,6 +80,10 @@ import WebsiteSubscriptionPlansPage from './pages/settings/WebsiteSubscriptionPl
 import WebsiteSubscriptionPage from './pages/WebsiteSubscriptionPage';
 import WebsiteDashboardPage from './pages/WebsiteDashboardPage';
 import WebsiteRenewalPage from './pages/WebsiteRenewalPage';
+import WelcomePage from './pages/WelcomePage';
+import OnDomainPage from './pages/OnDomainPage';
+import WelcomePageAdmin from './pages/settings/WelcomePageAdmin';
+import OnDomainAdminPage from './pages/settings/OnDomainAdminPage';
 import SettingsTaxPage from './pages/settings/SettingsTaxPage';
 import SettingsHubPage from './pages/settings/SettingsHubPage';
 import SettingsGenericPage from './pages/settings/SettingsGenericPage';
@@ -97,14 +106,43 @@ function MainAdminRoute({ children }) {
   return user?.role === 'main_admin' ? children : <Navigate to="/" replace />;
 }
 
+function PaidWebsiteRoute({ children }) {
+  const user = useAuthStore(state => state.user);
+  const [status, setStatus] = useState(user?.role === 'website_user' ? 'loading' : 'allowed');
+
+  useEffect(() => {
+    if (user?.role !== 'website_user') {
+      setStatus('allowed');
+      return undefined;
+    }
+    let active = true;
+    setStatus('loading');
+    api.get('/websites').then(({ data }) => {
+      const websites = Array.isArray(data) ? data : [];
+      const paid = websites.some(website =>
+        website.purchase?.status === 'paid' || (website.status === 'published' && !website.purchase)
+      );
+      if (active) setStatus(paid ? 'allowed' : 'unpaid');
+    }).catch(() => { if (active) setStatus('error'); });
+    return () => { active = false; };
+  }, [user?.role, user?.id, user?.websiteId, user?.selectedModuleSlug]);
+
+  if (user?.role !== 'website_user') return children;
+  if (status === 'loading') return <div className="flex min-h-screen items-center justify-center bg-slate-50 text-sm text-slate-500">Checking website payment...</div>;
+  if (status === 'unpaid') return <Navigate to="/website-builder" replace />;
+  if (status === 'error') return <main className="mx-auto mt-16 max-w-lg rounded-xl border border-amber-200 bg-amber-50 p-6 text-sm text-amber-900">We could not verify your website payment status. <Link className="font-semibold underline" to="/website-builder">Open the website builder</Link> to continue or try again.</main>;
+  return children;
+}
+
 export default function App() {
   return (
     <Routes>
       <Route path="/login" element={<Login />} />
       <Route path="/register" element={<Register />} />
       <Route path="/published-websites/:websiteId" element={<PublishedWebsitePage />} />
-      <Route path="/website-dashboard" element={<PrivateRoute><WebsiteDashboardPage /></PrivateRoute>} />
-      <Route path="/website-renewal" element={<PrivateRoute><WebsiteRenewalPage /></PrivateRoute>} />
+      <Route path="/website-dashboard" element={<PrivateRoute><PaidWebsiteRoute><WebsiteDashboardPage /></PaidWebsiteRoute></PrivateRoute>} />
+      <Route path="/website-renewal" element={<PrivateRoute><PaidWebsiteRoute><WebsiteRenewalPage /></PaidWebsiteRoute></PrivateRoute>} />
+      <Route path="/welcome" element={<PrivateRoute><WelcomePage /></PrivateRoute>} />
       <Route path="/" element={<PrivateRoute><Layout /></PrivateRoute>}>
         <Route index element={<Navigate to="/quick-commerce" replace />} />
         <Route path="quick-commerce" element={<QuickCommerceAdminHome />} />
@@ -118,7 +156,9 @@ export default function App() {
         <Route path="marketing/users" element={<MarketingUsersPage />} />
         <Route path="marketing/users/:userId/accounts" element={<MarketingUserAccountsPage />} />
         <Route path="marketing/subscriptions" element={<MarketingSubscriptionsPage />} />
+        <Route path="marketing/social-apis" element={<MarketingSocialApisPage />} />
         <Route path="information-web" element={<InformationWebDashboardPage />} />
+        <Route path="information-web/content" element={<WebPageContentPage />} />
         <Route path="store-single" element={<StoreSingleAdminHome />} />
         <Route path="store-single/orders" element={<StoreSingleOrdersPage />} />
         <Route path="store-single/catalog" element={<StoreSingleCatalogPage />} />
@@ -127,6 +167,7 @@ export default function App() {
         <Route path="quick-commerce/categories" element={<CategoriesPage />} />
         <Route path="quick-commerce/zones" element={<QuickCommerceZonesPage />} />
         <Route path="website-builder" element={<WebsiteBuilder />} />
+        <Route path="on-domain" element={<OnDomainPage />} />
         <Route path="website-subscription" element={<WebsiteSubscriptionPage />} />
         <Route path="components" element={<ComponentsPage />} />
         <Route path="plans" element={<PlansPage />} />
@@ -181,7 +222,8 @@ export default function App() {
         <Route path="settings/website" element={<SettingsGenericPage pageKey="website" />} />
         <Route path="settings/visibility" element={<SettingsGenericPage pageKey="visibility" />} />
         <Route path="settings/app" element={<BusinessSettingsLayout><SettingsGenericPage pageKey="app" /></BusinessSettingsLayout>} />
-        <Route path="settings/payment" element={<BusinessSettingsLayout><SettingsGenericPage pageKey="payment" /></BusinessSettingsLayout>} />
+        <Route path="settings/payment" element={<Navigate to="/settings/business/payment" replace />} />
+        <Route path="settings/third-party" element={<ThirdPartySettingsPage />} />
         <Route path="settings/notifications" element={<SettingsGenericPage pageKey="notifications" />} />
         <Route path="settings/email-sms" element={<BusinessSettingsLayout><SettingsGenericPage pageKey="emailSms" /></BusinessSettingsLayout>} />
         <Route path="settings/security" element={<SettingsGenericPage pageKey="security" />} />
@@ -193,6 +235,8 @@ export default function App() {
         <Route path="settings/system-logs" element={<SettingsLogsPage kind="system" />} />
         <Route path="settings/business" element={<Navigate to="/settings/business/info" replace />} />
         <Route path="settings/business/info" element={<BusinessSettingsLayout><SettingsBusinessPage /></BusinessSettingsLayout>} />
+        <Route path="settings/business/colors" element={<BusinessSettingsLayout><SettingsBusinessPage colorsOnly /></BusinessSettingsLayout>} />
+        <Route path="settings/business/payment" element={<BusinessSettingsLayout><SettingsGenericPage pageKey="payment" /></BusinessSettingsLayout>} />
         <Route path="settings/vendor" element={<BusinessSettingsLayout><SettingsGenericPage pageKey="vendor" /></BusinessSettingsLayout>} />
         <Route path="settings/order" element={<BusinessSettingsLayout><SettingsGenericPage pageKey="orders" /></BusinessSettingsLayout>} />
         <Route path="settings/refund" element={<BusinessSettingsLayout><SettingsGenericPage pageKey="refund" /></BusinessSettingsLayout>} />
@@ -214,6 +258,8 @@ export default function App() {
         <Route path="settings/modules/add" element={<Navigate to="/quick-commerce/modules/add" replace />} />
         <Route path="settings/modules" element={<Navigate to="/quick-commerce/modules" replace />} />
         <Route path="settings/website-modules" element={<MainAdminRoute><WebsiteModulesPage /></MainAdminRoute>} />
+        <Route path="settings/welcome-page" element={<MainAdminRoute><WelcomePageAdmin /></MainAdminRoute>} />
+        <Route path="settings/on-domain" element={<MainAdminRoute><OnDomainAdminPage /></MainAdminRoute>} />
         <Route path="settings/website-access" element={<MainAdminRoute><WebsiteAccessPage /></MainAdminRoute>} />
         <Route path="settings/website-subscriptions" element={<MainAdminRoute><WebsiteSubscriptionPlansPage /></MainAdminRoute>} />
         <Route path="settings/employee-roles" element={<SettingsEmployeeRolesPage />} />

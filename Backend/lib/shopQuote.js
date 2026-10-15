@@ -1,4 +1,27 @@
-const { distanceMeters, isInsideDeliveryZone } = require('./geoUtils');
+const { distanceMeters, isInsideDeliveryZone, isInsideQuickCommerceZone } = require('./geoUtils');
+
+function normalizePincode(value) {
+  const digits = String(value ?? '').replace(/\D/g, '');
+  return /^\d{6}$/.test(digits) ? digits : '';
+}
+
+function zonePincodes(zone) {
+  const values = [
+    ...(Array.isArray(zone?.pincodes) ? zone.pincodes : []),
+    ...(Array.isArray(zone?.pinAreas) ? zone.pinAreas : []),
+  ];
+  return new Set(values.map(value => {
+    if (value && typeof value === 'object') {
+      return normalizePincode(value.pin || value.pincode || value.pin_code || value.Pincode);
+    }
+    return normalizePincode(value);
+  }).filter(Boolean));
+}
+
+function isEcommerceDeliveryZone(zone) {
+  return [zone?.commerceType, zone?.websiteModuleSlug]
+    .some(value => ['ecommerce', 'e-commerce'].includes(String(value || '').trim().toLowerCase().replace(/_/g, '-')));
+}
 
 function pad2(n) { return String(n).padStart(2, '0'); }
 
@@ -13,9 +36,11 @@ function hmToMinutes(hm) {
 
 function pickQcZone(zones, lat, lng) {
   const list = (zones || []).filter(z =>
-    z.status !== false && (z.commerceType === 'quick_commerce' || !z.commerceType)
+    z.status !== false
+      && !isEcommerceDeliveryZone(z)
+      && (z.commerceType === 'quick_commerce' || !z.commerceType)
   );
-  const hits = list.filter(z => isInsideDeliveryZone(z, lat, lng));
+  const hits = list.filter(z => isInsideQuickCommerceZone(z, lat, lng));
   if (!hits.length) return null;
   hits.sort((a, b) => (Number(a.radiusKm) || 99) - (Number(b.radiusKm) || 99));
   return hits[0];
@@ -107,7 +132,7 @@ function interpolateToward(fromLat, fromLng, toLat, toLng, moveKm) {
 
 function isOrderPicked(order) {
   const st = String(order?.status || '');
-  if (/out for|ofd|handover|picked|deliver/i.test(st)) return true;
+  if (/out for|on the way|on-the-way|ofd|handover|picked|deliver/i.test(st)) return true;
   return (order?.timeline || []).some(t => (t.key === 'picked' || t.key === 'ofd') && t.done);
 }
 
@@ -139,53 +164,105 @@ function simulateRiderOnOrder(order) {
 
 function enrichOrderEta(order) {
   if (!order) return order;
-  const hasRider = order.rider && order.rider.lat != null && order.rider.lng != null && order.rider.name;
+  const onTheWay = isOrderPicked(order);
+  const createdAt = Date.parse(order.createdAt || order.etaStartedAt || '');
+  const elapsedStoreMinutes = Number.isNaN(createdAt)
+    ? 0
+    : Math.max(0, Math.floor((Date.now() - createdAt) / 60000));
+  const configuredStoreMin = Number(order.storeEtaMin) || 0;
+  const configuredStoreMax = Number(order.storeEtaMax) || 0;
+  if (!onTheWay && (configuredStoreMin > 0 || configuredStoreMax > 0)) {
+    const storeMin = configuredStoreMin || configuredStoreMax;
+    const storeMax = Math.max(storeMin, configuredStoreMax || storeMin);
+    order.remainingStoreEtaMin = Math.max(10, storeMin - elapsedStoreMinutes);
+    order.remainingStoreEtaMax = Math.max(order.remainingStoreEtaMin, 10, storeMax - elapsedStoreMinutes);
+  } else {
+    order.remainingStoreEtaMin = 0;
+    order.remainingStoreEtaMax = 0;
+  }
+  const hasRider = onTheWay && order.rider && order.rider.lat != null && order.rider.lng != null && order.rider.name;
   const fromLat = hasRider ? order.rider.lat : order.storeLat;
   const fromLng = hasRider ? order.rider.lng : order.storeLng;
   const km = remainingKm({ fromLat, fromLng, toLat: order.lat, toLng: order.lng });
-  const startedAt = hasRider
-    ? (order.riderAssignedAt || order.etaStartedAt)
-    : order.etaStartedAt;
-  const etaMinutes = liveEtaMinutes({
-    remainingKm: km,
-    scheduledEtaMin: order.scheduledEtaMin,
-    originalKm: order.originalKm || order.distanceKm,
-    startedAt,
-    status: order.status,
-  });
+  const etaMinutes = onTheWay
+    ? liveEtaMinutes({
+      remainingKm: km,
+      scheduledEtaMin: order.scheduledEtaMin,
+      originalKm: order.originalKm || order.distanceKm,
+      startedAt: order.riderAssignedAt || order.etaStartedAt,
+      status: order.status,
+    })
+    : (Number(order.scheduledEtaMin) || etaMinutesFromKm(km));
   order.remainingKm = km != null ? Number(km.toFixed(2)) : order.distanceKm;
   order.etaMinutes = etaMinutes;
   return order;
 }
 
-function quoteDelivery({ store, lat, lng, pincode, itemsTotal, storeId, storeLat, storeLng, moduleSlug = 'grocery' }) {
+function quoteDelivery({ store, lat, lng, pincode, deliveryState, itemsTotal, storeId, storeLat, storeLng, moduleSlug = 'grocery', ecommerceStorefront = false, quickCommerceStorefront = false }) {
   const platformFee = 5;
-  const pin = String(pincode || '').replace(/\D/g, '').slice(0, 6);
+  const pin = normalizePincode(pincode);
   const hasCoordinates = lat != null && lng != null && Number.isFinite(Number(lat)) && Number.isFinite(Number(lng));
-  if (!hasCoordinates && !/^\d{6}$/.test(pin)) {
+  if ((ecommerceStorefront && !/^\d{6}$/.test(pin))
+    || (quickCommerceStorefront && !hasCoordinates)
+    || (!ecommerceStorefront && !quickCommerceStorefront && !hasCoordinates && !/^\d{6}$/.test(pin))) {
     return { deliverable: false, message: 'Delivery location select karo', itemsTotal, deliveryCharge: 0, searchCharge: 0, platformFee, total: itemsTotal + platformFee };
   }
-  const zones = store.deliveryZones || [];
+  const zones = (store.deliveryZones || []).filter(item =>
+    ecommerceStorefront
+      ? (
+      item.status !== false
+      && String(item.status || '').toLowerCase() !== 'inactive'
+      && isEcommerceDeliveryZone(item)
+      )
+      : quickCommerceStorefront
+        ? item.status !== false
+          && String(item.status || '').toLowerCase() !== 'inactive'
+          && !isEcommerceDeliveryZone(item)
+          && (!item.commerceType || item.commerceType === 'quick_commerce')
+        : true
+  );
   const selectedStore = (store.stores || []).find(item => String(item._id) === String(storeId) || String(item.storeId) === String(storeId));
   if (storeId && !selectedStore) {
     return { deliverable: false, message: 'Selected store service area me available nahi hai.', itemsTotal, deliveryCharge: 0, searchCharge: 0, platformFee, total: itemsTotal + platformFee };
   }
+  const normalizedDeliveryState = String(deliveryState || '').trim().toLowerCase().replace(/\s+/g, ' ');
   const customerZones = zones.filter(item =>
-    (hasCoordinates && isInsideDeliveryZone(item, Number(lat), Number(lng)))
-    || (/^\d{6}$/.test(pin) && (item.pincodes || []).some(itemPin => String(itemPin).replace(/\D/g, '') === pin))
+    ecommerceStorefront
+      ? item.scope === 'country'
+        || (item.scope === 'state'
+          && (Array.isArray(item.selectedStates) ? item.selectedStates : [item.state])
+            .some(state => String(state || '').trim().toLowerCase().replace(/\s+/g, ' ') === normalizedDeliveryState))
+        || zonePincodes(item).has(pin)
+      : quickCommerceStorefront
+        ? hasCoordinates && isInsideQuickCommerceZone(item, Number(lat), Number(lng))
+        : (hasCoordinates && isInsideDeliveryZone(item, Number(lat), Number(lng)))
+          || (pin && zonePincodes(item).has(pin))
   );
-  const zone = customerZones.find(item => {
+  const matchingZones = customerZones.filter(item => {
     if (!selectedStore) return true;
+    if (ecommerceStorefront) return true;
     if (selectedStore.zoneId != null && (String(selectedStore.zoneId) === String(item._id) || String(selectedStore.zoneId) === String(item.zoneId))) return true;
-    if ((item.pincodes || []).some(itemPin => String(itemPin).replace(/\D/g, '') === pin)) return true;
-    return hasCoordinates && selectedStore.lat != null && selectedStore.lng != null && isInsideDeliveryZone(item, Number(selectedStore.lat), Number(selectedStore.lng));
-  }) || null;
+    if (pin && zonePincodes(item).has(pin)) return true;
+    return hasCoordinates && selectedStore.lat != null && selectedStore.lng != null
+      && (quickCommerceStorefront
+        ? isInsideQuickCommerceZone(item, Number(selectedStore.lat), Number(selectedStore.lng))
+        : isInsideDeliveryZone(item, Number(selectedStore.lat), Number(selectedStore.lng)));
+  });
+  const zone = matchingZones.sort((a, b) => {
+    if (!ecommerceStorefront) return 0;
+    const priority = item => item.scope === 'country' ? 0 : item.scope === 'state' ? 2 : 1;
+    return priority(a) - priority(b);
+  })[0] || null;
   if (!zone) {
-    return { deliverable: false, message: 'Is location par delivery zone nahi hai', itemsTotal, deliveryCharge: 0, searchCharge: 0, platformFee, total: itemsTotal + platformFee };
+    return {
+      deliverable: false,
+      message: ecommerceStorefront ? 'Out of service area for this PIN code.' : 'Is location par delivery zone nahi hai',
+      itemsTotal, deliveryCharge: 0, searchCharge: 0, platformFee, total: itemsTotal + platformFee,
+    };
   }
   const connectedModules = Array.isArray(zone.modules) ? zone.modules : [];
   const ruleConnected = (zone.deliveryRules || []).some(rule => (rule.modules || (rule.module ? [rule.module] : [])).includes(moduleSlug));
-  if (!connectedModules.includes(moduleSlug) && !ruleConnected) {
+  if (!ecommerceStorefront && !quickCommerceStorefront && !connectedModules.includes(moduleSlug) && !ruleConnected) {
     return { deliverable: false, message: 'This module is not connected to the selected delivery zone.', itemsTotal, deliveryCharge: 0, searchCharge: 0, platformFee, total: itemsTotal + platformFee, zone: { _id: zone._id, name: zone.name, zoneId: zone.zoneId, city: zone.city } };
   }
   const distanceKm = hasCoordinates
@@ -201,10 +278,35 @@ function quoteDelivery({ store, lat, lng, pincode, itemsTotal, storeId, storeLat
     ruleSource = rule ? 'city_default_zone' : 'none';
   }
   if (!rule) {
+    if (quickCommerceStorefront) {
+      return {
+        deliverable: true,
+        message: '',
+        itemsTotal,
+        deliveryCharge: 0,
+        searchCharge: 0,
+        platformFee,
+        total: itemsTotal + platformFee,
+        freeDelivery: true,
+        distanceKm: Number(distanceKm.toFixed(2)),
+        zone: { _id: zone._id, name: zone.name, zoneId: zone.zoneId, city: zone.city },
+        zoneName: zone.name,
+        ruleSource: 'quick_commerce_radius',
+      };
+    }
+    if (ecommerceStorefront) {
+      return {
+        deliverable: true, message: 'Delivery service is available in this area.',
+        itemsTotal, deliveryCharge: 0, searchCharge: 0, platformFee, total: itemsTotal + platformFee,
+        distanceKm: Number(distanceKm.toFixed(2)),
+        zone: { _id: zone._id, name: zone.name, zoneId: zone.zoneId, city: zone.city },
+        ruleSource: 'pincode',
+      };
+    }
     return { deliverable: false, message: 'Delivery charges are not configured for this module in the selected zone.', itemsTotal, deliveryCharge: 0, searchCharge: 0, platformFee, total: itemsTotal + platformFee, distanceKm: Number(distanceKm.toFixed(2)), zone: { _id: zone._id, name: zone.name, zoneId: zone.zoneId, city: zone.city }, ruleSource: 'none' };
   }
   const dropRadiusKm = rule?.dropRadiusKm == null ? null : Number(rule.dropRadiusKm);
-  if (dropRadiusKm > 0 && distanceKm > dropRadiusKm) {
+  if (!ecommerceStorefront && dropRadiusKm > 0 && distanceKm > dropRadiusKm) {
     return {
       deliverable: false,
       message: `Delivery address ${Number(distanceKm.toFixed(1))} km away; module limit is ${dropRadiusKm} km.`,
@@ -250,6 +352,9 @@ function quoteDelivery({ store, lat, lng, pincode, itemsTotal, storeId, storeLat
 }
 
 module.exports = {
+  normalizePincode,
+  zonePincodes,
+  isEcommerceDeliveryZone,
   quoteDelivery,
   pickQcZone,
   pickRule,

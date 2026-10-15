@@ -3,8 +3,9 @@ import { useEffect, useState } from 'react'
 import Home from './pages/Home.jsx'
 import Workspace from './pages/Workspace.jsx'
 import MarketingAuth from './pages/MarketingAuth.jsx'
+import { BrandingProvider } from './BrandingContext.jsx'
 
-export default function App() {
+function AppContent() {
   const [route, setRoute] = useState(window.location.hash)
   const isWorkspaceRoute = route.startsWith('#/app') || route.startsWith('#/dashboard')
   let user = null
@@ -25,4 +26,8 @@ export default function App() {
   if (route.startsWith('#/register')) return <MarketingAuth register />
   if (isWorkspaceRoute) return canEnterWorkspace ? <Workspace /> : <MarketingAuth />
   return <Home />
+}
+
+export default function App() {
+  return <BrandingProvider><AppContent /></BrandingProvider>
 }

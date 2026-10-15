@@ -65,7 +65,7 @@ export function EmployeeFormFields({ form, set, roles, stores, passwordOptional 
         <select value={form.storeId} onChange={e => set('storeId', e.target.value)} className={inputCls}>
           <option value="">All Stores</option>
           {stores.map(s => (
-            <option key={s.storeId} value={s.storeId}>{s.name} (#{s.storeId})</option>
+            <option key={s.storeId} value={s.storeId}>{s.name}</option>
           ))}
         </select>
       </div>

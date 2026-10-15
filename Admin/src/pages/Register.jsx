@@ -44,9 +44,19 @@ export default function Register() {
       setAuth(data.user, data.token);
       resetBuilder();
       const registeredModule = data.module || selectedModule;
-      navigate('/website-builder', {
+      navigate('/welcome', {
         state: {
           moduleType: registeredModule?.type || registeredModule?.slug || moduleSlug,
+          moduleSlug: registeredModule?.slug || moduleSlug,
+          module: {
+            ...selectedModule,
+            ...registeredModule,
+            _id: registeredModule?.id || selectedModule?._id,
+            images: selectedModule?.images || [],
+            image: selectedModule?.image || '',
+            videoUrl: selectedModule?.videoUrl || '',
+            description: selectedModule?.description || '',
+          },
           websiteName: websiteName.trim() || 'My Website',
         },
       });

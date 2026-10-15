@@ -2,14 +2,15 @@ import {
   Building2, Users, Shield, Store, Truck, UserCircle, Briefcase,
   MapPin, Layers, Receipt, Plus, List, UserPlus, IdCard, ToggleLeft, LogIn, History, IndianRupee,
   Settings, Globe, Eye, CreditCard, Bell, Mail, Database, Link2, FolderOpen, ClipboardList,
-  Smartphone, FileText, LayoutGrid,
+  Smartphone, FileText, LayoutGrid, BookOpen,
 } from 'lucide-react';
 
 export const BUSINESS_SETTINGS_SECTIONS = [
   { label: 'Business Info', path: '/settings/business/info', icon: Building2 },
+  { label: 'Theme Colors', path: '/settings/business/colors', icon: Settings },
   { label: 'Email & SMS', path: '/settings/email-sms', icon: Mail },
   { label: 'App Settings', path: '/settings/app', icon: Smartphone },
-  { label: 'Payment', path: '/settings/payment', icon: CreditCard },
+  { label: 'Payment', path: '/settings/business/payment', icon: CreditCard },
   { label: 'Vendor', path: '/settings/vendor', icon: Store },
   { label: 'Order', path: '/settings/order', icon: ClipboardList },
   { label: 'Refund', path: '/settings/refund', icon: Receipt },
@@ -32,12 +33,22 @@ const businessManagementItems = [
   { label: 'System Tax', path: '/settings/zones/tax', icon: Receipt },
 ];
 
+const systemManagementItems = [
+  { label: 'System Management', sectionTitle: true },
+  {
+    label: '3rd Party & Configuration', icon: Settings, children: [
+      { label: '3rd Party', path: '/settings/third-party', icon: CreditCard },
+    ],
+  },
+];
+
 export const SETTINGS_SIDEBARS = {
   settings: {
     title: 'Settings',
     items: [
       { label: 'Business Management', sectionTitle: true },
       ...businessManagementItems,
+      ...systemManagementItems,
       { label: 'Settings', sectionTitle: true },
       { label: 'Add Employee', path: '/settings/employees/add', icon: UserPlus },
       { label: 'Employee Roles', path: '/settings/employee-roles', icon: Shield },
@@ -56,6 +67,8 @@ export const SETTINGS_SIDEBARS = {
   mainAdmin: {
     title: 'Main Admin',
     items: [
+      { label: 'Welcome Page', path: '/settings/welcome-page', icon: BookOpen },
+      { label: 'On Domain Page', path: '/settings/on-domain', icon: Globe },
       { label: 'Website Subscription Plans', path: '/settings/website-subscriptions', icon: CreditCard },
       { label: 'Components', path: '/components', icon: Layers },
       { label: 'Plans', path: '/plans', icon: CreditCard },
@@ -68,6 +81,7 @@ export const SETTINGS_SIDEBARS = {
     items: [
       { label: 'Business Management', sectionTitle: true },
       ...businessManagementItems,
+      ...systemManagementItems,
     ],
   },
   modules: {
@@ -75,6 +89,7 @@ export const SETTINGS_SIDEBARS = {
     items: [
       { label: 'Business Management', sectionTitle: true },
       ...businessManagementItems,
+      ...systemManagementItems,
     ],
   },
   employees: {
@@ -87,7 +102,7 @@ export const SETTINGS_SIDEBARS = {
 };
 
 export function settingsVariantFromPath(pathname) {
-  if (['/components', '/plans', '/users', '/settings/website-access', '/settings/website-subscriptions'].includes(pathname)) return 'mainAdmin';
+  if (['/components', '/plans', '/users', '/settings/website-access', '/settings/website-subscriptions', '/settings/welcome-page', '/settings/on-domain'].includes(pathname)) return 'mainAdmin';
   if (pathname.startsWith('/settings/modules')) return 'modules';
   if (pathname.startsWith('/settings')) return 'settings';
   return null;

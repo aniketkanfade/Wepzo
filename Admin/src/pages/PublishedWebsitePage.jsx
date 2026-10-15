@@ -20,7 +20,14 @@ export default function PublishedWebsitePage() {
 
   const moduleKey = getAdminModuleKey({ slug: website?.websiteModuleSlug, name: website?.moduleName });
   const storefrontUrl = useMemo(() => {
-    if (!website || !['quick-commerce', 'e-commerce'].includes(moduleKey)) return '';
+    if (!website || !['quick-commerce', 'e-commerce', 'information-web'].includes(moduleKey)) return '';
+    if (moduleKey === 'information-web') {
+      const url = new URL(import.meta.env.VITE_GENERAL_PREVIEW_URL || 'http://localhost:5174/', window.location.origin);
+      url.searchParams.set('published', '1');
+      url.searchParams.set('websiteId', website._id);
+      if (website.websiteModuleId) url.searchParams.set('websiteModuleId', website.websiteModuleId);
+      return url.href;
+    }
     if (moduleKey === 'e-commerce') {
       const url = new URL(import.meta.env.VITE_ECOMMERCE_PREVIEW_URL || 'http://localhost:5173/', window.location.origin);
       url.searchParams.set('published', '1');

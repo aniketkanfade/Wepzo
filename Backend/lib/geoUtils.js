@@ -39,6 +39,22 @@ function isInsideDeliveryZone(zone, lat, lng) {
   return false;
 }
 
+function isInsideQuickCommerceZone(zone, lat, lng) {
+  if (!zone || lat == null || lng == null) return false;
+  const radiusKm = Number(zone.radiusKm);
+  const hasCenter = zone.lat != null && zone.lng != null && zone.lat !== '' && zone.lng !== '';
+  const centerLat = Number(zone.lat);
+  const centerLng = Number(zone.lng);
+  const customerLat = Number(lat);
+  const customerLng = Number(lng);
+  if (!Number.isFinite(customerLat) || !Number.isFinite(customerLng)) return false;
+  if (Number.isFinite(radiusKm) && radiusKm > 0 && hasCenter
+    && Number.isFinite(centerLat) && Number.isFinite(centerLng)) {
+    return distanceMeters(centerLat, centerLng, customerLat, customerLng) <= radiusKm * 1000;
+  }
+  return isInsideDeliveryZone(zone, lat, lng);
+}
+
 function hexPolygon(lat, lng, km = 2) {
   const dLat = km / 111;
   const dLng = km / (111 * Math.cos((lat * Math.PI) / 180));
@@ -50,4 +66,4 @@ function hexPolygon(lat, lng, km = 2) {
   return pts;
 }
 
-module.exports = { distanceMeters, formatDistance, pointInPolygon, isInsideDeliveryZone, hexPolygon };
+module.exports = { distanceMeters, formatDistance, pointInPolygon, isInsideDeliveryZone, isInsideQuickCommerceZone, hexPolygon };

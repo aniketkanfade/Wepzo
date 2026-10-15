@@ -37,33 +37,36 @@ function parseCsv(text) {
     return item;
   });
 }
-const categoryHeaders = ['ID', 'Name', 'Name_EN', 'Name_HI', 'Priority', 'Status', 'Featured', 'Image'];
-const subHeaders = ['ID', 'MainCategory', 'Name', 'Name_EN', 'Name_HI', 'Priority', 'Status', 'Featured', 'Image'];
-const childHeaders = ['ID', 'MainCategory', 'SubCategory', 'Name', 'Name_EN', 'Name_HI', 'Priority', 'Status', 'Featured', 'Image'];
+const categoryHeaders = ['ID', 'Name', 'Main Module ID', 'Priority', 'Status', 'Featured', 'Image'];
+const subHeaders = ['ID', 'Category ID', 'Name', 'Priority', 'Status', 'Featured', 'Image'];
+const childHeaders = ['ID', 'Sub Category ID', 'Name', 'Priority', 'Status', 'Featured', 'Image'];
 
 function categoriesToRows(list) {
   return list.map(c => ({
-    ID: c.categoryId, Name: c.name, Name_EN: c.nameEn || '', Name_HI: c.nameHi || '',
+    ID: c.categoryId, Name: c.name, 'Main Module ID': c.moduleId || '',
     Priority: c.priority, Status: c.status ? 'Active' : 'Inactive', Featured: c.featured ? 'Yes' : 'No', Image: c.image || ''
   }));
 }
 
-function subToRows(list) {
+function subToRows(list, references = {}) {
   return list.map(c => ({
-    ID: c.subCategoryId, MainCategory: c.mainCategory, Name: c.name, Name_EN: c.nameEn || '', Name_HI: c.nameHi || '',
+    ID: c.subCategoryId, 'Category ID': references.categories?.find(category => String(category._id) === String(c.categoryId) || String(category.categoryId) === String(c.categoryId))?.categoryId || c.categoryId || '',
+    Name: c.name,
     Priority: c.priority, Status: c.status ? 'Active' : 'Inactive', Featured: c.featured ? 'Yes' : 'No', Image: c.image || ''
   }));
 }
 
-function childToRows(list) {
+function childToRows(list, references = {}) {
   return list.map(c => ({
-    ID: c.childCategoryId, MainCategory: c.mainCategory, SubCategory: c.subCategory, Name: c.name,
-    Name_EN: c.nameEn || '', Name_HI: c.nameHi || '', Priority: c.priority,
+    ID: c.childCategoryId,
+    'Sub Category ID': references.subCategories?.find(sub => String(sub._id) === String(c.subCategoryId) || String(sub.subCategoryId) === String(c.subCategoryId))?.subCategoryId || c.subCategoryId || '',
+    Name: c.name,
+    Priority: c.priority,
     Status: c.status ? 'Active' : 'Inactive', Featured: c.featured ? 'Yes' : 'No', Image: c.image || ''
   }));
 }
 
-const { attachStoreRef, findStoreById, findStoreByName } = require('./storeDataUtils');
+const { attachStoreRef, findStoreById } = require('./storeDataUtils');
 const ExcelJS = require('exceljs');
 
 function excelCellText(value) {
@@ -119,28 +122,28 @@ async function toExcelBuffer(rows, headers, worksheetName = 'Products') {
 }
 
 function templateRow(type) {
-  if (type === 'sub-categories') return { ID: '', MainCategory: 'Electronics', Name: 'Sample Sub', Name_EN: '', Name_HI: '', Priority: 'Normal', Status: 'Active', Featured: 'No', Image: '' };
-  if (type === 'child-categories') return { ID: '', MainCategory: 'Electronics', SubCategory: 'Headphones', Name: 'Sample Child', Name_EN: '', Name_HI: '', Priority: 'Normal', Status: 'Active', Featured: 'No', Image: '' };
+  if (type === 'sub-categories') return { ID: '', 'Category ID': '', Name: 'Sample Sub', Priority: 'Normal', Status: 'Active', Featured: 'No', Image: '' };
+  if (type === 'child-categories') return { ID: '', 'Sub Category ID': '', Name: 'Sample Child', Priority: 'Normal', Status: 'Active', Featured: 'No', Image: '' };
   if (type === 'products') return {
     Name: 'Sample Product', 'Product Code': '', SKU: 'SKU001', Barcode: '8901234567890',
-    Category: 'Groceries', 'Sub Category': '', Brand: 'Sample Brand', Unit: 'piece',
-    'Child Category': '', StoreId: '', Store: '', Price: '100', Stock: '10',
+    'Main Module ID': '', 'Category ID': '', 'Sub Category ID': '', 'Child Category ID': '', 'Brand ID': '', 'Unit ID': '',
+    'Store ID': '', Price: '100', Stock: '10',
     Discount: '0', 'Discount Type': 'Percent', Status: 'Active', Image: '', Images: '[]',
-    Attributes: '{}', 'Delivery Mode': 'Home Delivery', Name_EN: '', Name_HI: '',
-    'Short Description': '', 'Short Description EN': '', Tags: '[]', Warranty: 'No',
+    Attributes: '{}', 'Delivery Mode': 'Home Delivery',
+    'Short Description': '', Tags: '[]', Warranty: 'No',
     Guarantee: 'No', Exchange: 'No', 'Low Stock Limit': '10', 'Max Purchase Qty': '10',
     'Licence Number': '',
   };
-  return { ID: '', Name: 'Sample Category', Name_EN: '', Name_HI: '', Priority: 'Normal', Status: 'Active', Featured: 'No', Image: '' };
+  return { ID: '', Name: 'Sample Category', 'Main Module ID': '', Priority: 'Normal', Status: 'Active', Featured: 'No', Image: '' };
 }
 
 const PRODUCT_GROUP_HEADERS = {
-  basic: ['ID', 'Name', 'Product Code', 'SKU', 'Barcode', 'Category', 'Sub Category', 'Child Category', 'Brand', 'Unit', 'Status'],
+  basic: ['ID', 'Name', 'Product Code', 'SKU', 'Barcode', 'Main Module ID', 'Category ID', 'Sub Category ID', 'Child Category ID', 'Brand ID', 'Unit ID', 'Status'],
   price: ['Price', 'Stock', 'Discount', 'Discount Type'],
-  store: ['StoreId', 'Store'],
+  store: ['Store ID'],
   images: ['Image', 'Images'],
   attributes: ['Attributes'],
-  additional: ['Delivery Mode', 'Created At', 'Name_EN', 'Name_HI', 'Short Description', 'Short Description EN', 'Tags', 'Warranty', 'Guarantee', 'Exchange', 'Low Stock Limit', 'Max Purchase Qty', 'Licence Number'],
+  additional: ['Delivery Mode', 'Created At', 'Short Description', 'Tags', 'Warranty', 'Guarantee', 'Exchange', 'Low Stock Limit', 'Max Purchase Qty', 'Licence Number'],
 };
 
 function productHeaders(selectedGroups) {
@@ -148,21 +151,35 @@ function productHeaders(selectedGroups) {
   return [...new Set(groups.flatMap(group => PRODUCT_GROUP_HEADERS[group] || []))];
 }
 
-function productsToRows(list, selectedGroups) {
-  const allRows = list.map(p => ({
+function productsToRows(list, selectedGroups, references = {}) {
+  const findRef = (records = [], id, sequenceKey) => id
+    ? records.find(item => String(item._id) === String(id) || String(item[sequenceKey] ?? '') === String(id))
+    : null;
+  const allRows = list.map(p => {
+    const category = findRef(references.categories, p.mainCategoryId || p.categoryId, 'categoryId');
+    const subCategory = findRef(references.subCategories, p.subCategoryId, 'subCategoryId');
+    const childCategory = findRef(references.childCategories, p.childCategoryId, 'childCategoryId');
+    const brand = findRef(references.brands, p.brandId, 'brandId');
+    const unit = findRef(references.units, p.unitId, 'unitId');
+    return {
     ID: p.productId || '', Name: p.name || '', 'Product Code': p.productCode || '', SKU: p.sku || '', Barcode: p.barcode || '',
-    Category: p.mainCategory || '', 'Sub Category': p.subCategory || '', 'Child Category': p.childCategory || '', Brand: p.brand || '', Unit: p.unit || '',
-    StoreId: p.storeId || '', Store: p.store || '', Price: p.price ?? '', Stock: p.stock ?? '',
+    'Main Module ID': category?.moduleId || p.moduleId || p.systemModuleId || '',
+    'Category ID': category?.categoryId || (p.categoryId && !category ? p.categoryId : '') || '',
+    'Sub Category ID': subCategory?.subCategoryId || '',
+    'Child Category ID': childCategory?.childCategoryId || '',
+    'Brand ID': brand?.brandId || '', Brand: brand?.name || p.brand || '',
+    'Unit ID': unit?.unitId || '', Unit: unit?.name || p.unit || '',
+    'Store ID': p.storeId || '', Store: p.store || '', Price: p.price ?? '', Stock: p.stock ?? '',
     Status: p.status === false ? 'Inactive' : 'Active', Image: p.image || p.images?.[0] || '',
     Images: JSON.stringify(p.images || []), Attributes: JSON.stringify(p.attributes || p.variations || {}),
     Discount: p.discount ?? '', 'Discount Type': p.discountType || 'Percent',
     'Delivery Mode': p.deliveryMode || '', 'Created At': p.createdAt || '',
-    Name_EN: p.nameEn || '', Name_HI: p.nameHi || '', 'Short Description': p.shortDesc || '',
-    'Short Description EN': p.shortDescEn || '', Tags: JSON.stringify(p.tags || []),
+    'Short Description': p.shortDesc || '', Tags: JSON.stringify(p.tags || []),
     Warranty: p.warranty || false, Guarantee: p.guarantee || false, Exchange: p.exchange || false,
     'Low Stock Limit': p.lowStockLimit ?? 10, 'Max Purchase Qty': p.maxPurchaseQty ?? 10,
     'Licence Number': p.licenceNumber || '',
-  }));
+    };
+  });
   const headers = productHeaders(selectedGroups);
   return allRows.map(row => Object.fromEntries(headers.map(header => [header, row[header]])));
 }
@@ -242,13 +259,83 @@ function importProductsFromRows(rows, store, uuidv4) {
     }
 
     const requestedStoreId = productRowValue(row, 'StoreId', 'Store ID');
-    const requestedStoreName = productRowValue(row, 'Store', 'Store Name');
     const storeRecord = requestedStoreId
       ? findStoreById(requestedStoreId, store.stores)
-      : requestedStoreName ? findStoreByName(requestedStoreName, store.stores) : null;
-    if ((requestedStoreId || requestedStoreName) && !storeRecord) {
+      : null;
+    if (requestedStoreId && !storeRecord) {
       failed += 1;
-      errors.push({ row: rowNumber, reason: 'Store ID or Store name was not found' });
+      errors.push({ row: rowNumber, reason: 'Store ID was not found' });
+      return;
+    }
+
+    const findByReferenceId = (records, id, sequenceKey) => id
+      ? records.find(record => String(record._id) === String(id) || String(record[sequenceKey] ?? '') === String(id))
+      : null;
+    const requestedCategoryId = productRowValue(row, 'Category ID', 'Main Category ID');
+    const categoryRecord = findByReferenceId(store.categories, requestedCategoryId, 'categoryId');
+    const requestedSubCategoryId = productRowValue(row, 'Sub Category ID');
+    const subCategoryRecord = findByReferenceId(store.subCategories, requestedSubCategoryId, 'subCategoryId');
+    const requestedChildCategoryId = productRowValue(row, 'Child Category ID');
+    const childCategoryRecord = findByReferenceId(store.childCategories, requestedChildCategoryId, 'childCategoryId');
+    const requestedBrandId = productRowValue(row, 'Brand ID');
+    const brandRecord = findByReferenceId(store.brands, requestedBrandId, 'brandId');
+    const requestedUnitId = productRowValue(row, 'Unit ID');
+    const unitRecord = findByReferenceId(store.units, requestedUnitId, 'unitId');
+    const requestedModuleId = productRowValue(row, 'Main Module ID', 'Module ID');
+    const moduleRecord = categoryRecord && (store.systemModules || []).find(module => String(module._id) === String(categoryRecord.moduleId));
+    const invalidLabels = [
+      requestedCategoryId && !categoryRecord ? 'Category' : '',
+      requestedSubCategoryId && !subCategoryRecord ? 'Sub Category' : '',
+      requestedChildCategoryId && !childCategoryRecord ? 'Child Category' : '',
+      requestedBrandId && !brandRecord ? 'Brand' : '',
+      requestedUnitId && !unitRecord ? 'Unit' : '',
+      requestedModuleId && (!moduleRecord || String(moduleRecord._id) !== requestedModuleId) ? 'Main Module' : '',
+    ].filter(Boolean);
+    if (invalidLabels.length) {
+      errors.push({ row: rowNumber, reason: `${invalidLabels.join(', ')} ID was not found` });
+      failed += 1;
+      return;
+    }
+    if (!requestedChildCategoryId || !childCategoryRecord) {
+      errors.push({ row: rowNumber, reason: 'Child Category ID is required and must match an existing child category' });
+      failed += 1;
+      return;
+    }
+    if (!requestedModuleId || !requestedCategoryId || !requestedSubCategoryId || !requestedBrandId || !requestedUnitId) {
+      errors.push({ row: rowNumber, reason: 'Main Module ID, Category ID, Sub Category ID, Brand ID and Unit ID are required' });
+      failed += 1;
+      return;
+    }
+    const categoryKeys = categoryRecord ? [categoryRecord._id, categoryRecord.categoryId].filter(value => value != null).map(String) : [];
+    const subCategoryKeys = subCategoryRecord ? [subCategoryRecord._id, subCategoryRecord.subCategoryId].filter(value => value != null).map(String) : [];
+    if (categoryRecord && subCategoryRecord && subCategoryRecord.categoryId &&
+        !categoryKeys.includes(String(subCategoryRecord.categoryId))) {
+      failed += 1;
+      errors.push({ row: rowNumber, reason: 'Sub Category ID does not belong to the Category ID' });
+      return;
+    }
+    if (subCategoryRecord && childCategoryRecord && childCategoryRecord.subCategoryId &&
+        !subCategoryKeys.includes(String(childCategoryRecord.subCategoryId))) {
+      failed += 1;
+      errors.push({ row: rowNumber, reason: 'Child Category ID does not belong to the Sub Category ID' });
+      return;
+    }
+    const childSubKeys = [childCategoryRecord.subCategoryId].filter(Boolean).map(String);
+    const subCategoryKeysForChild = [subCategoryRecord?._id, subCategoryRecord?.subCategoryId].filter(Boolean).map(String);
+    if (!subCategoryRecord || !childSubKeys.some(key => subCategoryKeysForChild.includes(key))) {
+      failed += 1;
+      errors.push({ row: rowNumber, reason: 'Child Category ID does not belong to the Sub Category ID' });
+      return;
+    }
+    const childCategoryRecordCategoryId = childCategoryRecord.categoryId;
+    if (childCategoryRecordCategoryId && !categoryKeys.includes(String(childCategoryRecordCategoryId))) {
+      failed += 1;
+      errors.push({ row: rowNumber, reason: 'Child Category does not belong to the Category ID' });
+      return;
+    }
+    if (requestedModuleId && categoryRecord && String(categoryRecord.moduleId || '') !== requestedModuleId) {
+      failed += 1;
+      errors.push({ row: rowNumber, reason: 'Main Module ID does not belong to the Category ID' });
       return;
     }
 
@@ -276,11 +363,19 @@ function importProductsFromRows(rows, store, uuidv4) {
       productCode,
       sku: productRowValue(row, 'SKU') || `SKU${String(nextId).padStart(3, '0')}`,
       barcode: productRowValue(row, 'Barcode') || `8901234567${String(nextId).padStart(3, '0')}`,
-      mainCategory: productRowValue(row, 'Category', 'Main Category') || 'General',
-      subCategory: productRowValue(row, 'Sub Category'),
-      childCategory: productRowValue(row, 'Child Category'),
-      brand: productRowValue(row, 'Brand'),
-      unit: productRowValue(row, 'Unit') || 'piece',
+      categoryId: categoryRecord?._id || '',
+      mainCategoryId: categoryRecord?._id || '',
+      mainCategory: categoryRecord.name,
+      moduleId: categoryRecord?.moduleId || '',
+      systemModuleId: categoryRecord?.moduleId || '',
+      subCategoryId: subCategoryRecord?._id || '',
+      subCategory: subCategoryRecord.name,
+      childCategoryId: childCategoryRecord?._id || '',
+      childCategory: childCategoryRecord.name,
+      brandId: brandRecord?._id || '',
+      brand: brandRecord.name,
+      unitId: unitRecord?._id || '',
+      unit: unitRecord.name,
       storeId: storeRecord?.storeId,
       store: storeRecord?.name || '',
       price,
@@ -295,10 +390,7 @@ function importProductsFromRows(rows, store, uuidv4) {
       images,
       attributes,
       inGallery: true,
-      nameEn: productRowValue(row, 'Name_EN', 'Name English'),
-      nameHi: productRowValue(row, 'Name_HI', 'Name Hindi'),
       shortDesc: productRowValue(row, 'Short Description'),
-      shortDescEn: productRowValue(row, 'Short Description EN', 'Short Description English'),
       warranty: parseProductBoolean(productRowValue(row, 'Warranty')),
       guarantee: parseProductBoolean(productRowValue(row, 'Guarantee')),
       exchange: parseProductBoolean(productRowValue(row, 'Exchange')),

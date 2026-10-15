@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { CalendarClock, CreditCard, Globe2 } from 'lucide-react';
 import api from '../api/axios';
+import OnDomainDownloadCard from '../components/OnDomainDownloadCard';
 
 const panel = 'rounded-xl border border-slate-200 bg-white p-5 shadow-sm';
 const dateText = value => value ? new Date(value).toLocaleString() : '—';
@@ -41,16 +42,19 @@ export default function WebsiteSubscriptionPage() {
   const purchase = website.purchase || {};
   const subscription = purchase.type === 'subscription';
   const remaining = remainingText(purchase.expiresAt, clock);
+  const expired = subscription && remaining === 'Expired';
+  const paidAmount = subscription ? Number(purchase.amount) || 0 : Number(purchase.amount || website.totalAmount || 0);
   return <main className="mx-auto max-w-4xl space-y-5 p-1">
-    <header><h1 className="text-2xl font-bold text-slate-900">Plan & Subscription</h1><p className="mt-1 text-sm text-slate-500">Payment term starts when the payment is verified.</p></header>
+    <header><h1 className="text-2xl font-bold text-slate-900">Plan & Subscription</h1><p className="mt-1 text-sm text-slate-500">A paid plan starts when payment is verified; a free plan starts when activated.</p></header>
     <section className={panel}>
-      <div className="flex flex-wrap items-start justify-between gap-4"><div><p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Website</p><h2 className="mt-1 text-xl font-bold text-slate-900">{website.name || 'My Website'}</h2><p className="mt-1 text-sm text-slate-600">{website.domain?.fullDomain || website.domain?.name || 'No domain'}</p></div><span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-700">{purchase.status === 'paid' ? 'Paid' : 'Published'}</span></div>
+      <div className="flex flex-wrap items-start justify-between gap-4"><div><p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Website</p><h2 className="mt-1 text-xl font-bold text-slate-900">{website.name || 'My Website'}</h2><p className="mt-1 text-sm text-slate-600">{website.domain?.fullDomain || website.domain?.name || 'No domain'}</p></div><span className={`rounded-full px-3 py-1 text-xs font-semibold ${expired ? 'bg-rose-100 text-rose-700' : 'bg-emerald-100 text-emerald-700'}`}>{expired ? 'Expired' : purchase.status === 'paid' ? 'Paid' : 'Published'}</span></div>
       <div className="mt-5 grid gap-3 border-t border-slate-100 pt-4 sm:grid-cols-2">
-        <div className="flex items-start gap-3"><span className="rounded-lg bg-blue-50 p-2 text-blue-800"><CreditCard size={18}/></span><div><p className="text-xs text-slate-500">Purchase</p><p className="mt-1 text-sm font-semibold text-slate-900">{subscription ? purchase.planName || 'Subscription' : 'Full purchase'}</p><p className="mt-1 text-sm text-slate-600">Paid ₹{Number(purchase.amount || website.totalAmount || 0).toLocaleString('en-IN')}{Number(purchase.balanceDue) > 0 ? ` · balance ₹${Number(purchase.balanceDue).toLocaleString('en-IN')}` : ''}</p></div></div>
+        <div className="flex items-start gap-3"><span className="rounded-lg bg-blue-50 p-2 text-blue-800"><CreditCard size={18}/></span><div><p className="text-xs text-slate-500">Purchase</p><p className="mt-1 text-sm font-semibold text-slate-900">{subscription ? purchase.planName || 'Subscription' : 'Full purchase'}</p><p className="mt-1 text-sm text-slate-600">{purchase.priceMode === 'free' ? `Free plan${Number(purchase.domainAmount) > 0 ? ` · Domain ₹${Number(purchase.domainAmount).toLocaleString('en-IN')}` : ''}` : subscription ? `Subscription ₹${Number(purchase.subscriptionAmount || paidAmount).toLocaleString('en-IN')}${Number(purchase.domainAmount) > 0 ? ` · Domain ₹${Number(purchase.domainAmount).toLocaleString('en-IN')}` : ''}` : `Paid ₹${paidAmount.toLocaleString('en-IN')}`}</p></div></div>
         <div className="flex items-start gap-3"><span className="rounded-lg bg-emerald-50 p-2 text-emerald-800"><CalendarClock size={18}/></span><div><p className="text-xs text-slate-500">{subscription ? 'Time remaining' : 'Validity'}</p><p className="mt-1 text-sm font-semibold text-slate-900">{subscription ? remaining : 'No expiry'}</p>{subscription && <p className="mt-1 text-xs text-slate-500">{purchase.subscriptionDurationValue || 30} {purchase.subscriptionDurationUnit || 'day'} term</p>}</div></div>
         <div className="flex items-start gap-3"><span className="rounded-lg bg-slate-100 p-2 text-slate-700"><Globe2 size={18}/></span><div><p className="text-xs text-slate-500">Domain</p><p className="mt-1 text-sm font-semibold text-slate-900">{website.domain?.fullDomain || 'Not connected'}</p></div></div>
-        <div><p className="text-xs text-slate-500">Payment verified</p><p className="mt-1 text-sm font-semibold text-slate-900">{dateText(purchase.paidAt)}</p>{purchase.expiresAt && <p className="mt-1 text-xs text-slate-500">Expires {dateText(purchase.expiresAt)}</p>}</div>
+        <div><p className="text-xs text-slate-500">{purchase.priceMode === 'free' ? 'Plan activated' : 'Payment verified'}</p><p className="mt-1 text-sm font-semibold text-slate-900">{dateText(purchase.paidAt)}</p>{purchase.expiresAt && <p className="mt-1 text-xs text-slate-500">Expires {dateText(purchase.expiresAt)}</p>}</div>
       </div>
     </section>
+    <OnDomainDownloadCard/>
   </main>;
 }

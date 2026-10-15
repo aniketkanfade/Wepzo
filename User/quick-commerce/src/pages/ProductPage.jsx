@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+﻿import { useEffect, useMemo, useState } from 'react';
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import {
-  BadgeCheck, Check, ChevronRight, Heart, Image as ImageIcon, MapPin,
+  BadgeCheck, Check, ChevronDown, ChevronRight, Heart, Image as ImageIcon, MapPin,
   Minus, PackageCheck, Plus, RotateCcw, ShieldCheck, ShoppingCart,
   Star, Store, Truck, Zap,
 } from 'lucide-react';
@@ -15,7 +15,7 @@ import { formatMoney, useSiteSettings } from '../store/siteSettings';
 function variantLabel(variant) {
   const attributes = variant.attributes || {};
   const parts = Object.entries(attributes).map(([key, value]) => `${key}: ${value}`);
-  return parts.length ? parts.join(' � ') : (variant.sku || 'Option');
+  return parts.length ? parts.join(' Â· ') : (variant.sku || 'Option');
 }
 
 function compactCount(value) {
@@ -26,6 +26,7 @@ function compactCount(value) {
 }
 
 export default function ProductPage() {
+  const routeLocation = useLocation();
   const { id } = useParams();
   const navigate = useNavigate();
   const add = useCart(state => state.add);
@@ -37,7 +38,8 @@ export default function ProductPage() {
   const [loadError, setLoadError] = useState('');
   const [deliveryEta, setDeliveryEta] = useState('');
   const [qty, setQty] = useState(1);
-  const [tab, setTab] = useState('details');
+  const [openSections, setOpenSections] = useState({ details: true, highlights: false });
+  const [zoomOrigin, setZoomOrigin] = useState('50% 50%');
   const [activeImg, setActiveImg] = useState('');
   const [showVideo, setShowVideo] = useState(false);
   const [variantId, setVariantId] = useState('');
@@ -49,7 +51,7 @@ export default function ProductPage() {
     setLoading(true);
     setLoadError('');
     setQty(1);
-    setTab('details');
+    setOpenSections({ details: true, highlights: false });
     setShowVideo(false);
     shop.product(id, { lat: location?.lat, lng: location?.lng }).then(data => {
       if (!live) return;
@@ -83,8 +85,7 @@ export default function ProductPage() {
     () => (p?.variants || []).find(item => item.id === variantId) || null,
     [p, variantId]
   );
-
-  if (loading) return <div className="mx-auto max-w-[1280px] px-4 py-16 text-center text-sm text-slate-400">Loading product details�</div>;
+  if (loading) return <div className="mx-auto max-w-[1280px] px-4 py-16 text-center text-sm text-slate-400">Loading product detailsâ€¦</div>;
   if (loadError || !p) return (
     <div className="mx-auto max-w-[1280px] px-4 py-16 text-center">
       <p className="font-semibold text-slate-700">{loadError || 'Product not found.'}</p>
@@ -117,7 +118,7 @@ export default function ProductPage() {
     p.warranty && { icon: ShieldCheck, label: p.warranty },
     p.guarantee && { icon: BadgeCheck, label: 'Product guarantee available' },
     p.exchange && { icon: RotateCcw, label: 'Exchange available' },
-    stockKnown && stock > 0 && { icon: PackageCheck, label: stock <= 5 ? `Only ${stock} left in stock` : 'In stock' },
+    stockKnown && stock > 0 && { icon: PackageCheck, label: stock <= 5 ? `Only ${stock} left in stock` : 'In stock', mobileHide: true },
   ].filter(Boolean);
 
   const addToCart = () => {
@@ -128,7 +129,7 @@ export default function ProductPage() {
   const buyNow = () => {
     if (outOfStock) return;
     add(cartProduct, qty);
-    navigate('/checkout');
+    navigate('/checkout', { state: { backgroundLocation: routeLocation } });
   };
   const updateQty = amount => {
     setQty(current => {
@@ -142,6 +143,13 @@ export default function ProductPage() {
     if (selected.image) setActiveImg(selected.image);
   };
   const changeLocation = () => window.dispatchEvent(new Event('wepzo:open-location'));
+  const toggleSection = key => setOpenSections(current => ({ ...current, [key]: !current[key] }));
+  const section = (key, title, content) => <section className={`qc-product-accordion ${key === 'warranty' ? 'qc-mobile-hide' : ''}`} key={key}>
+    <button type="button" aria-expanded={Boolean(openSections[key])} onClick={() => toggleSection(key)}>
+      <span>{title}</span><ChevronDown size={17} className={openSections[key] ? 'open' : ''} />
+    </button>
+    {openSections[key] && <div className="qc-product-accordion-content">{content}{key === 'specs' && <div className="qc-mobile-only qc-product-mobile-warranty"><h3>Warranty &amp; Returns</h3><p>{p.warranty || 'Warranty information is not available for this product.'}</p>{p.exchange && <p>Exchange: {p.exchange}</p>}</div>}</div>}
+  </section>;
 
   return (
     <div className="qc-product-page mx-auto max-w-[1280px] px-4 pb-10 pt-2">
@@ -165,20 +173,24 @@ export default function ProductPage() {
             ))}
             {p.video && <button type="button" onClick={() => setShowVideo(true)} aria-label="Play product video" className={showVideo ? 'active' : ''}><span className="qc-video-thumb">?</span></button>}
           </div>
-          <div className="qc-product-image-stage">
+          <div className="qc-product-image-stage" onMouseMove={event => {
+            const bounds = event.currentTarget.getBoundingClientRect();
+            setZoomOrigin(`${((event.clientX - bounds.left) / bounds.width) * 100}% ${((event.clientY - bounds.top) / bounds.height) * 100}%`);
+          }} onMouseLeave={() => setZoomOrigin('50% 50%')}>
             {currentDiscount > 0 && <span className="qc-product-discount">{currentDiscount}% OFF</span>}
             <button type="button" onClick={() => toggleWishlist(p)} aria-label={isWished ? 'Remove from wishlist' : 'Add to wishlist'} className={'qc-product-wishlist ' + (isWished ? 'wished' : '')}>
               <Heart size={20} fill={isWished ? 'currentColor' : 'none'} />
             </button>
-            {showVideo && p.video ? <video src={p.video} controls autoPlay className="qc-product-main-media" /> : displayImg ? <img src={displayImg} alt={p.name} className="qc-product-main-media" /> : <div className="qc-product-no-image"><ImageIcon size={36} /><span>Image unavailable</span></div>}
+            {showVideo && p.video ? <video src={p.video} controls autoPlay className="qc-product-main-media" /> : displayImg ? <img src={displayImg} alt={p.name} className="qc-product-main-media" style={{ transformOrigin: zoomOrigin }} /> : <div className="qc-product-no-image"><ImageIcon size={36} /><span>Image unavailable</span></div>}
           </div>
         </div>
 
         <div className="qc-product-information">
-          <p className="qc-product-eyebrow">{[p.category, p.subCategory].filter(Boolean).join(' � ')}</p>
+          <p className="qc-product-eyebrow">{[p.category, p.subCategory].filter(Boolean).join(' Â· ')}</p>
+          {p.store && <Link className="qc-product-store-mobile-link" to={`/c?storeId=${encodeURIComponent(p.storeId || '')}&store=${encodeURIComponent(p.store)}`}>{p.store}</Link>}
           <h1>{p.name}</h1>
-          <div className="qc-product-meta">{p.unit && <span>{p.unit}</span>}{p.brand && <span>Brand: {p.brand}</span>}{p.productId && <span>Product ID: {p.productId}</span>}</div>
-          {rating > 0 && <a href="#product-reviews" onClick={() => setTab('reviews')} className="qc-product-rating-link"><span><Star size={15} fill="currentColor" /> {rating.toFixed(1)}</span><b>{compactCount(reviewCount)} ratings</b></a>}
+          <div className="qc-product-meta">{p.unit && <span>{p.unit}</span>}{p.brand && <span>Brand: {p.brand}</span>}</div>
+          {rating > 0 && <button type="button" onClick={() => { setOpenSections(current => ({ ...current, reviews: true })); document.getElementById('product-reviews')?.scrollIntoView({ behavior: 'smooth', block: 'center' }); }} className="qc-product-rating-link"><span><Star size={15} fill="currentColor" /> {rating.toFixed(1)}</span><b>{compactCount(reviewCount)} ratings</b></button>}
 
           <div className="qc-product-price-block">
             <div className="qc-product-price-line"><strong>{formatMoney(displayPrice, business)}</strong>{displayMrp > displayPrice && <del>{formatMoney(displayMrp, business)}</del>}{currentDiscount > 0 && <span>{currentDiscount}% OFF</span>}</div>
@@ -203,31 +215,30 @@ export default function ProductPage() {
             <button type="button" onClick={addToCart} disabled={outOfStock} className="qc-product-add-button"><ShoppingCart size={18} />{added ? 'Added to Cart' : 'Add to Cart'}</button>
           </div>
           <button type="button" onClick={buyNow} disabled={outOfStock} className="qc-product-buy-now"><Zap size={17} fill="currentColor" /> Buy Now</button>
+          <section className="qc-product-highlights qc-product-accordion qc-mobile-hide">
+            <button type="button" aria-expanded={Boolean(openSections.highlights)} onClick={() => setOpenSections(current => ({ ...current, highlights: !current.highlights }))}>
+              Highlights <ChevronDown className={openSections.highlights ? 'open' : ''} size={17} />
+            </button>
+            {openSections.highlights && <div className="qc-product-accordion-content"><dl>
+              {p.brand && <div><dt>Brand</dt><dd>{p.brand}</dd></div>}
+              {p.category && <div><dt>Product Type</dt><dd>{p.category}</dd></div>}
+              {p.unit && <div><dt>Unit</dt><dd>{p.unit}</dd></div>}
+            </dl></div>}
+          </section>
+          {section('details', 'Product Details', <div className="qc-product-description">{p.shortDesc && <p className="lead">{p.shortDesc}</p>}{p.description ? <p>{p.description}</p> : !p.shortDesc && <p>No product description is available.</p>}{p.tags?.length > 0 && <p className="qc-product-tags">{p.tags.map(tag => <span key={tag}>{tag}</span>)}</p>}<div className="qc-mobile-only qc-product-mobile-highlights"><h3>Highlights</h3><dl>{p.brand && <div><dt>Brand</dt><dd>{p.brand}</dd></div>}{p.store && <div><dt>Store</dt><dd><Link className="qc-product-store-link" to={`/c?storeId=${encodeURIComponent(p.storeId || '')}&store=${encodeURIComponent(p.store)}`}>{p.store}</Link></dd></div>}{p.category && <div><dt>Product Type</dt><dd>{p.category}</dd></div>}{p.unit && <div><dt>Unit</dt><dd>{p.unit}</dd></div>}</dl></div></div>)}
+          {section('specs', 'Specifications', <div className="qc-product-specifications">{specs.length ? <dl>{specs.map(([key, value]) => <div key={key}><dt>{key}</dt><dd>{value == null ? 'â€”' : typeof value === 'object' ? JSON.stringify(value) : String(value)}</dd></div>)}</dl> : <p>No specifications have been added for this product.</p>}</div>)}
+          {section('warranty', 'Warranty & Returns', <div className="qc-product-description"><p>{p.warranty || 'Warranty information is not available for this product.'}</p>{p.exchange && <p>Exchange: {p.exchange}</p>}</div>)}
+          {section('reviews', `Reviews${reviewCount ? ` (${compactCount(reviewCount)})` : ''}`, <div id="product-reviews" className="qc-product-reviews">{rating > 0 ? <div className="qc-review-summary"><strong><Star size={22} fill="currentColor" /> {rating.toFixed(1)}</strong><span>{compactCount(reviewCount)} ratings for {p.name}</span></div> : <p>No customer ratings are available for this product yet.</p>}</div>)}
         </div>
 
         <aside className="qc-product-side-panel">
-          <div className="qc-delivery-card">
+          <div className="qc-delivery-card qc-mobile-hide">
             <div className="qc-delivery-address"><MapPin size={18} /><div><small>Deliver to</small><strong>{deliveryAddress}</strong></div><button type="button" onClick={changeLocation}>Change</button></div>
             {deliveryEta && <div className="qc-delivery-eta"><Truck size={22} /><div><strong>Delivery in {deliveryEta}</strong><span>Fast delivery to your location</span></div><ChevronRight size={17} /></div>}
           </div>
-          {p.store && <div className="qc-product-store-card"><div className="qc-store-icon"><Store size={20} /></div><div><small>Sold by</small><strong>{p.store}</strong>{p.storeId && <span>Store ID: {p.storeId}</span>}</div></div>}
-          {benefits.length > 0 && <div className="qc-product-benefits">{benefits.map(({ icon: Icon, label }) => <div key={label}><span><Icon size={15} /></span><p>{label}</p></div>)}</div>}
+          {p.store && <div className="qc-product-store-card qc-mobile-hide"><div className="qc-store-icon"><Store size={20} /></div><div><small>Sold by</small><strong>{p.store}</strong>{p.storeId && <span>Store ID: {p.storeId}</span>}</div></div>}
+          {benefits.length > 0 && <div className={'qc-product-benefits ' + (benefits.every(benefit => benefit.mobileHide) ? 'qc-mobile-hide' : '')}>{benefits.map(({ icon: Icon, label, mobileHide }) => <div key={label} className={mobileHide ? 'qc-mobile-hide' : ''}><span><Icon size={15} /></span><p>{label}</p></div>)}</div>}
         </aside>
-      </section>
-
-      <section className="qc-product-lower">
-        <div className="qc-product-tabs" role="tablist" aria-label="Product information">
-          {[
-            ['details', 'Product Details'],
-            ['specs', 'Specifications'],
-            ['reviews', `Reviews${reviewCount ? ` (${compactCount(reviewCount)})` : ''}`],
-          ].map(([key, label]) => <button key={key} type="button" role="tab" aria-selected={tab === key} onClick={() => setTab(key)} className={tab === key ? 'active' : ''}>{label}</button>)}
-        </div>
-        <div className="qc-product-tab-content">
-          {tab === 'details' && <div className="qc-product-description"><h2>Product Details</h2>{p.shortDesc && <p className="lead">{p.shortDesc}</p>}{p.description && <p>{p.description}</p>}{!p.shortDesc && !p.description && <p>No product description is available.</p>}{p.tags?.length > 0 && <p className="qc-product-tags">{p.tags.map(tag => <span key={tag}>{tag}</span>)}</p>}</div>}
-          {tab === 'specs' && <div className="qc-product-specifications"><h2>Specifications</h2>{specs.length ? <dl>{specs.map(([key, value]) => <div key={key}><dt>{key}</dt><dd>{value == null ? '�' : typeof value === 'object' ? JSON.stringify(value) : String(value)}</dd></div>)}</dl> : <p>No specifications have been added for this product.</p>}</div>}
-          {tab === 'reviews' && <div id="product-reviews" className="qc-product-reviews"><h2>Customer Ratings</h2>{rating > 0 ? <div className="qc-review-summary"><strong><Star size={22} fill="currentColor" /> {rating.toFixed(1)}</strong><span>{compactCount(reviewCount)} ratings for {p.name}</span></div> : <p>No customer ratings are available for this product yet.</p>}</div>}
-        </div>
       </section>
 
       {p.related?.length > 0 && <section className="qc-related-products"><div className="qc-related-heading"><h2>Related Products</h2><span>More from {p.category || 'this category'}</span></div><div>{p.related.map(product => <ProductCard key={product.id} product={product} />)}</div></section>}

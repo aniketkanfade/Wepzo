@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Minus, Plus, ShieldCheck, ShoppingBag, Tag, Trash2, Truck, X } from 'lucide-react';
 import { useCart } from '../store/cart';
 import { useLocationStore } from '../store/location';
@@ -7,23 +7,32 @@ import { useAuthStore } from '../store/auth';
 import { shop } from '../api';
 import { formatMoney, useSiteSettings } from '../store/siteSettings';
 
-export default function CartDrawer({ onClose }) {
+export default function CartDrawer({ onClose, backgroundLocation: backgroundLocationProp }) {
   const items = useCart(s => s.items);
   const couponCode = useCart(s => s.couponCode);
   const setCouponCode = useCart(s => s.setCouponCode);
   const setQty = useCart(s => s.setQty);
   const remove = useCart(s => s.remove);
   const subtotal = useCart(s => s.subtotal());
+  const itemsPrice = items.reduce((total, item) => {
+    const price = Number(item.price) || 0;
+    const mrp = Math.max(Number(item.mrp) || price, price);
+    return total + mrp * (Number(item.qty) || 1);
+  }, 0);
   const location = useLocationStore(s => s.current);
   const user = useAuthStore(s => s.user);
   const business = useSiteSettings(s => s.business);
+  const routeLocation = useLocation();
   const navigate = useNavigate();
+  const backgroundLocation = backgroundLocationProp || routeLocation.state?.backgroundLocation || routeLocation;
   const [quote, setQuote] = useState(null);
+  const productDiscount = Math.max(0, itemsPrice - Number(quote?.itemsTotal ?? subtotal));
   const [couponOpen, setCouponOpen] = useState(false);
   const [coupons, setCoupons] = useState([]);
   const [couponLoading, setCouponLoading] = useState(false);
   const [couponInput, setCouponInput] = useState('');
   const [couponError, setCouponError] = useState('');
+  const [couponLoadError, setCouponLoadError] = useState('');
 
   useEffect(() => {
     if (!items.length) { setQuote(null); if (couponCode) setCouponCode(''); return; }
@@ -42,9 +51,16 @@ export default function CartDrawer({ onClose }) {
   const openCoupons = () => {
     setCouponOpen(true);
     setCouponError('');
+    setCouponLoadError('');
     setCouponInput(couponCode);
     setCouponLoading(true);
-    shop.coupons().then(setCoupons).catch(() => setCoupons([])).finally(() => setCouponLoading(false));
+    shop.coupons()
+      .then(result => setCoupons(Array.isArray(result) ? result : []))
+      .catch(error => {
+        setCoupons([]);
+        setCouponLoadError(error.response?.data?.message || 'Coupons could not be loaded. Please try again.');
+      })
+      .finally(() => setCouponLoading(false));
   };
 
   const applyCoupon = async codeValue => {
@@ -80,8 +96,13 @@ export default function CartDrawer({ onClose }) {
   }, [onClose]);
 
   const goCheckout = () => {
+    const next = user ? '/checkout' : '/login?next=/checkout';
+    if (routeLocation.pathname === '/cart') {
+      navigate(next, { state: { backgroundLocation } });
+      return;
+    }
     onClose();
-    navigate(user ? '/checkout' : '/login?next=/checkout');
+    navigate(next, { state: { backgroundLocation } });
   };
   const total = quote?.total ?? subtotal;
   const freeDeliveryAt = 199;
@@ -89,9 +110,9 @@ export default function CartDrawer({ onClose }) {
   const progress = Math.min(100, (subtotal / freeDeliveryAt) * 100);
 
   return (
-    <div className="fixed inset-0 z-[70] flex justify-end" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) onClose(); }}>
+    <div className="qc-cart-overlay fixed inset-0 z-[1100] flex justify-end" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) onClose(); }}>
       <div className="absolute inset-0 bg-slate-950/45 backdrop-blur-[1px]" />
-      <aside role="dialog" aria-modal="true" aria-labelledby="cart-drawer-title" className="relative flex h-full w-full max-w-[420px] flex-col bg-white shadow-2xl animate-[qc-cart-in_.22s_ease-out]">
+      <aside role="dialog" aria-modal="true" aria-labelledby="cart-drawer-title" className="qc-cart-drawer relative box-border flex h-full w-full min-w-0 max-w-[420px] flex-col overflow-x-hidden bg-white shadow-2xl animate-[qc-cart-in_.22s_ease-out]">
         <header className="flex h-[68px] shrink-0 items-center justify-between border-b border-slate-100 px-5">
           <div className="flex items-center gap-2">
             <button type="button" onClick={onClose} aria-label="Continue shopping" className="grid h-9 w-9 place-items-center rounded-full text-slate-600 hover:bg-slate-100"><ArrowLeft size={19} /></button>
@@ -119,10 +140,10 @@ export default function CartDrawer({ onClose }) {
               </div>
             </div>
 
-            <ul className="flex-1 space-y-2 overflow-y-auto px-4 py-3">
+            <ul className="box-border min-w-0 w-full flex-1 space-y-2 overflow-y-auto px-4 py-3">
               {items.map(item => (
-                <li key={item.cartKey || item.id} className="rounded-xl border border-slate-100 bg-white p-3 shadow-[0_2px_12px_rgba(15,23,42,0.04)]">
-                  <div className="flex gap-3">
+                <li key={item.cartKey || item.id} className="box-border w-full min-w-0 overflow-hidden rounded-xl border border-slate-100 bg-white p-3 shadow-[0_2px_12px_rgba(15,23,42,0.04)]">
+                  <div className="flex min-w-0 gap-3">
                     <div className="grid h-[82px] w-[82px] shrink-0 place-items-center overflow-hidden rounded-lg bg-slate-50">
                       <img src={item.image} alt={item.name} className="h-full w-full object-contain mix-blend-multiply" />
                     </div>
@@ -144,15 +165,18 @@ export default function CartDrawer({ onClose }) {
               ))}
             </ul>
 
-            <footer className="shrink-0 border-t border-slate-100 bg-white px-4 pb-4 pt-2.5">
+            <footer className="box-border w-full min-w-0 shrink-0 border-t border-slate-100 bg-white px-4 pb-4 pt-2.5">
               <button type="button" onClick={openCoupons} className="mb-2.5 flex w-full items-center justify-between rounded-xl border border-slate-100 px-3 py-2.5 text-left text-sm font-medium text-slate-700 hover:bg-slate-50">
                 <span className="flex items-center gap-2"><Tag size={17} className="text-brand-600" /> {couponCode ? `Applied: ${couponCode}` : 'Apply Coupon'}</span><span className="text-lg leading-none">›</span>
               </button>
               <div className="space-y-1.5 px-1 text-[13px]">
-                <div className="flex justify-between text-slate-600"><span>Item Total</span><span className="font-semibold text-slate-900">{formatMoney(quote?.itemsTotal ?? subtotal, business)}</span></div>
+                <div className="flex justify-between text-slate-600"><span>Items price</span><span>{formatMoney(itemsPrice, business)}</span></div>
+                {productDiscount > 0 && <div className="flex justify-between text-emerald-600"><span>Product discount</span><span>− {formatMoney(productDiscount, business)}</span></div>}
+                <div className="flex justify-between text-slate-600"><span>Subtotal</span><span className="font-semibold text-slate-900">{formatMoney(quote?.itemsTotal ?? subtotal, business)}</span></div>
                 {quote?.couponDiscount > 0 && <div className="flex justify-between text-emerald-600"><span>Coupon Discount</span><span>− {formatMoney(quote.couponDiscount, business)}</span></div>}
                 <div className="flex justify-between text-slate-600"><span>Delivery Charge</span><span className={quote?.freeDelivery || quote?.deliveryCharge === 0 ? 'font-medium text-emerald-600' : 'font-semibold text-slate-900'}>{quote ? (quote.freeDelivery || !quote.deliveryCharge ? 'FREE' : formatMoney(quote.deliveryCharge, business)) : 'Calculated at checkout'}</span></div>
                 {quote?.platformFee > 0 && <div className="flex justify-between text-slate-600"><span>Platform Fee</span><span>{formatMoney(quote.platformFee, business)}</span></div>}
+                {quote?.taxAmount > 0 && <div className="flex justify-between text-slate-600"><span>{quote.taxName || 'GST'}{quote.taxPercent ? ` (${quote.taxPercent}%)` : ''}{quote.taxIncluded ? ' (included)' : ''}</span><span>{formatMoney(quote.taxAmount, business)}</span></div>}
               </div>
               <div className="mt-2.5 flex items-center justify-between rounded-xl bg-slate-50 px-3 py-2.5">
                 <div><p className="font-bold text-slate-900">Total Amount</p><p className="text-[10px] text-slate-500">Inclusive of all taxes</p></div>
@@ -180,16 +204,30 @@ export default function CartDrawer({ onClose }) {
             </div>
             <div className="max-h-[min(48vh,390px)] space-y-2 overflow-y-auto p-4">
               {couponLoading && <p className="py-5 text-center text-sm text-slate-500">Loading coupons...</p>}
-              {!couponLoading && coupons.length === 0 && <p className="py-5 text-center text-sm text-slate-500">No active coupons available right now.</p>}
+              {!couponLoading && couponLoadError && <p role="alert" className="py-5 text-center text-sm text-rose-600">{couponLoadError}</p>}
+              {!couponLoading && !couponLoadError && coupons.length === 0 && <div className="py-5 text-center text-sm text-slate-500"><p>No active coupons match this account right now.</p>{!user && <p className="mt-1 text-xs">Sign in to see customer-specific offers.</p>}</div>}
               {coupons.map(coupon => {
-                const eligible = subtotal >= Number(coupon.minOrder || 0);
+                const minOrder = Number(coupon.minOrder) || 0;
+                const cartTotal = Number(quote?.itemsTotal ?? subtotal);
+                const couponStore = String(coupon.store || 'All Stores');
+                const storeRestricted = couponStore.toLowerCase() !== 'all stores';
+                const cartStore = String(quote?.storeName || '');
+                const storeEligible = !storeRestricted || !cartStore || couponStore.trim().toLowerCase() === cartStore.trim().toLowerCase();
+                const spendEligible = cartTotal >= minOrder;
+                const eligible = storeEligible && spendEligible;
+                const applyLabel = couponCode === coupon.code
+                  ? 'Applied'
+                  : !storeEligible ? 'Other store'
+                    : !spendEligible ? `Add ${formatMoney(minOrder - cartTotal, business)}`
+                      : 'Apply';
                 return <article key={coupon._id || coupon.code} className="rounded-xl border border-slate-200 p-3.5">
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0"><p className="font-extrabold tracking-wide text-brand-700">{coupon.code}</p><p className="mt-0.5 text-sm font-semibold text-slate-800">{coupon.title || `${coupon.discount} off`}</p>
-                      <p className="mt-1 text-xs text-slate-500">{coupon.minOrder ? `Minimum order ${formatMoney(coupon.minOrder, business)}` : 'No minimum order'}{coupon.store && coupon.store !== 'All Stores' ? ` · ${coupon.store}` : ''}</p>
+                      <p className="mt-1 text-xs text-slate-500">{storeRestricted ? `Only at ${couponStore}` : 'Available at all stores'} · {coupon.audience === 'Specific Customer' ? 'For your account' : 'For all customers'}</p>
+                      <p className="mt-1 text-xs text-slate-500">{minOrder ? `Minimum cart ${formatMoney(minOrder, business)}` : 'No minimum cart'}{!spendEligible ? ` · Add ${formatMoney(minOrder - cartTotal)} more` : ''}</p>
                       {coupon.expiry && <p className="mt-1 text-[11px] text-slate-400">Valid till {coupon.expiry}</p>}
                     </div>
-                    <button type="button" disabled={!eligible} onClick={() => applyCoupon(coupon.code)} className="shrink-0 rounded-lg border border-brand-500 px-3 py-1.5 text-xs font-bold text-brand-600 hover:bg-orange-50 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-400">{eligible ? (couponCode === coupon.code ? 'Applied' : 'Apply') : 'Add items'}</button>
+                    <button type="button" disabled={!eligible || couponCode === coupon.code} onClick={() => applyCoupon(coupon.code)} className="shrink-0 rounded-lg border border-brand-500 px-3 py-1.5 text-xs font-bold text-brand-600 hover:bg-orange-50 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-400">{applyLabel}</button>
                   </div>
                 </article>;
               })}

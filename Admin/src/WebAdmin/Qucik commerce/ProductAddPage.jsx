@@ -84,8 +84,8 @@ function buildVariants(attrs, attributeValues, existing = [], excluded = []) {
 }
 
 const empty = {
-  name: '', nameEn: '', shortDesc: '', shortDescEn: '', image: '', images: [], video: '',
-  storeId: '', store: '', mainCategory: '', subCategory: '', childCategory: '', brand: '', unit: '', productCode: '', sku: '', barcode: '', deliveryMode: 'Home Delivery',
+  name: '', shortDesc: '', image: '', images: [], video: '',
+  storeId: '', store: '', mainModuleId: '', mainCategoryId: '', mainCategory: '', subCategoryId: '', subCategory: '', childCategoryId: '', childCategory: '', brandId: '', brand: '', unitId: '', unit: '', productCode: '', sku: '', barcode: '', deliveryMode: 'Home Delivery',
   tags: '', licenceNumber: '', warranty: false, guarantee: false, exchange: false,
   price: '', discount: 0, discountType: 'Percent', maxPurchaseQty: 10, stock: 0,
   status: 'Pending',
@@ -151,6 +151,7 @@ function CapTextarea({ value, onChange, className = '', ...props }) {
 export default function ProductAddPage() {
   const [form, setForm] = useState(empty);
   const [categories, setCategories] = useState([]);
+  const [systemModules, setSystemModules] = useState([]);
   const [subCategories, setSubCategories] = useState([]);
   const [childCategories, setChildCategories] = useState([]);
   const [brands, setBrands] = useState([]);
@@ -168,6 +169,7 @@ export default function ProductAddPage() {
 
   useEffect(() => {
     api.get('/categories').then(r => setCategories(r.data)).catch(() => {});
+    api.get('/system-modules').then(r => setSystemModules(Array.isArray(r.data) ? r.data : [])).catch(() => {});
     api.get('/sub-categories').then(r => setSubCategories(r.data)).catch(() => {});
     api.get('/child-categories').then(r => setChildCategories(r.data)).catch(() => {});
     api.get('/brands').then(r => setBrands(r.data)).catch(() => {});
@@ -197,6 +199,31 @@ export default function ProductAddPage() {
     const s = stores.find(x => x.name === form.store);
     if (s) setForm(f => ({ ...f, storeId: s.storeId }));
   }, [stores, form.store, form.storeId, presetStoreId, editId, requestEditId]);
+
+  // Older products store category, brand and unit names only. Resolve their IDs
+  // when editing so the selectors and newly saved products use stable references.
+  useEffect(() => {
+    setForm(current => {
+      const category = categories.find(item => String(item._id) === String(current.mainCategoryId))
+        || categories.find(item => item.name === current.mainCategory);
+      const subCategory = subCategories.find(item => String(item._id) === String(current.subCategoryId))
+        || subCategories.find(item => item.name === current.subCategory && (!category ||
+          String(item.categoryId) === String(category._id) || String(item.categoryId) === String(category.categoryId) || item.mainCategory === category.name));
+      const childCategory = childCategories.find(item => String(item._id) === String(current.childCategoryId))
+        || childCategories.find(item => item.name === current.childCategory && (!subCategory ||
+          String(item.subCategoryId) === String(subCategory._id) || String(item.subCategoryId) === String(subCategory.subCategoryId) || item.subCategory === subCategory.name));
+      const brand = brands.find(item => String(item._id) === String(current.brandId)) || brands.find(item => item.name === current.brand);
+      const unit = units.find(item => String(item._id) === String(current.unitId)) || units.find(item => item.name === current.unit);
+      const patch = {};
+      if (category && !current.mainCategoryId) patch.mainCategoryId = category._id;
+      if (category?.moduleId && !current.mainModuleId) patch.mainModuleId = category.moduleId;
+      if (subCategory && !current.subCategoryId) patch.subCategoryId = subCategory._id;
+      if (childCategory && !current.childCategoryId) patch.childCategoryId = childCategory._id;
+      if (brand && !current.brandId) patch.brandId = brand._id;
+      if (unit && !current.unitId) patch.unitId = unit._id;
+      return Object.keys(patch).length ? { ...current, ...patch } : current;
+    });
+  }, [categories, subCategories, childCategories, brands, units, form.mainCategory, form.mainCategoryId, form.mainModuleId, form.subCategory, form.subCategoryId, form.childCategory, form.childCategoryId, form.brand, form.brandId, form.unit, form.unitId]);
 
   useEffect(() => {
     if (!form.mainCategory) { setCatSpecFields([]); setCatVariantAttrs([]); return; }
@@ -228,11 +255,14 @@ export default function ProductAddPage() {
     }).catch(() => { setCatSpecFields([]); setCatVariantAttrs([]); });
   }, [form.mainCategory, editId]);
 
-  const handleCategoryChange = (v) => setForm(f => ({
-    ...f, mainCategory: v, subCategory: '', childCategory: '',
+  const handleCategoryChange = (v) => {
+    const category = categories.find(item => String(item._id) === String(v));
+    setForm(f => ({
+    ...f, mainModuleId: category?.moduleId || f.mainModuleId, mainCategoryId: v, mainCategory: category?.name || '', subCategoryId: '', subCategory: '', childCategoryId: '', childCategory: '',
     specifications: {}, selectedAttributes: [], attributeValues: {},
     variants: [], excludedVariants: [], extraSpecFields: [], extraVariantAttributes: [],
   }));
+  };
 
   const addProductSpecField = () => {
     const raw = prompt('Custom specification name (only for this product):');
@@ -351,11 +381,21 @@ export default function ProductAddPage() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!form.name.trim()) return;
+    if (!form.mainModuleId || !form.mainCategoryId || !form.subCategoryId || !form.childCategoryId) {
+      return alert('Select Main Module, Main Category, Sub Category and Child Category before saving the product.');
+    }
     const selectedStore = stores.find(s => String(s.storeId) === String(form.storeId));
     const payload = {
       ...form,
+      moduleId: form.mainModuleId,
+      systemModuleId: form.mainModuleId,
       storeId: selectedStore?.storeId ?? (form.storeId ? parseInt(form.storeId, 10) : undefined),
       store: selectedStore?.name || form.store,
+      mainCategory: categories.find(item => String(item._id) === String(form.mainCategoryId))?.name || form.mainCategory,
+      subCategory: subCategories.find(item => String(item._id) === String(form.subCategoryId))?.name || form.subCategory,
+      childCategory: childCategories.find(item => String(item._id) === String(form.childCategoryId))?.name || form.childCategory,
+      brand: brands.find(item => String(item._id) === String(form.brandId))?.name || form.brand,
+      unit: units.find(item => String(item._id) === String(form.unitId))?.name || form.unit,
       name: capitalizeWords(form.name.trim()),
       price: parseFloat(form.price) || 0,
       stock: parseInt(form.stock) || 0,
@@ -379,6 +419,9 @@ export default function ProductAddPage() {
         };
       }),
     };
+    delete payload.nameEn;
+    delete payload.nameHi;
+    delete payload.shortDescEn;
     if (form.hasVariants && form.variants.length > 0) {
       const prices = form.variants.map(v => parseFloat(v.price) || 0).filter(p => p > 0);
       payload.price = prices.length ? Math.min(...prices) : 0;
@@ -425,10 +468,17 @@ export default function ProductAddPage() {
     } catch (err) { console.error(err); }
   };
 
-  const subs = subCategories.filter(s => !form.mainCategory || s.mainCategory === form.mainCategory);
+  const getCategoryRef = id => categories.find(category => String(category._id) === String(id) || String(category.categoryId) === String(id));
+  const moduleCategories = categories.filter(category => !form.mainModuleId || String(category.moduleId) === String(form.mainModuleId));
+  const subs = subCategories.filter(s =>
+    (!form.mainCategoryId || String(s.categoryId) === String(form.mainCategoryId)
+      || String(s.categoryId) === String(getCategoryRef(form.mainCategoryId)?.categoryId)) &&
+    (!form.mainModuleId || String(s.moduleId || getCategoryRef(s.categoryId)?.moduleId || '') === String(form.mainModuleId))
+  );
   const children = childCategories.filter(c =>
-    (!form.mainCategory || c.mainCategory === form.mainCategory) &&
-    (!form.subCategory || c.subCategory === form.subCategory)
+    (!form.mainCategoryId || String(c.categoryId) === String(form.mainCategoryId) || String(c.categoryId) === String(getCategoryRef(form.mainCategoryId)?.categoryId)) &&
+    (!form.subCategoryId || String(c.subCategoryId) === String(form.subCategoryId) || c.subCategory === form.subCategory) &&
+    (!form.mainModuleId || String(c.moduleId || getCategoryRef(c.categoryId)?.moduleId || '') === String(form.mainModuleId))
   );
 
   const allSpecFields = [...catSpecFields, ...form.extraSpecFields];
@@ -519,19 +569,30 @@ export default function ProductAddPage() {
                     const s = stores.find(x => String(x.storeId) === String(v));
                     setForm({ ...form, storeId: v, store: s?.name || '' });
                   }}
-                  options={stores.map(s => ({ value: String(s.storeId), label: `${s.name} (ID: ${s.storeId})` }))}
+                  options={stores.map(s => ({ value: String(s.storeId), label: s.name }))}
                   placeholder="Select Store"
                 />
               </div>
+              <div>
+                <label className="text-sm font-medium text-gray-700 mb-1.5 block">Main Module</label>
+                <SearchableSelect
+                  value={form.mainModuleId}
+                  onChange={v => setForm(f => ({ ...f, mainModuleId: v, mainCategoryId: '', mainCategory: '', subCategoryId: '', subCategory: '', childCategoryId: '', childCategory: '' }))}
+                  options={systemModules.map(module => ({ value: String(module._id), label: module.name }))}
+                  placeholder="Select Main Module"
+                />
+              </div>
               {[
-                { label: 'Main Category', key: 'mainCategory', opts: categories.map(c => c.name), ph: 'Select Main Category',
-                  onChange: handleCategoryChange },
-                { label: 'Sub Category', key: 'subCategory', opts: subs.map(s => s.name), ph: 'Select Sub Category',
-                  disabled: !form.mainCategory, onChange: v => setForm({ ...form, subCategory: v, childCategory: '' }) },
-                { label: 'Child Category', key: 'childCategory', opts: children.map(c => c.name), ph: 'Select Child Category',
-                  disabled: !form.subCategory },
-                { label: 'Brand', key: 'brand', opts: brands.map(b => b.name), ph: 'Select Brand' },
-                { label: 'Unit', key: 'unit', opts: units.map(u => u.name), ph: 'Select Unit' },
+                { label: 'Main Category', key: 'mainCategoryId', opts: moduleCategories.map(c => ({ value: String(c._id), label: c.name })), ph: 'Select Main Category',
+                  disabled: !form.mainModuleId, onChange: handleCategoryChange },
+                { label: 'Sub Category', key: 'subCategoryId', opts: subs.map(s => ({ value: String(s._id), label: s.name })), ph: 'Select Sub Category',
+                  disabled: !form.mainCategoryId, onChange: v => { const selected = subs.find(s => String(s._id) === String(v)); setForm(f => ({ ...f, subCategoryId: v, subCategory: selected?.name || '', childCategoryId: '', childCategory: '' })); } },
+                { label: 'Child Category', key: 'childCategoryId', opts: children.map(c => ({ value: String(c._id), label: c.name })), ph: 'Select Child Category',
+                  disabled: !form.subCategoryId, onChange: v => { const selected = children.find(c => String(c._id) === String(v)); setForm(f => ({ ...f, childCategoryId: v, childCategory: selected?.name || '' })); } },
+                { label: 'Brand', key: 'brandId', opts: brands.map(b => ({ value: String(b._id), label: b.name })), ph: 'Select Brand',
+                  onChange: v => { const selected = brands.find(b => String(b._id) === String(v)); setForm(f => ({ ...f, brandId: v, brand: selected?.name || '' })); } },
+                { label: 'Unit', key: 'unitId', opts: units.map(u => ({ value: String(u._id), label: u.name })), ph: 'Select Unit',
+                  onChange: v => { const selected = units.find(u => String(u._id) === String(v)); setForm(f => ({ ...f, unitId: v, unit: selected?.name || '' })); } },
               ].map(f => (
                 <div key={f.key}>
                   <label className="text-sm font-medium text-gray-700 mb-1.5 block">{f.label}</label>

@@ -25,7 +25,7 @@ export default function SubCategoriesPage() {
   const perPage = 25;
 
   const [form, setForm] = useState({
-    name: '', nameEn: '', nameHi: '', categoryId: '', priority: 'Normal',
+    name: '', categoryId: '', priority: 'Normal',
     status: true, featured: false, image: ''
   });
 
@@ -42,7 +42,7 @@ export default function SubCategoriesPage() {
   const paginated = filtered.slice((page - 1) * perPage, page * perPage);
 
   const resetForm = () => {
-    setForm({ name: '', nameEn: '', nameHi: '', categoryId: '', priority: 'Normal', status: true, featured: false, image: '' });
+    setForm({ name: '', categoryId: '', priority: 'Normal', status: true, featured: false, image: '' });
     setEditingId(null);
   };
 
@@ -76,7 +76,7 @@ export default function SubCategoriesPage() {
   const handleEdit = (item) => {
     setEditingId(item._id);
     setForm({
-      name: item.name, nameEn: item.nameEn || '', nameHi: item.nameHi || '',
+      name: item.name,
       categoryId: item.categoryId, priority: item.priority,
       status: item.status, featured: item.featured, image: item.image || ''
     });

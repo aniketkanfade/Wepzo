@@ -2,9 +2,21 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { Building2, ChevronLeft, ChevronRight } from 'lucide-react';
 import { BUSINESS_SETTINGS_SECTIONS } from '../../constants/settingsNav';
+import { useModuleStore } from '../../store/useStore';
+import { getAdminModuleKey } from '../../constants/adminModules';
 
 export default function BusinessSettingsLayout({ children }) {
   const { pathname } = useLocation();
+  const { activeModule } = useModuleStore();
+  const moduleKey = getAdminModuleKey(activeModule);
+  const visibleSections = moduleKey === 'marketing'
+    ? BUSINESS_SETTINGS_SECTIONS.filter(section => [
+      '/settings/business/info',
+      '/settings/business/colors',
+      '/settings/email-sms',
+      '/settings/app',
+    ].includes(section.path))
+    : BUSINESS_SETTINGS_SECTIONS;
   const tabsRef = useRef(null);
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(false);
@@ -46,7 +58,7 @@ export default function BusinessSettingsLayout({ children }) {
         <div className="mt-5 flex items-center gap-1 border-b border-slate-200">
           {canScrollLeft && <button type="button" aria-label="Scroll tabs left" onClick={() => scrollTabs(-1)} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-slate-600 hover:bg-slate-100"><ChevronLeft size={18} /></button>}
           <nav ref={tabsRef} aria-label="Business settings" className="flex min-w-0 flex-1 gap-1 overflow-x-auto pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-            {BUSINESS_SETTINGS_SECTIONS.map(({ label, path }) => {
+            {visibleSections.map(({ label, path }) => {
               const active = pathname === path || pathname.startsWith(`${path}/`);
               return (
                 <Link key={path} to={path} aria-current={active ? 'page' : undefined}

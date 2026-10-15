@@ -64,7 +64,7 @@ async function bootstrap() {
     })
     .catch(() => console.log('MongoDB not available - memory mode only'));
 
-  app.listen(PORT, () => console.log(`Server running on http://localhost:${PORT}`));
+  app.listen(PORT, '0.0.0.0', () => console.log(`Server listening on port ${PORT} (all network interfaces)`));
 }
 
 bootstrap();

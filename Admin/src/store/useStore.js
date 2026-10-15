@@ -3,6 +3,8 @@ import { create } from 'zustand';
 const normalizeModuleKey = (value, name = '') => {
   const raw = String(value || '').trim().toLowerCase().replace(/_/g, '-');
   if (!raw) return '';
+  const moduleName = String(name || '').trim().toLowerCase().replace(/_/g, '-');
+  if (raw.includes('information-web') || raw.includes('information_web') || moduleName.includes('information-web') || moduleName.includes('information web')) return 'general';
   if (['qcommerce', 'quick-commerce', 'quick_commerce', 'quickcommerce'].includes(raw)) return 'quick-commerce';
   if (['ecommerce', 'e-commerce', 'e_commerce'].includes(raw)) {
     return String(name).toLowerCase().includes('quick commerce') ? 'quick-commerce' : 'e-commerce';
@@ -12,8 +14,8 @@ const normalizeModuleKey = (value, name = '') => {
   return raw;
 };
 
-const normalizeModuleType = value => {
-  const normalized = normalizeModuleKey(value);
+const normalizeModuleType = (value, name = '') => {
+  const normalized = normalizeModuleKey(value, name);
   if (['quick-commerce', 'qcommerce', 'e-commerce', 'ecommerce'].includes(normalized)) return 'ecommerce';
   if (['marketing', 'promotion', 'promotions'].includes(normalized)) return 'marketing';
   if (['general', 'information-web', 'website'].includes(normalized)) return 'general';
@@ -40,7 +42,13 @@ const DEFAULT_ADMIN_MODULE = {
   type: 'quick-commerce',
 };
 
-const savedAdminModule = JSON.parse(localStorage.getItem('adminModule') || 'null');
+const storedAdminModule = JSON.parse(localStorage.getItem('adminModule') || 'null');
+const savedAdminModule = storedAdminModule
+  ? { ...storedAdminModule, name: normalizeModuleKey(storedAdminModule.slug || storedAdminModule.type, storedAdminModule.name) === 'general' ? 'Web Page' : storedAdminModule.name }
+  : null;
+if (savedAdminModule && savedAdminModule.name !== storedAdminModule.name) {
+  localStorage.setItem('adminModule', JSON.stringify(savedAdminModule));
+}
 
 export const useModuleStore = create(set => ({
   activeModule: savedAdminModule || DEFAULT_ADMIN_MODULE,
@@ -49,8 +57,8 @@ export const useModuleStore = create(set => ({
     const normalizedModule = {
       ...module,
       slug: normalizeModuleKey(module.slug || module.type || 'quick-commerce', module.name),
-      type: normalizeModuleType(module.type || module.slug || 'quick-commerce'),
-      name: module.name || 'Quick Commerce',
+      type: normalizeModuleType(module.type || module.slug || 'quick-commerce', module.name),
+      name: normalizeModuleKey(module.slug || module.type || 'quick-commerce', module.name) === 'general' ? 'Web Page' : module.name || 'Quick Commerce',
     };
     localStorage.setItem('adminModule', JSON.stringify(normalizedModule));
     set({ activeModule: normalizedModule });

@@ -109,3 +109,668 @@ input[type='number']::-webkit-inner-spin-button {
   overscroll-behavior-y: contain;
   -webkit-overflow-scrolling: touch;
 }
+
+@media (max-width: 767px) {
+  html,
+  body,
+  #root {
+    width: 100%;
+    min-width: 320px;
+    min-height: 100%;
+    overflow-x: hidden;
+  }
+
+  body {
+    background: #f4f6fa;
+    color: #172033;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  #root > [class~="h-screen"][class~="overflow-hidden"] {
+    height: 100dvh !important;
+    min-height: 100dvh;
+    background: #f4f6fa !important;
+  }
+
+  #root > [class~="h-screen"][class~="overflow-hidden"] > aside {
+    width: min(78vw, 285px) !important;
+    padding-bottom: env(safe-area-inset-bottom);
+    border-right: 0;
+    box-shadow: 12px 0 36px rgb(15 23 42 / 18%);
+  }
+
+  #root > [class~="h-screen"][class~="overflow-hidden"] > [class~="flex-1"][class~="flex-col"] {
+    min-width: 0;
+    width: 100%;
+    background: #f4f6fa;
+  }
+
+  #root > [class~="h-screen"][class~="overflow-hidden"] > [class~="flex-1"][class~="flex-col"] > header {
+    position: sticky;
+    top: 0;
+    z-index: 30;
+    display: flex;
+    min-height: 58px;
+    flex: 0 0 auto;
+    gap: 8px;
+    padding: 8px 12px;
+    padding-top: max(8px, env(safe-area-inset-top));
+    border-bottom: 1px solid #e8edf4;
+    background: rgb(255 255 255 / 96%);
+    box-shadow: 0 2px 12px rgb(23 32 51 / 5%);
+    backdrop-filter: blur(14px);
+  }
+
+  #root > [class~="h-screen"][class~="overflow-hidden"] > [class~="flex-1"][class~="flex-col"] > header > div:first-child {
+    min-width: 0;
+    gap: 9px;
+  }
+
+  #root > [class~="h-screen"][class~="overflow-hidden"] > [class~="flex-1"][class~="flex-col"] > header > div:first-child::after {
+    content: "WEPZO";
+    color: #1d3c8f;
+    font-size: 13px;
+    font-weight: 800;
+    line-height: 1;
+    white-space: nowrap;
+  }
+
+  #root > [class~="h-screen"][class~="overflow-hidden"] > [class~="flex-1"][class~="flex-col"] > header > div:last-of-type {
+    min-width: 0;
+    gap: 5px;
+  }
+
+  #root > [class~="h-screen"][class~="overflow-hidden"] > [class~="flex-1"][class~="flex-col"] > header > div:last-of-type > button {
+    display: grid;
+    width: 38px;
+    height: 38px;
+    min-width: 38px;
+    place-items: center;
+    padding: 0;
+    border-radius: 12px;
+    background: #f4f6fa;
+  }
+
+  button[aria-label="Active website module"] {
+    display: flex !important;
+    width: auto !important;
+    min-width: 0 !important;
+    max-width: min(42vw, 168px) !important;
+    height: 38px !important;
+    gap: 5px !important;
+    padding: 0 8px !important;
+    border-color: #e5eaf2 !important;
+    border-radius: 12px !important;
+    background: #f7f9fc !important;
+    box-shadow: none !important;
+    font-size: 11px !important;
+  }
+
+  button[aria-label="Active website module"] svg:first-child {
+    width: 14px;
+    height: 14px;
+  }
+
+  button[aria-label="Active website module"] svg:last-child {
+    width: 12px;
+    height: 12px;
+  }
+
+  #root > [class~="h-screen"][class~="overflow-hidden"] > [class~="flex-1"][class~="flex-col"] > main {
+    min-height: 0;
+    padding: 12px 12px calc(18px + env(safe-area-inset-bottom)) !important;
+    background: #f4f6fa !important;
+    overscroll-behavior-y: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  main h1 { font-size: 21px !important; line-height: 1.2 !important; }
+  main h2 { font-size: 16px !important; line-height: 1.3 !important; }
+  main h3 { font-size: 14px !important; line-height: 1.35 !important; }
+
+  main [class*="rounded-xl"][class*="border"] {
+    border-color: #e6ebf2 !important;
+    border-radius: 15px !important;
+    box-shadow: 0 2px 9px rgb(16 24 40 / 5%);
+  }
+
+  main [class~="p-6"] { padding: 12px !important; }
+  main [class~="p-5"] { padding: 11px !important; }
+  main [class~="p-4"] { padding: 9px !important; }
+  main [class~="gap-6"] { gap: 12px !important; }
+  main [class~="gap-5"] { gap: 10px !important; }
+
+  main div.grid[class~="grid-cols-1"][class~="sm:grid-cols-2"]:not(form div.grid) {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 8px !important;
+  }
+
+  aside nav a {
+    min-height: 38px;
+    padding-top: 7px !important;
+    padding-bottom: 7px !important;
+    font-size: 12px !important;
+  }
+
+  main input:not([type="checkbox"]):not([type="radio"]):not([type="color"]),
+  main select,
+  main textarea {
+    min-height: 42px;
+    border-color: #e2e8f0;
+    border-radius: 11px;
+    background-color: #fff;
+    font-size: 14px;
+  }
+
+  main textarea { min-height: 88px; padding-top: 10px; }
+
+  main button:not([aria-label*="Scroll"]):not([aria-label*="Close"]) {
+    min-height: 40px;
+    border-radius: 11px;
+    font-size: 13px;
+    touch-action: manipulation;
+  }
+
+  main button[class*="p-1"],
+  main button[class*="p-2"] { min-height: 36px; }
+
+  main table {
+    display: block;
+    width: 100%;
+    max-width: 100%;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    -webkit-overflow-scrolling: touch;
+    font-size: 12px;
+  }
+
+  main table th,
+  main table td { padding: 6px 7px !important; font-size: 10px !important; }
+
+  .dropdown-scroll { scrollbar-width: none; }
+  .dropdown-scroll::-webkit-scrollbar { display: none; }
+}
+
+@media (max-width: 767px) {
+  main > div[class*="max-w-[1500px]"] > section > div.overflow-x-auto {
+    overflow: visible !important;
+  }
+
+  main > div[class*="max-w-[1500px]"] > section table {
+    display: block !important;
+    min-width: 0 !important;
+    overflow: visible !important;
+  }
+
+  main > div[class*="max-w-[1500px]"] > section thead { display: none !important; }
+
+  main > div[class*="max-w-[1500px]"] > section tbody {
+    display: grid;
+    gap: 8px;
+    padding: 9px;
+  }
+
+  main > div[class*="max-w-[1500px]"] > section tbody tr {
+    display: grid;
+    grid-template-areas: "image module status" "image slug actions";
+    grid-template-columns: 48px minmax(0, 1fr) auto;
+    align-items: center;
+    min-width: 0;
+    padding: 7px;
+    border: 1px solid #e8edf4;
+    border-radius: 12px;
+    background: #fff;
+    box-shadow: 0 1px 4px rgb(16 24 40 / 5%);
+  }
+
+  main > div[class*="max-w-[1500px]"] > section tbody tr:has(td[colspan]) {
+    display: block;
+  }
+
+  main > div[class*="max-w-[1500px]"] > section tbody td {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    gap: 5px;
+    padding: 4px 6px !important;
+    border: 0 !important;
+    white-space: normal;
+  }
+
+  main > div[class*="max-w-[1500px]"] > section tbody td:nth-child(1) {
+    grid-area: module;
+    overflow: hidden;
+    font-size: 13px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  main > div[class*="max-w-[1500px]"] > section tbody td:nth-child(2) {
+    grid-area: image;
+    padding: 0 3px !important;
+  }
+
+  main > div[class*="max-w-[1500px]"] > section tbody td:nth-child(2) img,
+  main > div[class*="max-w-[1500px]"] > section tbody td:nth-child(2) > span {
+    width: 42px;
+    height: 42px;
+    border-radius: 10px;
+    object-fit: cover;
+  }
+
+  main > div[class*="max-w-[1500px]"] > section tbody td:nth-child(3) {
+    grid-area: slug;
+    overflow: hidden;
+    color: #64748b;
+    font-size: 11px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  main > div[class*="max-w-[1500px]"] > section tbody td:nth-child(3)::before {
+    content: "Slug";
+    flex: 0 0 auto;
+    color: #94a3b8;
+    font-family: inherit;
+    font-size: 10px;
+  }
+
+  main > div[class*="max-w-[1500px]"] > section tbody td:nth-child(4) {
+    grid-area: status;
+    justify-content: flex-end;
+  }
+
+  main > div[class*="max-w-[1500px]"] > section tbody td:nth-child(5) {
+    grid-area: actions;
+    justify-content: flex-end;
+  }
+
+  main > div[class*="max-w-[1500px]"] > section tbody td[colspan] {
+    display: block;
+    padding: 18px 8px !important;
+    text-align: center;
+  }
+}
+
+@media (max-width: 767px) {
+  main > div[class~="space-y-6"] > div:first-child > div:last-child {
+    align-self: flex-start;
+    gap: 7px;
+    padding: 7px 10px;
+    border-radius: 12px;
+    font-size: 11px;
+  }
+
+  main [class~="grid-cols-1"][class~="sm:grid-cols-2"][class~="lg:grid-cols-4"] {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 8px !important;
+  }
+
+  main [class~="grid-cols-1"][class~="sm:grid-cols-2"][class~="lg:grid-cols-4"] > div {
+    display: grid;
+    grid-template-columns: 34px minmax(0, 1fr);
+    grid-template-rows: auto auto auto;
+    align-content: center;
+    align-items: center;
+    gap: 2px 9px;
+    min-width: 0;
+    min-height: 82px;
+    padding: 10px !important;
+    border-radius: 14px !important;
+  }
+
+  main [class~="grid-cols-1"][class~="sm:grid-cols-2"][class~="lg:grid-cols-4"] > div > div:first-child {
+    grid-column: 1;
+    grid-row: 1 / 4;
+  }
+
+  main [class~="grid-cols-1"][class~="sm:grid-cols-2"][class~="lg:grid-cols-4"] > div > div:first-child > div {
+    width: 34px;
+    height: 34px;
+    border-radius: 11px;
+  }
+
+  main [class~="grid-cols-1"][class~="sm:grid-cols-2"][class~="lg:grid-cols-4"] > div > div:first-child svg {
+    width: 17px;
+    height: 17px;
+  }
+
+  main [class~="grid-cols-1"][class~="sm:grid-cols-2"][class~="lg:grid-cols-4"] > div > p:first-of-type {
+    grid-column: 2;
+    margin: 0;
+    overflow: hidden;
+    font-size: 10px;
+    line-height: 1.25;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  main [class~="grid-cols-1"][class~="sm:grid-cols-2"][class~="lg:grid-cols-4"] > div > p:nth-of-type(2) {
+    grid-column: 2;
+    margin: 0;
+    font-size: 18px;
+    line-height: 1.1;
+  }
+
+  main [class~="grid-cols-1"][class~="sm:grid-cols-2"][class~="lg:grid-cols-4"] > div > div:nth-of-type(2) {
+    grid-column: 2;
+    margin: 0;
+  }
+
+  main > div[class~="space-y-6"] > section > div[class~="mt-5"][class~="grid-cols-1"][class~="sm:grid-cols-3"] {
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+    gap: 6px !important;
+    margin-top: 10px !important;
+  }
+
+  main > div[class~="space-y-6"] > section > div[class~="mt-5"][class~="grid-cols-1"][class~="sm:grid-cols-3"] > div {
+    display: flex;
+    min-width: 0;
+    min-height: 48px;
+    align-items: center;
+    justify-content: space-between;
+    gap: 4px;
+    padding: 6px 5px;
+    border-radius: 10px;
+  }
+
+  main > div[class~="space-y-6"] > section > div[class~="mt-5"][class~="grid-cols-1"][class~="sm:grid-cols-3"] > div > p:first-child {
+    min-width: 0;
+    overflow: hidden;
+    margin: 0;
+    font-size: 8px;
+    line-height: 1.2;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  main > div[class~="space-y-6"] > section > div[class~="mt-5"][class~="grid-cols-1"][class~="sm:grid-cols-3"] > div > p:nth-child(2) {
+    flex: 0 0 auto;
+    margin: 0;
+    font-size: 13px;
+    line-height: 1.1;
+  }
+
+  main [class~="grid-cols-1"][class~="lg:grid-cols-2"] > div:last-child > div.overflow-x-auto {
+    overflow-x: hidden !important;
+  }
+
+  main [class~="grid-cols-1"][class~="lg:grid-cols-2"] > div:last-child table {
+    display: table !important;
+    width: 100% !important;
+    min-width: 0 !important;
+    table-layout: fixed;
+    overflow: visible !important;
+    font-size: 10px;
+  }
+
+  main [class~="grid-cols-1"][class~="lg:grid-cols-2"] > div:last-child th,
+  main [class~="grid-cols-1"][class~="lg:grid-cols-2"] > div:last-child td {
+    padding: 8px 5px !important;
+    font-size: 10px;
+    line-height: 1.3;
+  }
+
+  main [class~="grid-cols-1"][class~="lg:grid-cols-2"] > div:last-child th:first-child,
+  main [class~="grid-cols-1"][class~="lg:grid-cols-2"] > div:last-child td:first-child { width: 28px; }
+
+  main [class~="grid-cols-1"][class~="lg:grid-cols-2"] > div:last-child th:nth-child(2) { width: auto; }
+
+  main [class~="grid-cols-1"][class~="lg:grid-cols-2"] > div:last-child th:nth-child(3),
+  main [class~="grid-cols-1"][class~="lg:grid-cols-2"] > div:last-child td:nth-child(3) { width: 40px; }
+
+  main [class~="grid-cols-1"][class~="lg:grid-cols-2"] > div:last-child th:nth-child(4),
+  main [class~="grid-cols-1"][class~="lg:grid-cols-2"] > div:last-child td:nth-child(4) { width: 68px; }
+
+  main [class~="grid-cols-1"][class~="lg:grid-cols-2"] > div:last-child td:nth-child(2) > div {
+    min-width: 0;
+    gap: 6px;
+  }
+
+  main [class~="grid-cols-1"][class~="lg:grid-cols-2"] > div:last-child td:nth-child(2) img {
+    width: 32px;
+    height: 32px;
+    flex: 0 0 32px;
+    border-radius: 9px;
+    object-fit: cover;
+  }
+
+  main [class~="grid-cols-1"][class~="lg:grid-cols-2"] > div:last-child td:nth-child(2) a,
+  main [class~="grid-cols-1"][class~="lg:grid-cols-2"] > div:last-child td:nth-child(2) span {
+    display: block;
+    min-width: 0;
+    overflow: hidden;
+    font-size: 10px;
+    line-height: 1.3;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  main [class~="grid-cols-1"][class~="lg:grid-cols-2"] > div:last-child th:nth-child(3),
+  main [class~="grid-cols-1"][class~="lg:grid-cols-2"] > div:last-child th:nth-child(4),
+  main [class~="grid-cols-1"][class~="lg:grid-cols-2"] > div:last-child td:nth-child(3),
+  main [class~="grid-cols-1"][class~="lg:grid-cols-2"] > div:last-child td:nth-child(4) {
+    white-space: nowrap;
+  }
+}
+
+@media (max-width: 767px) {
+  main .text-xs { font-size: 10px !important; line-height: 1.3 !important; }
+  main .text-sm { font-size: 12px !important; line-height: 1.35 !important; }
+  main .text-base { font-size: 14px !important; line-height: 1.35 !important; }
+  main .text-lg { font-size: 16px !important; line-height: 1.3 !important; }
+  main .text-xl { font-size: 18px !important; line-height: 1.25 !important; }
+  main .text-2xl { font-size: 21px !important; line-height: 1.2 !important; }
+
+  main .overflow-x-auto:has(> table) {
+    max-height: min(58vh, 360px);
+    overflow: auto !important;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  main .overflow-x-auto:has(> table) > table {
+    max-width: 100%;
+  }
+
+  main .overflow-x-auto:has(> table) thead th {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    background: #f8fafc !important;
+  }
+
+  main table td > a,
+  main table td > span,
+  main table td > div > a,
+  main table td > div > span {
+    display: block;
+    min-width: 0;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  main form div.grid[class~="grid-cols-1"][class~="sm:grid-cols-2"] {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 10px !important;
+  }
+
+  main form .border-dashed {
+    min-height: 118px !important;
+    padding: 12px !important;
+    border-radius: 14px !important;
+  }
+
+  main form .border-dashed img {
+    width: 72px !important;
+    height: 72px !important;
+  }
+
+  main form .border-dashed svg {
+    width: 19px;
+    height: 19px;
+  }
+
+  main form label {
+    font-size: 11px;
+    line-height: 1.3;
+  }
+
+  main form.scroll-mt-4 {
+    padding: 12px !important;
+  }
+
+  main form.scroll-mt-4 > div[class~="grid-cols-1"][class~="lg:grid-cols-2"] {
+    grid-template-columns: minmax(0, 1fr) !important;
+    gap: 12px !important;
+  }
+
+  main form.scroll-mt-4 > div[class~="grid-cols-1"][class~="lg:grid-cols-2"] > div:first-child {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: center;
+    gap: 8px;
+  }
+
+  main form.scroll-mt-4 > div[class~="grid-cols-1"][class~="lg:grid-cols-2"] > div:first-child > div:nth-child(3) {
+    grid-column: 1 / -1;
+  }
+
+  main form.scroll-mt-4 > div[class~="grid-cols-1"][class~="lg:grid-cols-2"] > div:first-child > div:nth-child(4),
+  main form.scroll-mt-4 > div[class~="grid-cols-1"][class~="lg:grid-cols-2"] > div:first-child > div:nth-child(5) {
+    min-height: 48px;
+    padding: 6px 8px;
+    border: 1px solid #e8edf4;
+    border-radius: 11px;
+    background: #fff;
+  }
+
+  main form.scroll-mt-4 > div[class~="grid-cols-1"][class~="lg:grid-cols-2"] > div:nth-child(2) .border-dashed {
+    min-height: 118px !important;
+  }
+
+  main form.scroll-mt-4 > div:last-child {
+    gap: 8px;
+    margin-top: 12px;
+    padding-top: 12px;
+  }
+
+  main form.scroll-mt-4 > div:last-child > button {
+    flex: 1 1 0;
+    justify-content: center;
+    padding: 8px 10px !important;
+    font-size: 12px !important;
+  }
+}
+
+@media (max-width: 767px) {
+  #root > [class~="h-screen"][class~="overflow-hidden"] > [class~="flex-1"][class~="flex-col"] > header {
+    backdrop-filter: none;
+    position: sticky;
+    min-height: 104px;
+    padding-bottom: 48px;
+  }
+
+  #root > [class~="h-screen"][class~="overflow-hidden"] > [class~="flex-1"][class~="flex-col"] > header > div:first-child > nav {
+    position: absolute;
+    z-index: 1;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    display: flex !important;
+    height: 44px;
+    align-items: flex-start;
+    justify-content: space-around;
+    gap: 2px;
+    overflow: visible;
+    padding: 4px 6px 5px;
+    border-top: 1px solid #e5eaf1;
+    background: rgb(255 255 255 / 97%);
+    box-shadow: 0 2px 8px rgb(23 32 51 / 4%);
+  }
+
+  #root > [class~="h-screen"][class~="overflow-hidden"] > [class~="flex-1"][class~="flex-col"] > header > div:first-child > nav > a,
+  #root > [class~="h-screen"][class~="overflow-hidden"] > [class~="flex-1"][class~="flex-col"] > header > div:first-child > nav > div,
+  #root > [class~="h-screen"][class~="overflow-hidden"] > [class~="flex-1"][class~="flex-col"] > header > div:first-child > nav > button {
+    display: flex;
+    min-width: 52px;
+    min-height: 42px;
+    flex: 1 1 0;
+    align-items: center;
+    justify-content: center;
+    padding: 0 4px;
+    border-radius: 12px;
+    color: #475569;
+    font-size: 0 !important;
+    text-decoration: none;
+  }
+
+  #root > [class~="h-screen"][class~="overflow-hidden"] > [class~="flex-1"][class~="flex-col"] > header > div:first-child > nav > a::before {
+    display: block;
+    width: 21px;
+    height: 21px;
+    content: "";
+    background: currentColor;
+    mask-repeat: no-repeat;
+    mask-position: center;
+    mask-size: contain;
+  }
+
+  #root > [class~="h-screen"][class~="overflow-hidden"] > [class~="flex-1"][class~="flex-col"] > header > div:first-child > nav > a:nth-child(1)::before {
+    mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2'/%3E%3Ccircle cx='9' cy='7' r='4'/%3E%3Cpath d='M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75'/%3E%3C/svg%3E");
+  }
+
+  #root > [class~="h-screen"][class~="overflow-hidden"] > [class~="flex-1"][class~="flex-col"] > header > div:first-child > nav > a:nth-child(2)::before {
+    mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3' y='4' width='18' height='17' rx='2'/%3E%3Cpath d='M16 2v4M8 2v4M3 10h18M8 14h2M8 17h2M14 14h2M14 17h2'/%3E%3C/svg%3E");
+  }
+
+  #root > [class~="h-screen"][class~="overflow-hidden"] > [class~="flex-1"][class~="flex-col"] > header > div:first-child > nav > a:hover,
+  #root > [class~="h-screen"][class~="overflow-hidden"] > [class~="flex-1"][class~="flex-col"] > header > div:first-child > nav > a:focus-visible,
+  #root > [class~="h-screen"][class~="overflow-hidden"] > [class~="flex-1"][class~="flex-col"] > header > div:first-child > nav > div > button:hover,
+  #root > [class~="h-screen"][class~="overflow-hidden"] > [class~="flex-1"][class~="flex-col"] > header > div:first-child > nav > button:hover {
+    background: #edf3ff;
+    color: #1d3c8f;
+  }
+
+  #root > [class~="h-screen"][class~="overflow-hidden"] > [class~="flex-1"][class~="flex-col"] > header > div:first-child > nav > div > button {
+    width: 100%;
+    min-height: 42px;
+    justify-content: center;
+    padding: 0;
+    font-size: 0 !important;
+  }
+
+  #root > [class~="h-screen"][class~="overflow-hidden"] > [class~="flex-1"][class~="flex-col"] > header > div:first-child > nav > div > button svg:last-child {
+    display: none;
+  }
+
+  #root > [class~="h-screen"][class~="overflow-hidden"] > [class~="flex-1"][class~="flex-col"] > header > div:first-child > nav > div > button svg:first-child,
+  #root > [class~="h-screen"][class~="overflow-hidden"] > [class~="flex-1"][class~="flex-col"] > header > div:first-child > nav > button svg {
+    width: 21px;
+    height: 21px;
+    flex: 0 0 21px;
+  }
+
+  #root > [class~="h-screen"][class~="overflow-hidden"] > [class~="flex-1"][class~="flex-col"] > main {
+    padding-bottom: calc(18px + env(safe-area-inset-bottom)) !important;
+  }
+}
+
+@media (max-width: 767px) {
+  #root > [class~="h-screen"][class~="overflow-hidden"] > [class~="flex-1"][class~="flex-col"] > header > div:first-child > nav > div.relative > div.absolute {
+    position: fixed !important;
+    top: calc(env(safe-area-inset-top, 0px) + 108px) !important;
+    right: 8px !important;
+    bottom: auto !important;
+    left: 8px !important;
+    width: auto !important;
+    max-height: calc(100dvh - env(safe-area-inset-top, 0px) - 124px);
+    overflow-x: hidden !important;
+    overflow-y: auto !important;
+    overscroll-behavior: contain;
+    border-radius: 14px;
+    box-shadow: 0 18px 44px rgb(15 23 42 / 24%);
+    -webkit-overflow-scrolling: touch;
+  }
+}

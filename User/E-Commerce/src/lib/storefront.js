@@ -23,17 +23,44 @@ export const COMPONENT_TYPES = new Set([
 ])
 
 export const money = (value, business = {}) => {
-  const symbol = business.currencySymbol || 'â‚¹'
+  const configuredSymbol = String(business.currencySymbol || '').trim()
+  const symbol = /[\u00C3\u00C2\u00E2\u00EF\uFFFD]/.test(configuredSymbol) ? '₹' : configuredSymbol || '₹'
   const digits = Math.max(0, Math.min(4, Number(business.decimalDigits) || 0))
   const amount = Number(value || 0).toLocaleString('en-IN', { minimumFractionDigits: digits, maximumFractionDigits: digits })
   return business.currencyPosition === 'right' ? `${amount} ${symbol}` : `${symbol}${amount}`
 }
 
-export const imageOf = item => {
-  const source = item?.image || item?.imageUrl || item?.thumbnail || ''
-  if (!source || /^(https?:|data:|blob:)/i.test(source)) return source
+const assetSource = value => {
+  if (typeof value === 'string') {
+    const source = value.trim()
+    if (source.length > 100 && /^[A-Za-z0-9+/]+={0,2}$/.test(source)) return `data:image/png;base64,${source}`
+    return source
+  }
+  if (!value || typeof value !== 'object') return ''
+  for (const key of ['url', 'src', 'path', 'filePath', 'fileUrl', 'previewUrl', 'originalUrl', 'location', 'publicUrl', 'secure_url', 'dataUrl', 'base64', 'image', 'imageUrl', 'thumbnail', 'logo']) {
+    if (value[key] && value[key] !== value) return assetSource(value[key])
+  }
+  return ''
+}
+
+export const assetUrl = value => {
+  const source = assetSource(value)
+  if (!source || /^(https?:|data:|blob:)/i.test(source) || source.startsWith('//')) return source
   const origin = API.replace(/\/api\/?$/, '')
   return origin + (source.startsWith('/') ? source : `/${source}`)
+}
+
+export const imageOf = item => {
+  const mediaType = String(item?.mediaType || item?.mimeType || item?.type || '').toLowerCase()
+  const uploadedImage = mediaType.includes('image') ? item?.media || item?.mediaUrl || item?.asset : ''
+  return assetUrl(item?.image || item?.imageUrl || item?.thumbnail || item?.logo || uploadedImage || item)
+}
+
+export const videoOf = item => {
+  const mediaType = String(item?.mediaType || item?.mimeType || item?.type || '').toLowerCase()
+  const source = item?.video || item?.videoUrl || item?.video_url || item?.videoSrc
+    || (mediaType.includes('video') ? item?.media || item?.asset || item?.src || item?.url : '')
+  return assetUrl(source)
 }
 
 export async function request(path, options = {}) {
@@ -47,7 +74,16 @@ export async function request(path, options = {}) {
   const token = localStorage.getItem(storageKey('wepzo-shop-token'))
   if (token) headers.Authorization = `Bearer ${token}`
   const response = await fetch(`${API}${path}`, { ...options, headers })
-  const data = await response.json().catch(() => ({}))
-  if (!response.ok) throw new Error(data.message || 'Something went wrong')
+  const responseText = await response.text()
+  let data = {}
+  try {
+    data = responseText ? JSON.parse(responseText) : {}
+  } catch {
+    data = {}
+  }
+  if (!response.ok) {
+    const detail = data.message || responseText.trim().slice(0, 180)
+    throw new Error(detail || `Request failed (${response.status} ${response.statusText}).`)
+  }
   return data
 }

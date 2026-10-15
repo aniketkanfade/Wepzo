@@ -20,8 +20,8 @@ export default function ProductBulkImportPage() {
   const handleFile = selected => {
     if (!selected) return;
     const extension = selected.name.split('.').pop()?.toLowerCase();
-    if (!['xlsx', 'csv'].includes(extension)) {
-      alert('Please choose an .xlsx Excel workbook or .csv file.');
+    if (extension !== 'xlsx') {
+      alert('Please choose an .xlsx Excel workbook.');
       return;
     }
     if (selected.size > 10 * 1024 * 1024) {
@@ -32,7 +32,7 @@ export default function ProductBulkImportPage() {
   };
 
   const handleUpload = async () => {
-    if (!file) return alert('Select an Excel or CSV file.');
+    if (!file) return alert('Select an Excel file.');
     setLoading(true);
     const form = new FormData();
     form.append('file', file);
@@ -46,13 +46,22 @@ export default function ProductBulkImportPage() {
     finally { setLoading(false); }
   };
 
+  const handleTemplateDownload = async format => {
+    const filename = `products_template.${format}`;
+    try {
+      await downloadFile(`/product-items/template?format=${format}`, filename);
+    } catch (err) {
+      alert(err.response?.data?.message || err.message || 'Template download failed. Please try again.');
+    }
+  };
+
   return (
     <div className="space-y-6">
       <PageCard>
         <div className="flex items-start justify-between px-6 py-5 border-b border-gray-100">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 bg-green-50 rounded-lg flex items-center justify-center"><FileSpreadsheet size={20} className="text-green-600" /></div>
-            <div><h1 className="text-lg font-bold text-gray-900">Bulk Import</h1><p className="text-sm text-gray-500">Import product data from an Excel workbook or CSV file.</p></div>
+            <div><h1 className="text-lg font-bold text-gray-900">Bulk Import</h1><p className="text-sm text-gray-500">Import product data from an Excel workbook.</p></div>
           </div>
         </div>
         <div className="flex items-center justify-center gap-4 px-6 py-6 border-b border-gray-100">
@@ -68,18 +77,14 @@ export default function ProductBulkImportPage() {
           <div className="border border-gray-100 rounded-xl p-6 text-center">
             <Download size={32} className="mx-auto text-primary-600 mb-3" />
             <h3 className="font-semibold mb-2">Download Template</h3>
-            <button type="button" onClick={() => downloadFile('/product-items/template?format=xlsx', 'products_template.xlsx')}
+            <button type="button" onClick={() => handleTemplateDownload('xlsx')}
               className="px-5 py-2.5 bg-primary-600 text-white rounded-lg text-sm font-medium hover:bg-primary-700">
               Download Excel Template
-            </button>
-            <button type="button" onClick={() => downloadFile('/product-items/template?format=csv', 'products_template.csv')}
-              className="ml-2 px-4 py-2.5 border border-gray-200 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-50">
-              CSV
             </button>
             <p className="text-xs text-gray-400 mt-2">Product Code aur Store optional hain. Excel template mein saare supported fields hain.</p>
           </div>
           <div className="border border-gray-100 rounded-xl p-6 text-center">
-            <input ref={fileRef} type="file" accept=".xlsx,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv" className="hidden" onChange={e => handleFile(e.target.files?.[0])} />
+            <input ref={fileRef} type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" className="hidden" onChange={e => handleFile(e.target.files?.[0])} />
             <div
               onDragOver={e => { e.preventDefault(); setDragOver(true); }}
               onDragLeave={() => setDragOver(false)}
@@ -89,14 +94,14 @@ export default function ProductBulkImportPage() {
             >
               <Upload size={32} className="mx-auto text-gray-400 mb-2" />
               <p className="text-sm font-medium">{file ? file.name : 'Drag & Drop or Choose File'}</p>
-              <p className="text-xs text-gray-400 mt-1">Excel .xlsx or .csv (Max 10MB)</p>
+              <p className="text-xs text-gray-400 mt-1">Excel .xlsx (Max 10MB)</p>
             </div>
             <button onClick={handleUpload} disabled={loading || !file} className="mt-3 px-5 py-2 bg-primary-600 text-white rounded-lg text-sm disabled:opacity-50">{loading ? 'Importing...' : 'Upload & Import'}</button>
           </div>
           <div className="bg-blue-50 border border-blue-100 rounded-xl p-6">
             <h3 className="font-semibold text-blue-800 mb-3">Import Instructions</h3>
             <ol className="text-sm text-blue-700 space-y-2 list-decimal list-inside">
-              <li>Download the Excel template</li><li>Fill product data and keep the column headers unchanged</li><li>Store and Product Code are optional</li><li>Upload the .xlsx or .csv file</li><li>Open import details to review failed rows</li><li>Successful products appear in Item List</li>
+              <li>Download the Excel template and keep its headers unchanged</li><li>Main Module ID, Category ID, Sub Category ID, Child Category ID, Brand ID and Unit ID are required</li><li>Category hierarchy matches by ID; category names are not used</li><li>Store and Product Code are optional</li><li>Upload the .xlsx workbook</li><li>Open import details to review failed rows</li><li>Successful products appear in Item List</li>
             </ol>
           </div>
         </div>

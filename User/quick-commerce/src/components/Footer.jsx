@@ -24,8 +24,8 @@ export default function Footer({ componentEnabled = () => true }) {
       <div><b>Company</b><Link to="/c">About Us</Link><Link to="/c">Careers</Link><Link to="/c">Partner with us</Link><Link to="/c">Delivery Partner</Link></div>
       <div><b>Help</b><Link to="/track">Help &amp; Support</Link><Link to="/track">FAQs</Link><Link to="/track">Returns &amp; Refunds</Link><Link to="/track">Terms &amp; Conditions</Link></div>
       <div><b>Contact Us</b>{contact}</div>
-      <div className="qc-footer-benefits"><span><CheckCircle2/>Fast &amp; Easy Shopping</span><span><CheckCircle2/>Exclusive App Offers</span><span><CheckCircle2/>Real-Time Order Tracking</span></div>
+      <div className="qc-footer-benefits"><span><CheckCircle2/>Fast &amp; Easy Shopping</span><span><CheckCircle2/>Exclusive App Offers</span><span><CheckCircle2/>Real-Time Order Tracking</span><div className="qc-social"><b>Follow Us</b><span><Facebook/><Instagram/><Youtube/><Linkedin/></span></div></div>
     </div></div>
-    <div className="qc-footer-bottom"><div><Link to="/" className="qc-logo">{logo ? <img src={logo} alt={name} /> : name}</Link>{business.copyrightText && <span>{business.copyrightText}</span>}</div><div><b>Company</b><Link to="/c">About Us</Link><Link to="/c">Careers</Link></div><div><b>Help</b><Link to="/track">Help &amp; Support</Link><Link to="/track">Returns &amp; Refunds</Link></div><div><b>Contact Us</b>{contact}</div><div className="qc-social"><b>Follow Us</b><span><Facebook/><Instagram/><Youtube/><Linkedin/></span></div></div>
+    {business.copyrightText && <div className="qc-footer-bottom"><div className="qc-footer-copyright">{business.copyrightText}</div></div>}
   </footer>;
 }

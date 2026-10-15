@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { BrandingProvider, useBranding } from '../BrandingContext.jsx'
+import { useBranding } from '../BrandingContext.jsx'
 import Header from '../components/Header.jsx'
 import Hero from '../components/Hero.jsx'
 import ServiceCards from '../components/ServiceCards.jsx'
@@ -62,5 +62,9 @@ function FinalCta() {
 }
 
 export default function Home() {
-  return <BrandingProvider><Header /><main><Hero /><MarketingPromotions /><FeatureHighlights /><ServiceCards /><HowItWorks /><Pricing /><TestimonialsAndFaq /><About /><Contact /><FinalCta /><TrustedBrands /></main><Footer /></BrandingProvider>
+  return <><Header />
+  <main><Hero /><MarketingPromotions />
+  <FeatureHighlights /><ServiceCards /><HowItWorks />
+  <Pricing /><TestimonialsAndFaq /><About /><Contact /><FinalCta />
+  <TrustedBrands /></main><Footer /></>
 }

@@ -116,8 +116,8 @@ export default function LocationModal({ onClose }) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center p-4 pt-[8vh] bg-black/40" onClick={onClose}>
-      <div className="bg-white rounded-2xl w-full max-w-md max-h-[88vh] overflow-y-auto shadow-2xl" onClick={e => e.stopPropagation()}>
+    <div className="fixed inset-0 z-[1200] flex items-start justify-center p-4 pt-[8vh] bg-slate-900/45 backdrop-blur-[1px]" onClick={onClose}>
+      <div className="bg-white rounded-2xl w-full max-w-md max-h-[88vh] overflow-y-auto border border-slate-200 shadow-[0_24px_70px_rgba(15,23,42,0.28)]" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between px-5 py-4 border-b">
           <h2 className="font-bold text-lg">{mode === 'add' ? 'Add New Address' : 'Your Location'}</h2>
           <button type="button" onClick={onClose} className="p-1 rounded-lg hover:bg-slate-100"><X size={18} /></button>

@@ -4,6 +4,7 @@ import { BrowserRouter } from 'react-router-dom';
 import App from './App';
 import './index.css';
 import './mobile.css';
+import './desktop.css';
 import { useAuthStore } from './store/auth';
 import { shop } from './api';
 
