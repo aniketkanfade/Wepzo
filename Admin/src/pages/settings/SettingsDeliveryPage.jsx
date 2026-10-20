@@ -5,6 +5,7 @@ import api from '../../api/axios';
 import { useModuleStore } from '../../store/useStore';
 import { getAdminModuleKey } from '../../constants/adminModules';
 import { LIST_CARD_BORDER as CARD_BORDER, listBtnNavy } from '../../constants/listTheme';
+import { numericInputValue } from '../../utils/numericInput';
 
 const EMPTY_FORM = {
   scope: 'zone',
@@ -360,33 +361,33 @@ export default function SettingsDeliveryPage() {
               )}
               {(isEcommerce || (!form.deliveryFree && form.chargeMode === 'fixed')) ? (
                 <label className="text-xs font-semibold text-gray-600">Delivery Charge (Rs)
-                  <input type="number" min="0" step="0.01" value={form.amount} disabled={isEcommerce && form.deliveryFree} onChange={e => set('amount', e.target.value)} className="mt-1 w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm disabled:cursor-not-allowed disabled:bg-gray-100 disabled:text-gray-400" />
+                  <input type="number" min="0" step="0.01" value={numericInputValue(form.amount)} disabled={isEcommerce && form.deliveryFree} onChange={e => set('amount', e.target.value)} className="mt-1 w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm disabled:cursor-not-allowed disabled:bg-gray-100 disabled:text-gray-400" />
                 </label>
               ) : null}
               {!form.deliveryFree && form.chargeMode === 'per_km' ? (
                 <>
                   <label className="text-xs font-semibold text-gray-600">Base amount (optional)
-                    <input type="number" min="0" step="0.01" value={form.amount} onChange={e => set('amount', e.target.value)} className="mt-1 w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm" />
+                    <input type="number" min="0" step="0.01" value={numericInputValue(form.amount)} onChange={e => set('amount', e.target.value)} className="mt-1 w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm" />
                   </label>
                   <label className="text-xs font-semibold text-gray-600">Per KM Charge
-                    <input type="number" min="0" step="0.01" value={form.perKmCharge} onChange={e => set('perKmCharge', e.target.value)} className="mt-1 w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm" />
+                    <input type="number" min="0" step="0.01" value={numericInputValue(form.perKmCharge)} onChange={e => set('perKmCharge', e.target.value)} className="mt-1 w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm" />
                   </label>
                   <label className="text-xs font-semibold text-gray-600">Minimum KM
-                    <input type="number" min="0" step="0.1" value={form.minimumKm} onChange={e => set('minimumKm', e.target.value)} className="mt-1 w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm" />
+                    <input type="number" min="0" step="0.1" value={numericInputValue(form.minimumKm)} onChange={e => set('minimumKm', e.target.value)} className="mt-1 w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm" />
                   </label>
                   <label className="text-xs font-semibold text-gray-600">Minimum Delivery Charge
-                    <input type="number" min="0" step="0.01" value={form.minimumDeliveryCharge} onChange={e => set('minimumDeliveryCharge', e.target.value)} className="mt-1 w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm" />
+                    <input type="number" min="0" step="0.01" value={numericInputValue(form.minimumDeliveryCharge)} onChange={e => set('minimumDeliveryCharge', e.target.value)} className="mt-1 w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm" />
                   </label>
                   <label className="text-xs font-semibold text-gray-600">Rider Pickup Radius (KM)
-                    <input type="number" min="0" step="0.1" value={form.pickupRadiusKm} onChange={e => set('pickupRadiusKm', e.target.value)} placeholder="No limit" className="mt-1 w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm" />
+                    <input type="number" min="0" step="0.1" value={numericInputValue(form.pickupRadiusKm)} onChange={e => set('pickupRadiusKm', e.target.value)} placeholder="No limit" className="mt-1 w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm" />
                   </label>
                   <label className="text-xs font-semibold text-gray-600">Customer Drop Radius (KM)
-                    <input type="number" min="0" step="0.1" value={form.dropRadiusKm} onChange={e => set('dropRadiusKm', e.target.value)} placeholder="No limit" className="mt-1 w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm" />
+                    <input type="number" min="0" step="0.1" value={numericInputValue(form.dropRadiusKm)} onChange={e => set('dropRadiusKm', e.target.value)} placeholder="No limit" className="mt-1 w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm" />
                   </label>
                 </>
               ) : null}
               <label className="text-xs font-semibold text-gray-600">Free Delivery Above (Rs)
-                <input type="number" min="0" step="0.01" value={form.freeAbove} disabled={isEcommerce && form.deliveryFree} onChange={e => set('freeAbove', e.target.value)} className="mt-1 w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm disabled:cursor-not-allowed disabled:bg-gray-100 disabled:text-gray-400" />
+                <input type="number" min="0" step="0.01" value={numericInputValue(form.freeAbove)} disabled={isEcommerce && form.deliveryFree} onChange={e => set('freeAbove', e.target.value)} className="mt-1 w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm disabled:cursor-not-allowed disabled:bg-gray-100 disabled:text-gray-400" />
               </label>
             </div>
             {form.scope === 'category' && (

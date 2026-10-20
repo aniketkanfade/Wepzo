@@ -7,6 +7,7 @@ import {
 import api from '../../../api/axios';
 import { useAuthStore, useBuilderStore, useModuleStore } from '../../../store/useStore';
 import { getAdminModuleKey } from '../../../constants/adminModules';
+import { clearPaymentReturnDetails, launchPaymentCheckout, paymentReturnDetails, paymentReturnUrl } from '../../../utils/paymentCheckout';
 
 const MODULES = [
   { type: 'quick-commerce', name: 'Quick Commerce', icon: ShoppingBag, color: 'bg-emerald-600', desc: 'Build your Quick Commerce storefront' },
@@ -61,17 +62,12 @@ const LEGACY_PREVIEW_COMPONENTS = {
   footer: ['quick-commerce-footer'],
   'quick-commerce-favorites-cart': ['quick-commerce-favorites', 'quick-commerce-cart'],
 };
-
-function loadRazorpayCheckout() {
-  if (window.Razorpay) return Promise.resolve(true);
-  return new Promise(resolve => {
-    const script = document.createElement('script');
-    script.src = 'https://checkout.razorpay.com/v1/checkout.js';
-    script.onload = () => resolve(true);
-    script.onerror = () => resolve(false);
-    document.body.appendChild(script);
-  });
-}
+const DEFAULT_WEBSITE_PRICING = {
+  fullPurchasePriceMode: 'components',
+  fullPurchaseAmount: 0,
+  subdomainPriceMode: 'fixed',
+  subdomainPrice: 500,
+};
 
 export default function WebsiteBuilder() {
   const location = useLocation();
@@ -91,7 +87,7 @@ export default function WebsiteBuilder() {
   const displayModuleKey = previewModuleKey;
   const adminBuilderType = adminModuleKey === 'information-web' ? 'general' : adminModuleKey === 'marketing' ? 'marketing' : adminModuleKey;
   const {
-    website, selectedModule, components, totalAmount, domain,
+    website, selectedModule, components, domain,
     setWebsite, setModule, addComponent, removeComponent, setDomain
   } = useBuilderStore();
 
@@ -103,6 +99,10 @@ export default function WebsiteBuilder() {
   const [domainError, setDomainError] = useState('');
   const [subscriptionPlans, setSubscriptionPlans] = useState([]);
   const [selectedPlanId, setSelectedPlanId] = useState('');
+  const [websitePricing, setWebsitePricing] = useState(DEFAULT_WEBSITE_PRICING);
+  const [pricingError, setPricingError] = useState('');
+  const [websiteOptionSettingsReady, setWebsiteOptionSettingsReady] = useState(false);
+  const [showSubdomainOption, setShowSubdomainOption] = useState(true);
   const [paymentMode, setPaymentMode] = useState('full');
   const [checkoutError, setCheckoutError] = useState('');
   const [componentError, setComponentError] = useState('');
@@ -110,15 +110,28 @@ export default function WebsiteBuilder() {
   const [loading, setLoading] = useState(false);
   const [websiteName, setWebsiteName] = useState('My Website');
   const ecommercePreviewRef = useRef(null);
+  const storeSinglePreviewRef = useRef(null);
+  const paymentReturnHandledRef = useRef(false);
   const hasPurchasedWebsite = !!website && (website.purchase?.status === 'paid' || (website.status === 'published' && !website.purchase));
   const isEditOnly = isWebsiteUser && hasPurchasedWebsite;
   const steps = isWebsiteUser
-    ? (isEditOnly ? ['design'] : ['design', 'domain', 'payment'])
+    ? (isEditOnly ? ['design'] : ['design', ...(websiteOptionSettingsReady && showSubdomainOption ? ['domain'] : []), 'payment'])
     : ['module', 'design', 'domain', 'publish'];
   const selectedPlan = subscriptionPlans.find(plan => String(plan._id) === String(selectedPlanId)) || subscriptionPlans[0];
   const subscriptionAmount = selectedPlan?.priceMode === 'fixed' ? Number(selectedPlan.fixedAmount) || 0 : 0;
-  const domainAmount = Number(domain?.price) || 0;
+  const domainAmount = domain?.type === 'subdomain'
+    ? websitePricing.subdomainPriceMode === 'free' ? 0 : Number(websitePricing.subdomainPrice ?? domain.price ?? 500)
+    : Number(domain?.price) || 0;
+  const componentAmount = components.length
+    ? websitePricing.fullPurchasePriceMode === 'free' ? 0
+      : websitePricing.fullPurchasePriceMode === 'fixed' ? Number(websitePricing.fullPurchaseAmount) || 0
+        : components.reduce((sum, component) => sum + (Number(component.price) || 0), 0)
+    : 0;
+  const fullPurchaseTotalAmount = componentAmount + domainAmount;
   const subscriptionTotalAmount = subscriptionAmount + domainAmount;
+  const displayTotalAmount = step === 'payment' && isWebsiteUser && paymentMode === 'subscription'
+    ? subscriptionTotalAmount
+    : fullPurchaseTotalAmount;
   const planDurationLabel = plan => `${plan.durationValue || 30} ${plan.durationUnit || 'day'}${Number(plan.durationValue || 30) === 1 ? '' : 's'}`;
 
   useEffect(() => {
@@ -130,6 +143,10 @@ export default function WebsiteBuilder() {
   }, [website?._id]);
 
   useEffect(() => {
+    if (isWebsiteUser && !showSubdomainOption && step === 'domain') setStep('payment');
+  }, [isWebsiteUser, showSubdomainOption, step]);
+
+  useEffect(() => {
     if (!isWebsiteUser || isEditOnly) return;
     api.get('/website-subscription-plans').then(({ data }) => {
       const plans = Array.isArray(data) ? data : [];
@@ -137,6 +154,38 @@ export default function WebsiteBuilder() {
       setSelectedPlanId(current => current || plans.find(plan => plan.isDefault)?._id || plans[0]?._id || '');
     }).catch(() => setSubscriptionPlans([]));
   }, [isWebsiteUser, isEditOnly]);
+
+  useEffect(() => {
+    if (!selectedModule) {
+      setWebsiteOptionSettingsReady(true);
+      return undefined;
+    }
+    let active = true;
+    setWebsiteOptionSettingsReady(false);
+    api.get('/website-modules').then(({ data }) => {
+      const websiteModules = Array.isArray(data) ? data : [];
+      const targetModuleId = website?.websiteModuleId || user?.selectedModuleId;
+      const module = targetModuleId
+        ? websiteModules.find(item => String(item._id) === String(targetModuleId))
+        : websiteModules.find(item => getAdminModuleKey(item) === previewModuleKey);
+      if (!module) throw new Error('Pricing settings for this website module could not be found.');
+      if (!active) return;
+      setWebsitePricing({
+        fullPurchasePriceMode: ['components', 'free', 'fixed'].includes(module.fullPurchasePriceMode)
+          ? module.fullPurchasePriceMode
+          : DEFAULT_WEBSITE_PRICING.fullPurchasePriceMode,
+        fullPurchaseAmount: Number(module.fullPurchaseAmount) || 0,
+        subdomainPriceMode: module.subdomainPriceMode === 'free' || Number(module.subdomainPrice) === 0 ? 'free' : 'fixed',
+        subdomainPrice: Number(module.subdomainPrice ?? 500),
+      });
+      setShowSubdomainOption(module.showSubdomainOption !== false);
+      setPricingError('');
+    }).catch(error => {
+      if (!active) return;
+      setPricingError(error.response?.data?.message || error.message || 'Website pricing settings could not be loaded.');
+    }).finally(() => { if (active) setWebsiteOptionSettingsReady(true); });
+    return () => { active = false; };
+  }, [previewModuleKey, selectedModule, user?.selectedModuleId, website?.websiteModuleId]);
 
   useEffect(() => {
     if (selectedModule) {
@@ -206,6 +255,26 @@ export default function WebsiteBuilder() {
       console.error(error);
     }).finally(() => setLoading(false));
   }, [location.state?.moduleType, website, adminBuilderType]);
+
+  useEffect(() => {
+    const { purchaseId, gateway } = paymentReturnDetails();
+    if (!isWebsiteUser || !purchaseId || !['phonepe', 'cashfree'].includes(gateway) || paymentReturnHandledRef.current) return;
+    paymentReturnHandledRef.current = true;
+    setCheckoutLoading(true);
+    api.get('/websites')
+      .then(({ data }) => {
+        const pendingWebsite = (Array.isArray(data) ? data : []).find(item => String(item.purchase?._id || '') === purchaseId);
+        if (!pendingWebsite) throw new Error('The website purchase linked to this payment could not be found.');
+        setWebsite(pendingWebsite);
+        return verifyAndPublishPayment(pendingWebsite._id, { purchaseId });
+      })
+      .catch(error => setCheckoutError(error.response?.data?.message || error.message || 'Payment could not be verified.'))
+      .finally(() => {
+        clearPaymentReturnDetails();
+        setCheckoutLoading(false);
+      });
+  }, [isWebsiteUser]);
+
   const handleAddComponent = async (comp) => {
     if (!website) return;
     setComponentError('');
@@ -277,6 +346,15 @@ export default function WebsiteBuilder() {
       window.location.assign(url.href);
       return;
     }
+    if (previewModuleKey === 'store-single') {
+      const url = new URL(import.meta.env.VITE_STORE_SINGLE_PREVIEW_URL || 'http://localhost:5175/', window.location.origin);
+      url.searchParams.set('published', '1');
+      url.searchParams.set('websiteId', data._id);
+      if (data.websiteModuleId) url.searchParams.set('websiteModuleId', data.websiteModuleId);
+      if (!isWebsiteUser) url.searchParams.set('adminPreview', '1');
+      window.location.assign(url.href);
+      return;
+    }
     navigate('/published-websites/' + data._id);
   };
 
@@ -292,51 +370,46 @@ export default function WebsiteBuilder() {
     }
   };
 
+  const verifyAndPublishPayment = async (websiteId, response) => {
+    const { data: verifiedWebsite } = await api.post(`/websites/${websiteId}/checkout/verify`, response);
+    setWebsite(verifiedWebsite);
+    const { data: publishedWebsite } = await api.post(`/websites/${websiteId}/publish`);
+    setWebsite(publishedWebsite);
+    if (isWebsiteUser) navigate('/website-dashboard');
+    else openPublishedWebsite(publishedWebsite);
+    return publishedWebsite;
+  };
+
   const handleCheckout = async purchaseType => {
     if (!website) return;
+    if (pricingError) {
+      setCheckoutError(pricingError);
+      return;
+    }
     setCheckoutError('');
     setCheckoutLoading(true);
     try {
+      if (!showSubdomainOption && !website.domain) {
+        const { data: domainlessWebsite } = await api.post(`/websites/${website._id}/domain`, { type: 'none' });
+        setWebsite(domainlessWebsite);
+        setDomain(domainlessWebsite.domain || { type: 'none', fullDomain: '' });
+      }
       const { data: order } = await api.post(`/websites/${website._id}/checkout`, {
         purchaseType,
         planId: purchaseType === 'subscription' ? selectedPlan?._id : undefined,
+        returnUrl: paymentReturnUrl(),
       });
       if (order.free) {
         setWebsite(order.website);
         navigate('/website-dashboard');
         return;
       }
-      const loaded = await loadRazorpayCheckout();
-      if (!loaded || !window.Razorpay) throw new Error('Payment checkout could not be loaded. Check your connection and retry.');
-      const checkout = new window.Razorpay({
-        key: order.keyId,
-        amount: order.amount,
-        currency: order.currency,
-        name: order.name,
-        description: order.description,
-        order_id: order.orderId,
-        prefill: { name: user?.name || '', email: user?.email || '' },
-        theme: { color: '#2563eb' },
-        modal: { ondismiss: () => setCheckoutLoading(false) },
-        handler: async response => {
-          try {
-            const { data: verifiedWebsite } = await api.post(`/websites/${website._id}/checkout/verify`, response);
-            setWebsite(verifiedWebsite);
-            const { data: publishedWebsite } = await api.post(`/websites/${website._id}/publish`);
-            setWebsite(publishedWebsite);
-            if (isWebsiteUser) navigate('/website-dashboard');
-            else openPublishedWebsite(publishedWebsite);
-          } catch (error) {
-            setCheckoutError(error.response?.data?.message || 'Payment was received but could not be verified. Contact support before paying again.');
-            setCheckoutLoading(false);
-          }
-        },
+      await launchPaymentCheckout(order, {
+        prefill: { name: user?.name || '', email: user?.email || '', contact: user?.phone || '' },
+        onDismiss: () => setCheckoutLoading(false),
+        onFailure: paymentError => { setCheckoutError(paymentError.message || 'Payment failed. You can retry.'); setCheckoutLoading(false); },
+        onVerified: response => verifyAndPublishPayment(website._id, response),
       });
-      checkout.on('payment.failed', event => {
-        setCheckoutError(event.error?.description || 'Payment failed. You can retry.');
-        setCheckoutLoading(false);
-      });
-      checkout.open();
     } catch (error) {
       setCheckoutError(error.response?.data?.message || error.message || 'Checkout could not be started.');
       setCheckoutLoading(false);
@@ -364,6 +437,13 @@ export default function WebsiteBuilder() {
   if (ecommerceModuleId) ecommercePreviewUrl.searchParams.set('moduleId', ecommerceModuleId);
   ecommercePreviewUrl.searchParams.set('builderPreview', '1');
   if (!isWebsiteUser) ecommercePreviewUrl.searchParams.set('adminPreview', '1');
+  const storeSinglePreviewUrl = new URL(import.meta.env.VITE_STORE_SINGLE_PREVIEW_URL || 'http://localhost:5175/', window.location.origin);
+  const storeSingleWebsiteId = website?._id || user?.websiteId;
+  const storeSingleModuleId = website?.websiteModuleId || user?.selectedModuleId || selectedModule?._id;
+  if (storeSingleWebsiteId) storeSinglePreviewUrl.searchParams.set('websiteId', storeSingleWebsiteId);
+  if (storeSingleModuleId) storeSinglePreviewUrl.searchParams.set('websiteModuleId', storeSingleModuleId);
+  storeSinglePreviewUrl.searchParams.set('builderPreview', '1');
+  if (!isWebsiteUser) storeSinglePreviewUrl.searchParams.set('adminPreview', '1');
   const modulePreviewDocument = createModulePreviewDocument(displayModuleName(selectedModule, displayModuleKey), components);
   const sendEcommercePreview = () => ecommercePreviewRef.current?.contentWindow?.postMessage({
     type: 'wepzo:builder-preview',
@@ -372,6 +452,13 @@ export default function WebsiteBuilder() {
   useEffect(() => {
     sendEcommercePreview();
   }, [website?.components, ecommercePreviewUrl.origin]);
+  const sendStoreSinglePreview = () => storeSinglePreviewRef.current?.contentWindow?.postMessage({
+    type: 'wepzo:builder-preview',
+    components,
+  }, storeSinglePreviewUrl.origin);
+  useEffect(() => {
+    sendStoreSinglePreview();
+  }, [components, storeSinglePreviewUrl.origin]);
   const publishedPreviewUrl = new URL(quickCommercePreviewUrl.href);
   publishedPreviewUrl.searchParams.delete('builderPreview');
   publishedPreviewUrl.searchParams.set('published', '1');
@@ -456,6 +543,7 @@ export default function WebsiteBuilder() {
           {step === 'design' && (
             <div className="p-5 space-y-4">
               {isEditOnly && <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">You are editing your existing website. Design changes save to the same website and domain.</p>}
+              {pricingError && <p role="alert" className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">{pricingError}</p>}
               <div className="flex items-center justify-between">
                 <h3 className="font-semibold text-gray-800">Add Components</h3>
                 <span className="text-xs bg-primary-100 text-primary-700 px-2 py-1 rounded-full capitalize">
@@ -499,7 +587,7 @@ export default function WebsiteBuilder() {
                               <p className="text-sm font-medium">{comp.name}</p>
                               <p className="text-xs text-gray-500">{comp.description}</p>
                             </div>
-                            <span className="shrink-0 text-sm font-bold text-primary-600">₹{comp.price}</span>
+                            <span className="shrink-0 text-sm font-bold text-primary-600">{websitePricing.fullPurchasePriceMode === 'free' ? 'Free' : websitePricing.fullPurchasePriceMode === 'fixed' ? 'Included' : `₹${Number(comp.price || 0).toLocaleString('en-IN')}`}</span>
                             <span aria-hidden="true" className={`relative h-5 w-9 shrink-0 rounded-full transition ${isAdded ? 'bg-emerald-600' : 'bg-gray-300'}`}>
                               <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition ${isAdded ? 'left-[18px]' : 'left-0.5'}`} />
                             </span>
@@ -526,7 +614,7 @@ export default function WebsiteBuilder() {
                     <p className="font-medium text-sm">Subdomain</p>
                     <p className="text-xs text-gray-500">yourstore.{baseDomain}</p>
                   </div>
-                  <span className="font-bold text-primary-600">₹500</span>
+                  <span className="font-bold text-primary-600">{websitePricing.subdomainPriceMode === 'free' || websitePricing.subdomainPrice === 0 ? 'Free' : `₹${Number(websitePricing.subdomainPrice || 0).toLocaleString('en-IN')}`}</span>
                 </label>
 
               </div>
@@ -555,7 +643,7 @@ export default function WebsiteBuilder() {
               {domain?.fullDomain && (
                 <div className="p-3 bg-green-50 border border-green-200 rounded-lg">
                   <p className="text-sm font-medium text-green-800">Domain: {domain.fullDomain}</p>
-                  <p className="text-xs text-green-600 mt-1">₹{domain.price} added to total</p>
+                  <p className="text-xs text-green-600 mt-1">{domainAmount > 0 ? `₹${domainAmount.toLocaleString('en-IN')} added to total` : 'Free subdomain'}</p>
                 </div>
               )}
             </div>
@@ -568,7 +656,7 @@ export default function WebsiteBuilder() {
                 <legend className="text-xs font-semibold uppercase text-slate-500">Payment type</legend>
                 <label className={`flex cursor-pointer items-start gap-3 rounded-xl border p-3 transition ${paymentMode === 'full' ? 'border-blue-400 bg-blue-50' : 'border-slate-200 bg-white opacity-60 hover:opacity-80'}`}>
                   <input type="radio" name="paymentMode" value="full" checked={paymentMode === 'full'} onChange={() => setPaymentMode('full')} className="mt-1 accent-blue-700"/>
-                  <span className="min-w-0 flex-1"><span className="block text-sm font-semibold text-slate-800">Full Buy</span><span className="mt-0.5 block text-xs text-slate-500">Pay the full website amount now</span><span className="mt-1 block text-sm font-semibold text-slate-800">₹{Number(totalAmount).toLocaleString('en-IN')}</span></span>
+                  <span className="min-w-0 flex-1"><span className="block text-sm font-semibold text-slate-800">Full Buy</span><span className="mt-0.5 block text-xs text-slate-500">Pay the full website amount now</span><span className="mt-1 block text-sm font-semibold text-slate-800">{fullPurchaseTotalAmount > 0 ? `₹${fullPurchaseTotalAmount.toLocaleString('en-IN')}` : 'Free'}</span></span>
                 </label>
                 <label className={`flex items-start gap-3 rounded-xl border p-3 transition ${subscriptionPlans.length === 0 ? 'cursor-not-allowed border-slate-200 bg-slate-50 opacity-50' : `cursor-pointer ${paymentMode === 'subscription' ? 'border-blue-400 bg-blue-50' : 'border-slate-200 bg-white opacity-60 hover:opacity-80'}`}`}>
                   <input type="radio" name="paymentMode" value="subscription" checked={paymentMode === 'subscription'} onChange={() => setPaymentMode('subscription')} disabled={subscriptionPlans.length === 0} className="mt-1 accent-blue-700"/>
@@ -583,13 +671,13 @@ export default function WebsiteBuilder() {
                 </label>)}
                 <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm">
                   <div className="flex justify-between"><span className="text-slate-600">Subscription</span><strong>{selectedPlan?.priceMode === 'free' ? 'Free' : `₹${subscriptionAmount.toLocaleString('en-IN')}`}</strong></div>
-                  <div className="mt-1 flex justify-between"><span className="text-slate-600">Domain</span><strong>₹{domainAmount.toLocaleString('en-IN')}</strong></div>
-                  <div className="mt-2 flex justify-between border-t border-slate-200 pt-2"><span className="font-semibold">Due now</span><strong>₹{subscriptionTotalAmount.toLocaleString('en-IN')}</strong></div>
+                  <div className="mt-1 flex justify-between"><span className="text-slate-600">Domain</span><strong>{domainAmount > 0 ? `₹${domainAmount.toLocaleString('en-IN')}` : 'Free'}</strong></div>
+                  <div className="mt-2 flex justify-between border-t border-slate-200 pt-2"><span className="font-semibold">Due now</span><strong>{subscriptionTotalAmount > 0 ? `₹${subscriptionTotalAmount.toLocaleString('en-IN')}` : 'Free'}</strong></div>
                 </div>
               </div>}
               {subscriptionPlans.length === 0 && <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">No active subscription plans are available. You can choose Full Buy.</p>}
               {checkoutError && <p role="alert" className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{checkoutError}</p>}
-              <button type="button" disabled={checkoutLoading || (paymentMode === 'subscription' && !selectedPlan)} onClick={() => handleCheckout(paymentMode)} className="w-full rounded-xl bg-blue-700 py-3 font-semibold text-white hover:bg-blue-800 disabled:opacity-50">{checkoutLoading ? 'Opening secure checkout…' : paymentMode === 'subscription' ? subscriptionTotalAmount > 0 ? `Pay Subscription & Domain · ₹${subscriptionTotalAmount.toLocaleString('en-IN')}` : `Activate Free Plan · ${planDurationLabel(selectedPlan)}` : `Full Buy · ₹${Number(totalAmount).toLocaleString('en-IN')}`}</button>
+              <button type="button" disabled={checkoutLoading || !!pricingError || (paymentMode === 'subscription' && !selectedPlan)} onClick={() => handleCheckout(paymentMode)} className="w-full rounded-xl bg-blue-700 py-3 font-semibold text-white hover:bg-blue-800 disabled:opacity-50">{checkoutLoading ? 'Opening secure checkout…' : paymentMode === 'subscription' ? subscriptionTotalAmount > 0 ? `Pay Subscription & Domain · ₹${subscriptionTotalAmount.toLocaleString('en-IN')}` : `Activate Free Plan · ${planDurationLabel(selectedPlan)}` : fullPurchaseTotalAmount > 0 ? `Full Buy · ₹${fullPurchaseTotalAmount.toLocaleString('en-IN')}` : 'Get Full Website Free'}</button>
               <p className="text-center text-xs text-slate-400">Secure payment powered by Razorpay. Your website publishes after payment verification.</p>
             </div>
           )}
@@ -620,7 +708,7 @@ export default function WebsiteBuilder() {
                 )}
                 <div className="border-t border-gray-200 pt-3 flex justify-between">
                   <span className="font-semibold">Total Amount</span>
-                  <span className="font-bold text-primary-600 text-lg">₹{totalAmount.toLocaleString()}</span>
+                  <span className="font-bold text-primary-600 text-lg">{displayTotalAmount > 0 ? `₹${displayTotalAmount.toLocaleString('en-IN')}` : 'Free'}</span>
                 </div>
               </div>
 
@@ -653,8 +741,8 @@ export default function WebsiteBuilder() {
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-1.5">
               <IndianRupee size={16} className="text-primary-600" />
-              <span className="text-sm text-gray-500">Total:</span>
-              <span className="text-xl font-bold text-primary-600">₹{totalAmount.toLocaleString()}</span>
+              <span className="text-sm text-gray-500">{step === 'payment' && isWebsiteUser && paymentMode === 'subscription' ? 'Due now:' : 'Total:'}</span>
+              <span className="text-xl font-bold text-primary-600">{displayTotalAmount > 0 ? `₹${displayTotalAmount.toLocaleString('en-IN')}` : 'Free'}</span>
             </div>
             <span className="text-xs text-gray-400">{components.length} components</span>
           </div>
@@ -680,7 +768,7 @@ export default function WebsiteBuilder() {
                   }
                   if (idx < steps.length - 1) setStep(steps[idx + 1]);
                 }}
-                disabled={loading || checkoutLoading}
+                disabled={loading || checkoutLoading || (isWebsiteUser && !websiteOptionSettingsReady)}
                 className="flex-1 py-2 bg-primary-600 text-white rounded-lg text-sm font-medium hover:bg-primary-700 transition"
               >
                 Next
@@ -723,6 +811,16 @@ export default function WebsiteBuilder() {
                 title="Live E-Commerce storefront preview"
                 src={ecommercePreviewUrl.href}
                 onLoad={sendEcommercePreview}
+                className="block w-full border-0 bg-white"
+                style={{ height: '70vh', minHeight: '500px' }}
+              />
+            ) : previewModuleKey === 'store-single' ? (
+              <iframe
+                ref={storeSinglePreviewRef}
+                key={storeSinglePreviewUrl.href}
+                title="Live Store Singlepage storefront preview"
+                src={storeSinglePreviewUrl.href}
+                onLoad={sendStoreSinglePreview}
                 className="block w-full border-0 bg-white"
                 style={{ height: '70vh', minHeight: '500px' }}
               />

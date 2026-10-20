@@ -5,6 +5,7 @@ import api from '../../api/axios';
 import NavyToggle from '../../WebAdmin/Qucik commerce/components/NavyToggle';
 import { SETTINGS_PAGE_FORMS, SETTINGS_FORM_DEFAULTS } from '../../constants/settingsHub';
 import { LIST_CARD_BORDER as CARD_BORDER, listBtnNavy, listBtnOutline } from '../../constants/listTheme';
+import { numericInputValue } from '../../utils/numericInput';
 
 const PRIORITY_SECTIONS = [
   ['bestStoresNearby', 'Best Stores Nearby', 'Customer-favorite nearby stores, ranked by proximity, orders, and reviews.', 'Distance and total orders'],
@@ -36,7 +37,7 @@ const DEFAULT_AUTOMATED_REASONS = [
   'Order not delivered',
 ].map((message, index) => ({ id: `default-${index + 1}`, default: message, en: message, hi: '', status: true }));
 
-export default function SettingsGenericPage({ pageKey }) {
+export default function SettingsGenericPage({ pageKey, globalGateway = false }) {
   const config = SETTINGS_PAGE_FORMS[pageKey];
   const [form, setForm] = useState({ ...SETTINGS_FORM_DEFAULTS });
   const [loading, setLoading] = useState(true);
@@ -59,7 +60,21 @@ export default function SettingsGenericPage({ pageKey }) {
   const [customerLoyaltyExpanded, setCustomerLoyaltyExpanded] = useState(true);
   const [customerReferralExpanded, setCustomerReferralExpanded] = useState(true);
 
-  const load = () => api.get('/settings/business').then(r => setForm({ ...SETTINGS_FORM_DEFAULTS, ...(r.data || {}) }));
+  const settingsEndpoint = globalGateway && pageKey === 'paymentGateway' ? '/settings/payment-gateway' : '/settings/business';
+  const load = () => api.get(settingsEndpoint).then(r => {
+    const incoming = r.data || {};
+    const settings = { ...SETTINGS_FORM_DEFAULTS, ...incoming };
+    if (globalGateway && pageKey === 'paymentGateway') {
+      const enabled = ['razorpay', 'phonepe', 'cashfree'].filter(provider => incoming[`${provider}Enabled`]);
+      const requested = String(incoming.paymentGateway || '').toLowerCase();
+      const activeProvider = enabled.includes(requested) ? requested : enabled[0] || '';
+      settings.paymentGateway = activeProvider || requested || 'razorpay';
+      settings.razorpayEnabled = activeProvider === 'razorpay';
+      settings.phonepeEnabled = activeProvider === 'phonepe';
+      settings.cashfreeEnabled = activeProvider === 'cashfree';
+    }
+    setForm(settings);
+  });
 
   useEffect(() => {
     setLoading(true);
@@ -71,10 +86,10 @@ export default function SettingsGenericPage({ pageKey }) {
   const handleSave = async () => {
     setSaving(true);
     try {
-      const keys = config.fields.map(f => f.key);
+      const keys = config.fields.map(f => f.key).filter(key => !(globalGateway && key === 'onlinePaymentEnabled'));
       const payload = {};
       keys.forEach(k => { payload[k] = form[k]; });
-      const { data } = await api.put('/settings/business', payload);
+      const { data } = await api.put(settingsEndpoint, payload);
       setForm({ ...SETTINGS_FORM_DEFAULTS, ...data });
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
@@ -141,19 +156,29 @@ export default function SettingsGenericPage({ pageKey }) {
   }
 
   if (pageKey === 'paymentGateway') {
+    const activateGateway = gateway => {
+      setForm(current => ({
+        ...current,
+        paymentGateway: gateway,
+        razorpayEnabled: gateway === 'razorpay',
+        phonepeEnabled: gateway === 'phonepe',
+        cashfreeEnabled: gateway === 'cashfree',
+      }));
+    };
     return <div className="w-full space-y-4">
       <section className="rounded-xl border bg-white p-5" style={{ borderColor: CARD_BORDER }}>
         <h2 className="font-semibold text-slate-800">Payment Gateway Setup</h2>
-        <p className="mt-1 text-xs text-slate-500">Choose and configure a gateway. Secret keys are encrypted on the server and never returned to the storefront or this form. Set PAYMENT_CREDENTIALS_ENCRYPTION_KEY (32+ characters) in the backend environment before saving secrets.</p>
+        <p className="mt-1 text-xs text-slate-500">{globalGateway ? 'Used for WEPZO paid website subscriptions, On Domain hosting, and platform purchases. Storefront orders use each tenant’s own gateway settings.' : 'Used for this tenant’s storefront orders. Credentials are saved separately for each tenant.'} Secret keys are encrypted on the server and never returned to the storefront or this form. Set PAYMENT_CREDENTIALS_ENCRYPTION_KEY (32+ characters) in the backend environment before saving secrets.</p>
         <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          <div className="flex items-center justify-between rounded-lg border px-4 py-3" style={{ borderColor: CARD_BORDER }}><span className="text-sm text-slate-700">Razorpay</span><NavyToggle checked={!!form.razorpayEnabled} onChange={value => set('razorpayEnabled', value)} /></div>
-          <div className="flex items-center justify-between rounded-lg border px-4 py-3" style={{ borderColor: CARD_BORDER }}><span className="text-sm text-slate-700">PhonePe</span><NavyToggle checked={!!form.phonepeEnabled} onChange={value => set('phonepeEnabled', value)} /></div>
-          <div className="flex items-center justify-between rounded-lg border px-4 py-3" style={{ borderColor: CARD_BORDER }}><span className="text-sm text-slate-700">Cashfree</span><NavyToggle checked={!!form.cashfreeEnabled} onChange={value => set('cashfreeEnabled', value)} /></div>
-          <label className="block text-xs font-semibold text-slate-600">Active Gateway
-            <select value={form.paymentGateway || 'razorpay'} onChange={event => set('paymentGateway', event.target.value)} className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm font-normal text-slate-800">
-              <option value="razorpay">Razorpay</option><option value="phonepe">PhonePe</option><option value="cashfree">Cashfree</option>
-            </select>
-          </label>
+          {!globalGateway && <PaymentOption checked={form.onlinePaymentEnabled !== false} onChange={value => set('onlinePaymentEnabled', value)} title="Online storefront payments" description="Show online payment at this tenant’s checkout when the active gateway is fully configured." />}
+          {[
+            ['razorpay', 'Razorpay', !!form.razorpayEnabled],
+            ['phonepe', 'PhonePe', !!form.phonepeEnabled],
+            ['cashfree', 'Cashfree', !!form.cashfreeEnabled],
+          ].map(([gateway, label, enabled]) => <label key={gateway} className={`flex cursor-pointer items-center justify-between rounded-lg border px-4 py-3 ${enabled ? 'border-blue-700 bg-blue-50/50' : 'border-slate-200'}`}>
+            <span className="text-sm font-medium text-slate-700">{label}</span>
+            <input type="radio" name={globalGateway ? 'global-payment-gateway' : 'payment-gateway'} checked={enabled} onChange={() => activateGateway(gateway)} className="h-4 w-4 accent-[#1a3a8a]" aria-label={`Activate ${label}`} />
+          </label>)}
           <PaymentField label="Razorpay Key ID" value={form.razorpayKey || ''} onChange={value => set('razorpayKey', value)} />
           <PaymentField label={`Razorpay Key Secret${form.razorpaySecretConfigured ? ' (configured; leave blank to keep)' : ''}`} type="password" value={form.razorpayKeySecret || ''} onChange={value => set('razorpayKeySecret', value)} />
           <PaymentField label="PhonePe Client ID" value={form.phonepeClientId || ''} onChange={value => set('phonepeClientId', value)} />
@@ -561,7 +586,7 @@ export default function SettingsGenericPage({ pageKey }) {
                   className={`${inputCls} ${field.readOnly ? 'bg-gray-50' : ''}`}
                   readOnly={field.readOnly}
                   placeholder={field.type === 'password' && form[`${field.key}Configured`] ? 'Configured — leave blank to keep unchanged' : ''}
-                  value={form[field.key] ?? ''}
+                  value={field.type === 'number' ? numericInputValue(form[field.key]) : form[field.key] ?? ''}
                   onChange={e => set(field.key, field.type === 'number' ? Number(e.target.value) : e.target.value)}
                 />
               </div>
@@ -596,7 +621,7 @@ function PaymentOption({ checked, onChange, title, description, warning = false 
 }
 
 function PaymentField({ label, value, onChange, type = 'text' }) {
-  return <label className="block text-xs font-semibold text-slate-600">{label}<input type={type} value={value} onChange={event => onChange(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm font-normal text-slate-800 outline-none focus:border-blue-400" /></label>;
+  return <label className="block text-xs font-semibold text-slate-600">{label}<input type={type} value={type === 'number' ? numericInputValue(value) : value} onChange={event => onChange(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm font-normal text-slate-800 outline-none focus:border-blue-400" /></label>;
 }
 
 function GatewayEnvironment({ label, value, onChange }) {

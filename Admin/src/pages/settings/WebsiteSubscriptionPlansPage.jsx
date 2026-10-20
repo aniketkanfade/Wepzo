@@ -3,18 +3,31 @@ import { CreditCard, Pencil, Plus, Save, Trash2, X } from 'lucide-react';
 import api from '../../api/axios';
 import NavyToggle from '../../WebAdmin/Qucik commerce/components/NavyToggle';
 import { LIST_CARD_BORDER as CARD_BORDER, listBtnNavy, listBtnOutline, listTheadClass, listTheadStyle, listThClass, listTdClass } from '../../constants/listTheme';
+import { getAdminModuleKey } from '../../constants/adminModules';
+import { useModuleStore } from '../../store/useStore';
+import { numericInputValue } from '../../utils/numericInput';
 
 const EMPTY_PLAN = { name: '', description: '', priceMode: 'fixed', percent: 0, fixedAmount: 0, durationValue: 30, durationUnit: 'day', status: true, isDefault: false };
+const DEFAULT_WEBSITE_PRICING = { fullPurchasePriceMode: 'components', fullPurchaseAmount: 0, subdomainPriceMode: 'fixed', subdomainPrice: 500 };
 const fieldClass = 'w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100';
 
 export default function WebsiteSubscriptionPlansPage() {
+  const activeModule = useModuleStore(state => state.activeModule);
   const [plans, setPlans] = useState([]);
+  const [modules, setModules] = useState([]);
+  const [websitePricing, setWebsitePricing] = useState(DEFAULT_WEBSITE_PRICING);
   const [form, setForm] = useState(EMPTY_PLAN);
   const [editingId, setEditingId] = useState('');
   const [formOpen, setFormOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [pricingSaving, setPricingSaving] = useState(false);
   const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
+  const selectedModule = modules.find(module =>
+    (module._id && activeModule?._id && String(module._id) === String(activeModule._id))
+    || getAdminModuleKey(module) === getAdminModuleKey(activeModule)
+  ) || null;
 
   const load = async () => {
     setLoading(true);
@@ -29,6 +42,52 @@ export default function WebsiteSubscriptionPlansPage() {
   };
 
   useEffect(() => { load(); }, []);
+
+  useEffect(() => {
+    let active = true;
+    api.get('/website-modules').then(({ data }) => {
+      if (active) setModules(Array.isArray(data) ? data : []);
+    }).catch(requestError => {
+      if (active) setError(requestError.response?.data?.message || 'Website pricing settings could not be loaded.');
+    });
+    return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
+    setWebsitePricing({
+      fullPurchasePriceMode: ['components', 'free', 'fixed'].includes(selectedModule?.fullPurchasePriceMode)
+        ? selectedModule.fullPurchasePriceMode
+        : 'components',
+      fullPurchaseAmount: Number(selectedModule?.fullPurchaseAmount) || 0,
+      subdomainPriceMode: selectedModule?.subdomainPriceMode === 'free' || Number(selectedModule?.subdomainPrice) === 0 ? 'free' : 'fixed',
+      subdomainPrice: Number(selectedModule?.subdomainPrice ?? 500),
+    });
+  }, [selectedModule]);
+
+  const saveWebsitePricing = async event => {
+    event.preventDefault();
+    if (!selectedModule) return;
+    if (websitePricing.fullPurchasePriceMode === 'fixed' && websitePricing.fullPurchaseAmount <= 0) {
+      setError('Set a Full Buy amount greater than zero, or choose Free.');
+      return;
+    }
+    if (websitePricing.subdomainPriceMode === 'fixed' && websitePricing.subdomainPrice <= 0) {
+      setError('Set a subdomain amount greater than zero, or choose Free.');
+      return;
+    }
+    setPricingSaving(true);
+    setError('');
+    setNotice('');
+    try {
+      const { data } = await api.put(`/website-modules/${selectedModule._id}`, websitePricing);
+      setModules(current => current.map(module => module._id === data._id ? data : module));
+      setNotice(`Website and subdomain pricing saved for ${data.name}.`);
+    } catch (requestError) {
+      setError(requestError.response?.data?.message || 'Website pricing settings could not be saved.');
+    } finally {
+      setPricingSaving(false);
+    }
+  };
 
   const openAdd = () => {
     setEditingId('');
@@ -83,16 +142,52 @@ export default function WebsiteSubscriptionPlansPage() {
 
   return <main className="mx-auto max-w-6xl space-y-5">
     <div className="flex flex-wrap items-center justify-between gap-3">
-      <div><h1 className="flex items-center gap-2 text-xl font-bold text-slate-900"><CreditCard size={21} className="text-blue-800"/>Website Subscription Plans</h1><p className="mt-1 text-sm text-slate-500">Set a standalone subscription price and term, or offer a free plan. Subscription pricing is separate from website purchase pricing.</p></div>
+      <div><h1 className="flex items-center gap-2 text-xl font-bold text-slate-900"><CreditCard size={21} className="text-blue-800"/>Website Subscription Plans</h1><p className="mt-1 text-sm text-slate-500">Configure Full Buy and subdomain charges for the selected website module, then manage its subscription plans.</p></div>
       {!formOpen && <button type="button" onClick={openAdd} className={'inline-flex items-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold text-white ' + listBtnNavy}><Plus size={16}/>Add Plan</button>}
     </div>
     {error && <div role="alert" className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</div>}
+    {notice && <div role="status" className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{notice}</div>}
+    <form onSubmit={saveWebsitePricing} className="space-y-4 rounded-xl border bg-white p-5 shadow-sm" style={{ borderColor: CARD_BORDER }}>
+      <div>
+        <h2 className="font-semibold text-slate-900">Website purchase pricing</h2>
+        <p className="mt-1 text-sm text-slate-500">{selectedModule ? `Pricing for ${selectedModule.name}; changes apply in the Website Builder and Welcome Page.` : 'Loading the selected website module...'}</p>
+      </div>
+      {!selectedModule
+        ? <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800">Select an active website module before configuring its prices.</p>
+        : <>
+          <div className="grid gap-4 border-t border-slate-100 pt-4 sm:grid-cols-2">
+            <label className="text-sm font-medium text-slate-700">Full Buy price
+              <select value={websitePricing.fullPurchasePriceMode} onChange={event => setWebsitePricing(current => ({ ...current, fullPurchasePriceMode: event.target.value }))} className={`${fieldClass} mt-1`}>
+                <option value="components">Use component prices</option>
+                <option value="fixed">Set one Full Buy amount</option>
+                <option value="free">Free Full Buy</option>
+              </select>
+            </label>
+            {websitePricing.fullPurchasePriceMode === 'fixed' && <label className="text-sm font-medium text-slate-700">Full Buy amount (₹)
+              <input required type="number" min="0.01" max="10000000" step="0.01" value={numericInputValue(websitePricing.fullPurchaseAmount)} onChange={event => setWebsitePricing(current => ({ ...current, fullPurchaseAmount: event.target.value === '' ? 0 : Number(event.target.value) }))} className={`${fieldClass} mt-1`}/>
+            </label>}
+            <label className="text-sm font-medium text-slate-700">Subdomain charge
+              <select value={websitePricing.subdomainPriceMode} onChange={event => setWebsitePricing(current => ({ ...current, subdomainPriceMode: event.target.value }))} className={`${fieldClass} mt-1`}>
+                <option value="fixed">Set subdomain amount</option>
+                <option value="free">Free subdomain</option>
+              </select>
+            </label>
+            {websitePricing.subdomainPriceMode === 'fixed' && <label className="text-sm font-medium text-slate-700">Subdomain amount (₹)
+              <input required type="number" min="0.01" max="10000000" step="0.01" value={numericInputValue(websitePricing.subdomainPrice)} onChange={event => setWebsitePricing(current => ({ ...current, subdomainPrice: event.target.value === '' ? 0 : Number(event.target.value) }))} className={`${fieldClass} mt-1`}/>
+            </label>}
+          </div>
+          <p className="text-xs text-slate-500">Free or fixed Full Buy pricing is shown while adding components and used at checkout. The subdomain charge is added to Full Buy or subscription checkout and displayed automatically on the Welcome Page.</p>
+          <div className="flex justify-end border-t border-slate-100 pt-4">
+            <button disabled={pricingSaving} className={'inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold text-white disabled:opacity-50 ' + listBtnNavy}><Save size={15}/>{pricingSaving ? 'Saving...' : 'Save Pricing'}</button>
+          </div>
+        </>}
+    </form>
     {formOpen && <form onSubmit={submit} className="space-y-4 rounded-xl border bg-white p-5 shadow-sm" style={{ borderColor: CARD_BORDER }}>
       <div className="flex items-center justify-between"><h2 className="font-semibold text-slate-900">{editingId ? 'Edit plan' : 'Add subscription plan'}</h2><button type="button" onClick={() => setFormOpen(false)} aria-label="Close form" className="rounded p-1 text-slate-500 hover:bg-slate-100"><X size={18}/></button></div>
       <div className="grid gap-4 sm:grid-cols-2">
         <label className="text-sm font-medium text-slate-700">Plan name<input required maxLength={80} value={form.name} onChange={event => setForm(current => ({ ...current, name: event.target.value }))} className={`${fieldClass} mt-1`}/></label>
         <label className="text-sm font-medium text-slate-700">Plan price<select value={form.priceMode} onChange={event => setForm(current => ({ ...current, priceMode: event.target.value }))} className={`${fieldClass} mt-1`}><option value="fixed">Paid subscription</option><option value="free">Free subscription</option></select></label>
-        {form.priceMode === 'fixed' && <label className="text-sm font-medium text-slate-700">Subscription price (₹)<input required type="number" min="0.01" step="0.01" value={form.fixedAmount || ''} onChange={event => setForm(current => ({ ...current, fixedAmount: event.target.value === '' ? 0 : Number(event.target.value) }))} className={`${fieldClass} mt-1`}/></label>}
+        {form.priceMode === 'fixed' && <label className="text-sm font-medium text-slate-700">Subscription price (₹)<input required type="number" min="0.01" step="0.01" value={numericInputValue(form.fixedAmount)} onChange={event => setForm(current => ({ ...current, fixedAmount: event.target.value === '' ? 0 : Number(event.target.value) }))} className={`${fieldClass} mt-1`}/></label>}
         <label className="text-sm font-medium text-slate-700">Subscription duration<input required type="number" min="1" max="3650" step="1" placeholder="30" value={form.durationValue ?? ''} onChange={event => setForm(current => ({ ...current, durationValue: event.target.value === '' ? '' : Number(event.target.value) }))} className={`${fieldClass} mt-1`}/></label>
         <label className="text-sm font-medium text-slate-700">Duration unit<select value={form.durationUnit} onChange={event => setForm(current => ({ ...current, durationUnit: event.target.value }))} className={`${fieldClass} mt-1`}><option value="day">Days</option><option value="month">Months</option><option value="year">Years</option></select></label>
         <label className="text-sm font-medium text-slate-700 sm:col-span-2">Description<textarea rows="2" value={form.description} onChange={event => setForm(current => ({ ...current, description: event.target.value }))} className={`${fieldClass} mt-1`}/></label>

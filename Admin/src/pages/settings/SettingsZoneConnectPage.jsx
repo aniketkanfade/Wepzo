@@ -4,6 +4,7 @@ import { ArrowLeft, ChevronDown, ChevronUp, Pencil, Plus, Save, Trash2, Truck } 
 import api from '../../api/axios';
 import SearchableMultiSelect from '../../WebAdmin/Qucik commerce/components/SearchableMultiSelect';
 import { listBtnNavy, listBtnOutline } from '../../constants/listTheme';
+import { numericInputValue } from '../../utils/numericInput';
 
 const PAYMENT_OPTIONS = [
   { value: 'cod', label: 'Cash on Delivery' },
@@ -312,5 +313,5 @@ function ModuleDeliveryPanel({ zoneId, module, rules, categories, ecommerce, exp
 }
 
 function Field({ label, value, onChange }) {
-  return <label className="text-xs font-semibold text-slate-600">{label}<input type="number" min="0" step="0.01" value={value} onChange={event => onChange(event.target.value)} className="mt-1 w-full rounded-lg border px-3 py-2.5 text-sm font-normal text-slate-800 outline-none focus:border-blue-400" style={{ borderColor: '#d4e0e8' }} /></label>;
+  return <label className="text-xs font-semibold text-slate-600">{label}<input type="number" min="0" step="0.01" value={numericInputValue(value)} onChange={event => onChange(event.target.value)} className="mt-1 w-full rounded-lg border px-3 py-2.5 text-sm font-normal text-slate-800 outline-none focus:border-blue-400" style={{ borderColor: '#d4e0e8' }} /></label>;
 }

@@ -7,6 +7,7 @@ import {
   LIST_CARD_BORDER as CARD_BORDER,
   listBtnNavy, listBtnOutline, listTheadClass, listTheadStyle, listThClass, listTdClass, listRowClass, listRowStyle,
 } from '../../constants/listTheme';
+import { numericInputValue } from '../../utils/numericInput';
 
 function todayISO() {
   const d = new Date();
@@ -196,7 +197,7 @@ export default function SettingsZoneSearchChargePage() {
         <div className="p-5 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
           <div>
             <label className={labelCls}>Charge amount (₹) *</label>
-            <input type="number" min="0" step="0.01" className={inputCls} value={form.amount}
+            <input type="number" min="0" step="0.01" className={inputCls} value={numericInputValue(form.amount)}
               onChange={e => set('amount', e.target.value)} placeholder="0.00" required />
           </div>
           <div>

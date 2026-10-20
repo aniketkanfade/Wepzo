@@ -65,17 +65,19 @@ function pickRule(zone, moduleSlug = 'grocery') {
 function deliveryFromRule(rule, { distanceKm, itemsTotal }) {
   if (!rule) return { deliveryCharge: 0, freeDelivery: false, missingRule: true };
   if (rule.deliveryFree) return { deliveryCharge: 0, freeDelivery: true, payer: rule.freeDeliveryPayer };
-  if (rule.freeAbove != null && Number(rule.freeAbove) > 0 && itemsTotal >= Number(rule.freeAbove)) {
-    return { deliveryCharge: 0, freeDelivery: true, payer: rule.freeDeliveryPayer, freeAbove: rule.freeAbove };
+  const freeAbove = Number(rule.freeAbove) > 0 ? Number(rule.freeAbove) : null;
+  if (freeAbove && itemsTotal >= freeAbove) {
+    return { deliveryCharge: 0, freeDelivery: true, payer: rule.freeDeliveryPayer, freeAbove };
   }
+  const freeDeliveryThreshold = freeAbove ? { freeAbove } : {};
   if (rule.chargeMode === 'per_km') {
     const km = Math.max(distanceKm || 0, Number(rule.minimumKm) || 0);
     const extra = Math.max(0, km - (Number(rule.minimumKm) || 0));
     const raw = Number(rule.amount || 0) + extra * Number(rule.perKmCharge || 0);
     const deliveryCharge = Math.round(Math.max(Number(rule.minimumDeliveryCharge) || 0, raw));
-    return { deliveryCharge, freeDelivery: false, km, perKmCharge: rule.perKmCharge };
+    return { deliveryCharge, freeDelivery: false, km, perKmCharge: rule.perKmCharge, ...freeDeliveryThreshold };
   }
-  return { deliveryCharge: Math.round(Number(rule.amount) || 0), freeDelivery: false };
+  return { deliveryCharge: Math.round(Number(rule.amount) || 0), freeDelivery: false, ...freeDeliveryThreshold };
 }
 
 function matchingSearchCharge(zone, chargeFor = 'customer', now = new Date()) {
@@ -338,6 +340,7 @@ function quoteDelivery({ store, lat, lng, pincode, deliveryState, itemsTotal, st
     platformFee,
     total,
     freeDelivery: d.freeDelivery,
+    freeAbove: d.freeAbove || null,
     distanceKm: Number(distanceKm.toFixed(2)),
     pickupRadiusKm: rule?.pickupRadiusKm == null ? null : Number(rule.pickupRadiusKm),
     dropRadiusKm,

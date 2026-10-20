@@ -1,18 +1,8 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, CalendarClock, RefreshCw } from 'lucide-react';
 import api from '../api/axios';
-
-function loadCheckout() {
-  if (window.Razorpay) return Promise.resolve(true);
-  return new Promise(resolve => {
-    const script = document.createElement('script');
-    script.src = 'https://checkout.razorpay.com/v1/checkout.js';
-    script.onload = () => resolve(true);
-    script.onerror = () => resolve(false);
-    document.body.appendChild(script);
-  });
-}
+import { clearPaymentReturnDetails, launchPaymentCheckout, paymentReturnDetails, paymentReturnUrl } from '../utils/paymentCheckout';
 
 export default function WebsiteRenewalPage() {
   const navigate = useNavigate();
@@ -22,6 +12,7 @@ export default function WebsiteRenewalPage() {
   const [loading, setLoading] = useState(true);
   const [paying, setPaying] = useState(false);
   const [error, setError] = useState('');
+  const paymentReturnHandledRef = useRef(false);
   const selectedPlan = plans.find(plan => String(plan._id) === String(planId)) || plans[0];
   const price = useMemo(() => selectedPlan?.priceMode === 'fixed' ? Number(selectedPlan.fixedAmount) || 0 : 0, [selectedPlan]);
 
@@ -45,39 +36,41 @@ export default function WebsiteRenewalPage() {
     return () => { active = false; };
   }, []);
 
+  useEffect(() => {
+    const { purchaseId, gateway } = paymentReturnDetails();
+    if (!purchaseId || !['phonepe', 'cashfree'].includes(gateway) || paymentReturnHandledRef.current) return;
+    paymentReturnHandledRef.current = true;
+    setPaying(true);
+    api.get('/websites')
+      .then(({ data }) => {
+        const pendingWebsite = (Array.isArray(data) ? data : []).find(item => String(item.purchase?._id || '') === purchaseId);
+        if (!pendingWebsite) throw new Error('The renewal linked to this payment could not be found.');
+        return api.post(`/websites/${pendingWebsite._id}/checkout/verify`, { purchaseId });
+      })
+      .then(() => navigate('/website-dashboard', { replace: true }))
+      .catch(requestError => setError(requestError.response?.data?.message || requestError.message || 'Renewal payment could not be verified.'))
+      .finally(() => { clearPaymentReturnDetails(); setPaying(false); });
+  }, [navigate]);
+
   const renew = async () => {
     if (!website || !selectedPlan) return;
     setPaying(true);
     setError('');
     try {
-      const { data: order } = await api.post(`/websites/${website._id}/checkout`, { purchaseType: 'subscription', planId: selectedPlan._id, renewal: true });
+      const { data: order } = await api.post(`/websites/${website._id}/checkout`, { purchaseType: 'subscription', planId: selectedPlan._id, renewal: true, returnUrl: paymentReturnUrl() });
       if (order.free) {
         navigate('/website-dashboard', { replace: true });
         return;
       }
-      if (!await loadCheckout() || !window.Razorpay) throw new Error('Payment checkout could not be loaded. Check your connection and retry.');
-      const checkout = new window.Razorpay({
-        key: order.keyId,
-        amount: order.amount,
-        currency: order.currency,
-        name: order.name,
-        description: `Renew ${selectedPlan.name} subscription`,
-        order_id: order.orderId,
-        prefill: { name: website.ownerName || '', email: website.ownerEmail || '' },
-        theme: { color: '#f97316' },
-        modal: { ondismiss: () => setPaying(false) },
-        handler: async response => {
-          try {
-            await api.post(`/websites/${website._id}/checkout/verify`, response);
-            navigate('/website-dashboard', { replace: true });
-          } catch (verifyError) {
-            setError(verifyError.response?.data?.message || 'Payment was received but could not be verified. Contact support before paying again.');
-            setPaying(false);
-          }
+      await launchPaymentCheckout(order, {
+        prefill: { name: website.ownerName || '', email: website.ownerEmail || '', contact: website.ownerPhone || '' },
+        onDismiss: () => setPaying(false),
+        onFailure: paymentError => { setError(paymentError.message || 'Payment failed. You can retry.'); setPaying(false); },
+        onVerified: async response => {
+          await api.post(`/websites/${website._id}/checkout/verify`, response);
+          navigate('/website-dashboard', { replace: true });
         },
       });
-      checkout.on('payment.failed', event => { setError(event.error?.description || 'Payment failed. You can retry.'); setPaying(false); });
-      checkout.open();
     } catch (requestError) {
       setError(requestError.response?.data?.message || requestError.message || 'Renewal checkout could not be started.');
       setPaying(false);

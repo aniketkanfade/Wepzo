@@ -28,6 +28,7 @@ api.interceptors.request.use((config) => {
   config.headers['X-Website-Module'] = 'quick-commerce';
   const urlParams = new URLSearchParams(window.location.search);
   const templatePreview = urlParams.get('templatePreview') === '1';
+  const adminPreview = urlParams.get('adminPreview') === '1';
   if (templatePreview) {
     delete config.headers.Authorization;
     delete config.headers['X-Website-Id'];
@@ -39,10 +40,14 @@ api.interceptors.request.use((config) => {
   else delete config.headers.Authorization;
   try {
     const savedContext = JSON.parse(sessionStorage.getItem('wepzo-website-context') || 'null');
-    const websiteId = urlParams.get('websiteId') || savedContext?.websiteId;
-    const websiteModuleId = urlParams.get('websiteModuleId') || savedContext?.websiteModuleId;
+    const websiteId = urlParams.get('websiteId') || (!adminPreview ? savedContext?.websiteId : '');
+    const websiteModuleId = urlParams.get('websiteModuleId') || (!adminPreview ? savedContext?.websiteModuleId : '');
     if (websiteId) config.headers['X-Website-Id'] = websiteId;
     if (websiteModuleId) config.headers['X-Website-Module-Id'] = websiteModuleId;
+    if (adminPreview) {
+      delete config.headers.Authorization;
+      config.headers['X-Admin-Preview'] = '1';
+    }
   } catch { /* ignore unavailable browser storage */ }
   return config;
 });
@@ -86,6 +91,8 @@ export const shop = {
   quote: (body) => api.post('/shop/quote', body).then(r => r.data),
   coupons: () => api.get('/shop/coupons').then(r => r.data),
   placeOrder: (body) => api.post('/shop/orders', body, { headers: authHeaders() }).then(r => r.data),
+  initiatePayment: (body) => api.post('/shop/payments/initiate', body, { headers: authHeaders() }).then(r => r.data),
+  verifyPayment: (body) => api.post('/shop/payments/verify', body, { headers: authHeaders() }).then(r => r.data),
   order: (id) => api.get(`/shop/orders/${id}`).then(r => r.data),
   login: (body) => api.post('/shop/auth/login', body).then(r => r.data),
   register: (body) => api.post('/shop/auth/register', body).then(r => r.data),

@@ -9,6 +9,7 @@ import { ImageViewerProvider } from './ImageViewerProvider';
 import PageErrorBoundary from './PageErrorBoundary';
 import AdminSupportDock from './AdminSupportDock';
 import { getWebsiteHeaderAccessPaths } from '../../../constants/websiteAccess';
+import { hasWebsiteServiceEnded, isWebsiteServiceActive } from '../../../utils/websiteService';
 
 function flattenMenuPaths(items) {
   return items.flatMap(item => item.children?.length ? flattenMenuPaths(item.children) : (item.path && item.path !== '#' ? [item.path] : []));
@@ -37,6 +38,9 @@ export default function Layout() {
   const [websiteAccessReady, setWebsiteAccessReady] = useState(false);
   const [hasPaidWebsite, setHasPaidWebsite] = useState(false);
   const [websitePaymentReady, setWebsitePaymentReady] = useState(false);
+  const [websiteServiceEnded, setWebsiteServiceEnded] = useState(false);
+  const [websiteDomainOptions, setWebsiteDomainOptions] = useState({ showSubdomainOption: true, showOwnDomainOption: true });
+  const [websiteDomainOptionsReady, setWebsiteDomainOptionsReady] = useState(false);
   const isWebsiteBuilder = location.pathname.startsWith('/website-builder');
   const isOnDomainPage = location.pathname === '/on-domain';
   const isWebsiteUser = user?.role === 'website_user';
@@ -53,24 +57,41 @@ export default function Layout() {
       setWebsiteAccessReady(true);
       setHasPaidWebsite(false);
       setWebsitePaymentReady(true);
+      setWebsiteServiceEnded(false);
+      setWebsiteDomainOptions({ showSubdomainOption: true, showOwnDomainOption: true });
+      setWebsiteDomainOptionsReady(true);
       return;
     }
     setWebsiteAccessReady(false);
     setWebsitePaymentReady(false);
+    setWebsiteDomainOptionsReady(false);
+    setWebsiteDomainOptions({ showSubdomainOption: true, showOwnDomainOption: true });
     api.get('/my-website-access').then(({ data }) => setWebsiteAccess({
       header: Array.isArray(data?.header) ? data.header : [],
       sidebar: Array.isArray(data?.sidebar) ? data.sidebar : [],
     })).catch(() => setWebsiteAccess({ header: [], sidebar: [] })).finally(() => setWebsiteAccessReady(true));
     api.get('/websites').then(({ data }) => {
       const websites = Array.isArray(data) ? data : [];
-      setHasPaidWebsite(websites.some(website =>
-        website.purchase?.status === 'paid' || (website.status === 'published' && !website.purchase)
-      ));
-    }).catch(() => setHasPaidWebsite(false)).finally(() => setWebsitePaymentReady(true));
-  }, [isWebsiteUser, user?.selectedModuleSlug]);
+      setHasPaidWebsite(websites.some(isWebsiteServiceActive));
+      setWebsiteServiceEnded(websites.some(hasWebsiteServiceEnded));
+    }).catch(() => {
+      setHasPaidWebsite(false);
+      setWebsiteServiceEnded(false);
+    }).finally(() => setWebsitePaymentReady(true));
+    api.get('/website-modules').then(({ data }) => {
+      const modules = Array.isArray(data) ? data : [];
+      const module = modules.find(item => String(item._id) === String(user?.selectedModuleId))
+        || modules.find(item => String(item.slug || '').toLowerCase() === String(user?.selectedModuleSlug || '').toLowerCase());
+      if (module) setWebsiteDomainOptions({
+        showSubdomainOption: module.showSubdomainOption !== false,
+        showOwnDomainOption: module.showOwnDomainOption !== false,
+      });
+    }).catch(() => setWebsiteDomainOptions({ showSubdomainOption: true, showOwnDomainOption: true }))
+      .finally(() => setWebsiteDomainOptionsReady(true));
+  }, [isWebsiteUser, user?.selectedModuleSlug, user?.selectedModuleId]);
 
   const effectiveWebsiteAccess = isWebsiteUser
-    ? { ...websiteAccess, sidebar: [...new Set([...websiteAccess.sidebar, '/website-builder', '/on-domain'])] }
+    ? { ...websiteAccess, sidebar: [...new Set([...websiteAccess.sidebar, '/website-builder', '/settings/third-party', ...(websiteDomainOptions.showOwnDomainOption ? ['/on-domain'] : [])])] }
     : websiteAccess;
   const websiteBuilderAccess = isWebsiteUser || websiteAccess.header.includes('/website-builder') || websiteAccess.sidebar.includes('/website-builder');
   const allKnownPaths = [...new Set([...getWebsiteHeaderAccessPaths(), ...flattenMenuPaths(ADMIN_SIDEBAR_MENU), '/website-subscription', '/settings/welcome-page', '/settings/on-domain', '/on-domain'])];
@@ -80,11 +101,14 @@ export default function Layout() {
     : allowedPaths;
   const hasBuilderAccess = websiteBuilderAccess;
   const currentRouteAllowed = matchesAllowedRoute(location.pathname, allowedPaths, allKnownPaths);
-  if (isWebsiteUser && (!websiteAccessReady || !websitePaymentReady)) return <div className="flex h-screen items-center justify-center bg-slate-50 text-sm text-slate-500">Loading website access...</div>;
+  if (isWebsiteUser && (!websiteAccessReady || !websitePaymentReady || !websiteDomainOptionsReady)) return <div className="flex h-screen items-center justify-center bg-slate-50 text-sm text-slate-500">Loading website access...</div>;
+  if (isWebsiteUser && websiteServiceEnded && isWebsiteBuilder) return <Navigate to="/website-dashboard" replace />;
+  if (isWebsiteUser && isOnDomainPage && !websiteDomainOptions.showOwnDomainOption) return <Navigate to="/welcome" replace />;
   if (isWebsiteUser && websiteAccessReady && isWebsiteBuilder && !hasBuilderAccess) {
     return <WebsiteAccessDenied onSignOut={() => { resetBuilder(); logout(); }} />;
   }
-  if (isWebsiteUser && websiteAccessReady && websitePaymentReady && !hasPaidWebsite && !isWebsiteBuilder && !isOnDomainPage) {
+  if (isWebsiteUser && websiteAccessReady && websitePaymentReady && !hasPaidWebsite && !isWebsiteBuilder && !isOnDomainPage && !['/website-dashboard', '/website-subscription'].includes(location.pathname)) {
+    if (websiteServiceEnded) return <Navigate to="/website-dashboard" replace />;
     if (hasBuilderAccess) return <Navigate to="/website-builder" replace />;
     return <WebsiteAccessDenied onSignOut={() => { resetBuilder(); logout(); }} />;
   }
@@ -99,7 +123,7 @@ export default function Layout() {
         {(!isWebsiteBuilder || !isWebsiteUser) && (!isWebsiteUser || hasPaidWebsite) && (isWebsiteUser
           ? (isSettings
             ? <SettingsSidebar mobileOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} allowedPaths={settingsAllowedPaths}/>
-            : (allowedPaths.length > 0 && <Sidebar mobileOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} websiteAccess={effectiveWebsiteAccess}/>))
+            : (allowedPaths.length > 0 && <Sidebar mobileOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} websiteAccess={effectiveWebsiteAccess} showOwnDomainOption={websiteDomainOptions.showOwnDomainOption}/>))
           : isSettings
             ? <SettingsSidebar mobileOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
             : <Sidebar mobileOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />)}

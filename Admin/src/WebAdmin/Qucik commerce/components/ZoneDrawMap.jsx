@@ -14,6 +14,30 @@ const vertexIcon = (first) => L.divIcon({
   iconAnchor: first ? [8, 8] : [6, 6],
 });
 
+const radiusCenterIcon = L.divIcon({
+  className: '',
+  html: '<div style="width:16px;height:16px;background:#2563eb;border:3px solid #fff;border-radius:50%;box-shadow:0 1px 6px rgba(0,0,0,.4)"></div>',
+  iconSize: [16, 16],
+  iconAnchor: [8, 8],
+});
+
+const radiusHandleIcon = L.divIcon({
+  className: '',
+  html: '<div style="width:14px;height:14px;background:#f97316;border:3px solid #fff;border-radius:50%;box-shadow:0 1px 6px rgba(0,0,0,.4)"></div>',
+  iconSize: [14, 14],
+  iconAnchor: [7, 7],
+});
+
+function getRadiusHandlePosition(lat, lng, radiusKm) {
+  const earthRadiusKm = 6371;
+  const latitude = (lat * Math.PI) / 180;
+  const angularDistance = radiusKm / earthRadiusKm;
+  const handleLatitude = Math.asin(Math.sin(latitude) * Math.cos(angularDistance));
+  const handleLongitude = (lng * Math.PI) / 180
+    + Math.atan2(Math.sin(angularDistance), Math.cos(angularDistance) * Math.cos(latitude));
+  return [handleLatitude * (180 / Math.PI), handleLongitude * (180 / Math.PI)];
+}
+
 function ClickDraw({ onClick, firstPoint, canClose, enabled }) {
   const map = useMapEvents({
     click(e) {
@@ -84,6 +108,7 @@ function ZoneDrawMapInner({
   drawEnabled = true,
   readOnly = false,
   onCenterChange,
+  onRadiusChange,
   onPolygonChange,
   onClosedChange,
   onOutsideCity,
@@ -91,6 +116,7 @@ function ZoneDrawMapInner({
   const [satellite, setSatellite] = useState(false);
   const [query, setQuery] = useState('');
   const [dragging, setDragging] = useState(false);
+  const [centerDragging, setCenterDragging] = useState(false);
   const [mapError, setMapError] = useState('');
   const center = [city?.lat || lat || 21.1458, city?.lng || lng || 79.0882];
   const points = (polygon || []).map(p => [p.lat, p.lng]);
@@ -119,7 +145,6 @@ function ZoneDrawMapInner({
     setMapError('');
     const next = [...(polygon || []), { lat: newLat, lng: newLng }];
     onPolygonChange?.(next);
-    if (!(polygon || []).length) onCenterChange?.(newLat, newLng);
   };
 
   const movePoint = (index, newLat, newLng) => {
@@ -183,7 +208,7 @@ function ZoneDrawMapInner({
               onClick={handleClick}
             />
           )}
-          <Recenter lat={city?.lat || lat} lng={city?.lng || lng} skip={points.length > 0 || pinAreas.length > 0} />
+          <Recenter lat={city?.lat || lat} lng={city?.lng || lng} skip={centerDragging || points.length > 0 || pinAreas.length > 0} />
           {fitToken && (
             <FitBounds
               token={fitToken}
@@ -221,6 +246,50 @@ function ZoneDrawMapInner({
           {drawing && radiusKm > 0 && lat && lng && (
             <Circle center={[lat, lng]} radius={radiusKm * 1000}
               pathOptions={{ color: '#2563eb', fillOpacity: 0.06, weight: 1, dashArray: '4 4' }} />
+          )}
+          {drawing && !readOnly && drawEnabled && lat && lng && (
+            <>
+              <Marker
+                position={[lat, lng]}
+                icon={radiusCenterIcon}
+                draggable
+                eventHandlers={{
+                  dragstart: () => { setCenterDragging(true); setDragging(true); },
+                  drag: (e) => {
+                    const position = e.target.getLatLng();
+                    if (city && !isInsideCity(city, position.lat, position.lng)) return;
+                    setMapError('');
+                    onCenterChange?.(position.lat, position.lng);
+                  },
+                  dragend: (e) => {
+                    setCenterDragging(false);
+                    setDragging(false);
+                    const position = e.target.getLatLng();
+                    if (city && !isInsideCity(city, position.lat, position.lng)) {
+                      setMapError('Radius center city ke bahar nahi le ja sakte');
+                      e.target.setLatLng([lat, lng]);
+                      return;
+                    }
+                    onCenterChange?.(position.lat, position.lng);
+                  },
+                }}
+              />
+              {radiusKm > 0 && (
+                <Marker
+                  position={getRadiusHandlePosition(lat, lng, radiusKm)}
+                  icon={radiusHandleIcon}
+                  draggable
+                  eventHandlers={{
+                    dragstart: () => setDragging(true),
+                    dragend: (e) => {
+                      setDragging(false);
+                      const radius = L.latLng(lat, lng).distanceTo(e.target.getLatLng()) / 1000;
+                      if (Number.isFinite(radius)) onRadiusChange?.(radius);
+                    },
+                  }}
+                />
+              )}
+            </>
           )}
           {drawing && points.map((p, i) => (
             <Marker
@@ -277,6 +346,7 @@ function ZoneDrawMapInner({
           <span className={`text-xs ${closed ? 'text-emerald-600 font-semibold' : 'text-amber-600'}`}>
             {closed ? `Closed · ${points.length} points (drag to adjust)` : `${points.length} points · first point par wapas aao to close`}
           </span>
+          {drawEnabled && radiusKm > 0 && <span className="text-xs text-blue-700">Blue point: radius center · Orange point: radius adjust</span>}
         </div>
       )}
       {mapError && <p className="text-xs text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2">{mapError}</p>}

@@ -3,6 +3,7 @@ import {
   Plus, X, Tag, Edit, Trash2, Calculator, ChevronDown, Download,
 } from 'lucide-react';
 import api from '../../../../api/axios';
+import { numericInputValue } from '../../../../utils/numericInput';
 import {
   LIST_NAVY as NAVY, LIST_CARD_BORDER as CARD_BORDER,
   listBtnNavy, listBtnOutline, listTheadClass, listTheadStyle, listThClass,
@@ -81,19 +82,19 @@ function AddDiscountModal({ open, onClose, onSave, initial, saving }) {
           <div>
             <label className={labelCls}>Discount amount (%)</label>
             <input type="number" min={1} max={100} step={0.5} required
-              value={form.discountPercent} onChange={e => set('discountPercent', e.target.value)}
+              value={numericInputValue(form.discountPercent)} onChange={e => set('discountPercent', e.target.value)}
               className={inputCls} style={{ borderColor: CARD_BORDER }} />
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className={labelCls}>Min purchase (₹)</label>
-              <input type="number" min={0} value={form.minPurchase}
+              <input type="number" min={0} value={numericInputValue(form.minPurchase)}
                 onChange={e => set('minPurchase', e.target.value)}
                 className={inputCls} style={{ borderColor: CARD_BORDER }} />
             </div>
             <div>
               <label className={labelCls}>Max discount (₹)</label>
-              <input type="number" min={0} value={form.maxDiscount}
+              <input type="number" min={0} value={numericInputValue(form.maxDiscount)}
                 onChange={e => set('maxDiscount', e.target.value)}
                 className={inputCls} style={{ borderColor: CARD_BORDER }} />
             </div>
@@ -325,7 +326,7 @@ export default function StoreDiscountsTab({ store }) {
         <div className="flex flex-wrap items-end gap-3 mb-4">
           <div className="flex-1 min-w-[200px] max-w-xs">
             <label className="block text-xs font-semibold text-gray-600 mb-1.5">Bill amount (₹)</label>
-            <input type="number" min={0} value={billAmount}
+            <input type="number" min={0} value={numericInputValue(billAmount)}
               onChange={e => setBillAmount(e.target.value)}
               className="w-full px-3 py-2.5 border rounded-lg text-sm outline-none"
               style={{ borderColor: CARD_BORDER }} />

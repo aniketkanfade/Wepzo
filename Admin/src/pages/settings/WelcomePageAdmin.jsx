@@ -2,8 +2,14 @@ import { useEffect, useMemo, useState } from 'react';
 import { BookOpen, Save } from 'lucide-react';
 import api from '../../api/axios';
 import { listBtnNavy } from '../../constants/listTheme';
+import { useModuleStore } from '../../store/useStore';
+import NavyToggle from '../../WebAdmin/Qucik commerce/components/NavyToggle';
 
 const inputClass = 'w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100';
+const subdomainPriceLabel = module => module?.subdomainPriceMode === 'free'
+  || Number(module?.subdomainPrice) === 0
+  ? 'Free'
+  : `₹${Number(module?.subdomainPrice ?? 500).toLocaleString('en-IN')} setup`;
 const emptyContent = {
   welcomeTitle: '',
   welcomeDescription: '',
@@ -11,9 +17,10 @@ const emptyContent = {
   builderTip: '',
   addressTitle: '',
   addressDescription: '',
+  showSubdomainOption: true,
+  showOwnDomainOption: true,
   subdomainTitle: '',
   subdomainDescription: '',
-  subdomainBadge: '',
   subdomainBenefitsText: '',
   ownDomainTitle: '',
   ownDomainDescription: '',
@@ -35,14 +42,29 @@ const emptyContent = {
 };
 
 export default function WelcomePageAdmin() {
+  const { activeModule } = useModuleStore();
   const [modules, setModules] = useState([]);
   const [selectedId, setSelectedId] = useState('');
   const [content, setContent] = useState(emptyContent);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [savingVisibility, setSavingVisibility] = useState('');
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
-  const selectedModule = useMemo(() => modules.find(module => String(module._id) === String(selectedId)), [modules, selectedId]);
+  const selectedModule = useMemo(() => {
+    if (!modules.length) return null;
+    const activeKey = String(activeModule?.slug || activeModule?.type || '').trim().toLowerCase().replace(/_/g, '-');
+    const matchByActive = modules.find(module => {
+      const moduleKey = String(module.slug || module.type || '').trim().toLowerCase().replace(/_/g, '-');
+      if (module._id && activeModule?._id && String(module._id) === String(activeModule._id)) return true;
+      if (module.id && activeModule?.id && String(module.id) === String(activeModule.id)) return true;
+      if (activeModule?._id && String(module._id) === String(activeModule._id)) return true;
+      if (moduleKey && activeKey && moduleKey === activeKey) return true;
+      if (module.name && activeModule?.name && module.name.toLowerCase() === activeModule.name.toLowerCase()) return true;
+      return false;
+    });
+    return matchByActive || modules.find(module => String(module._id) === String(selectedId)) || modules[0] || null;
+  }, [activeModule, modules, selectedId]);
   const images = Array.isArray(selectedModule?.images) && selectedModule.images.length
     ? selectedModule.images
     : (selectedModule?.image ? [selectedModule.image] : []);
@@ -53,18 +75,28 @@ export default function WelcomePageAdmin() {
       if (!active) return;
       const list = Array.isArray(data) ? data : [];
       setModules(list);
-      setSelectedId(list[0]?._id || '');
+      const activeKey = String(activeModule?.slug || activeModule?.type || '').trim().toLowerCase().replace(/_/g, '-');
+      const matched = list.find(module => {
+        const moduleKey = String(module.slug || module.type || '').trim().toLowerCase().replace(/_/g, '-');
+        if (module._id && activeModule?._id && String(module._id) === String(activeModule._id)) return true;
+        if (module.id && activeModule?.id && String(module.id) === String(activeModule.id)) return true;
+        if (moduleKey && activeKey && moduleKey === activeKey) return true;
+        return module.name && activeModule?.name && module.name.toLowerCase() === activeModule.name.toLowerCase();
+      });
+      setSelectedId((matched || list[0])?._id || '');
     }).catch(requestError => {
       if (active) setError(requestError.response?.data?.message || 'Website modules could not be loaded.');
     }).finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
-  }, []);
+  }, [activeModule]);
 
   useEffect(() => {
     const moduleContent = selectedModule || {};
     setContent({
       ...emptyContent,
-      ...Object.fromEntries(Object.keys(emptyContent).filter(key => !['helpLinksText', 'subdomainBenefitsText', 'ownDomainBenefitsText'].includes(key)).map(key => [key, moduleContent[key] || ''])),
+      ...Object.fromEntries(Object.keys(emptyContent).filter(key => !['helpLinksText', 'subdomainBenefitsText', 'ownDomainBenefitsText', 'showSubdomainOption', 'showOwnDomainOption'].includes(key)).map(key => [key, moduleContent[key] || ''])),
+      showSubdomainOption: moduleContent.showSubdomainOption !== false,
+      showOwnDomainOption: moduleContent.showOwnDomainOption !== false,
       helpLinksText: (moduleContent.helpLinks || []).map(link => `${link.label} | ${link.url}`).join('\n'),
       subdomainBenefitsText: (moduleContent.subdomainBenefits || []).join('\n'),
       ownDomainBenefitsText: (moduleContent.ownDomainBenefits || []).join('\n'),
@@ -73,6 +105,32 @@ export default function WelcomePageAdmin() {
   }, [selectedModule]);
 
   const update = (key, value) => setContent(current => ({ ...current, [key]: value }));
+  const updateVisibility = async (key, value) => {
+    if (!selectedModule || savingVisibility) return;
+    const previousValue = content[key];
+    setContent(current => ({ ...current, [key]: value }));
+    setSavingVisibility(key);
+    setError('');
+    setNotice('');
+    try {
+      const { data } = await api.patch(`/website-modules/${selectedModule._id}/domain-options`, { [key]: value });
+      if (data?._id !== selectedModule._id || data?.[key] !== value) {
+        throw new Error('The server did not confirm the domain option update.');
+      }
+      setModules(current => current.map(module => String(module._id) === String(selectedModule._id)
+        ? { ...module, ...data }
+        : module));
+      setNotice('Domain option visibility saved.');
+    } catch (requestError) {
+      setContent(current => ({ ...current, [key]: previousValue }));
+      setError(requestError.response?.data?.message
+        || (requestError.response
+          ? `Domain option visibility could not be saved (server returned ${requestError.response.status}).`
+          : requestError.message || 'Could not reach the website server. Check your connection and try again.'));
+    } finally {
+      setSavingVisibility('');
+    }
+  };
   const helpLinks = content.helpLinksText.split('\n').map(line => {
     const separator = line.indexOf('|');
     return separator < 0 ? null : { label: line.slice(0, separator).trim(), url: line.slice(separator + 1).trim() };
@@ -122,11 +180,16 @@ export default function WelcomePageAdmin() {
       : !modules.length ? <p className="rounded-xl border border-amber-200 bg-amber-50 p-5 text-sm text-amber-800">Create a website module before configuring its welcome page.</p>
         : <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(320px,0.8fr)]">
           <form onSubmit={save} className="space-y-5 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-            <label className="block text-sm font-medium text-slate-700">Website module
-              <select value={selectedId} onChange={event => setSelectedId(event.target.value)} className={`${inputClass} mt-1`}>
-                {modules.map(module => <option key={module._id} value={module._id}>{module.name}</option>)}
-              </select>
-            </label>
+            <div className="space-y-3 rounded-lg border border-slate-200 p-3">
+              <p className="text-xs text-slate-500">These switches save immediately. You do not need to press Save Welcome Page.</p>
+              <div className="flex items-center justify-between gap-3"><span className="text-sm font-medium text-slate-700">Show Subdomain button</span><span className="flex items-center gap-3"><span role="status" className="text-xs text-slate-500">{savingVisibility === 'showSubdomainOption' ? 'Saving...' : ''}</span><NavyToggle checked={content.showSubdomainOption} onChange={value => updateVisibility('showSubdomainOption', value)} disabled={!!savingVisibility} ariaLabel="Show Subdomain button"/></span></div>
+              <div className="flex items-center justify-between gap-3"><span className="text-sm font-medium text-slate-700">Show On Domain button</span><span className="flex items-center gap-3"><span role="status" className="text-xs text-slate-500">{savingVisibility === 'showOwnDomainOption' ? 'Saving...' : ''}</span><NavyToggle checked={content.showOwnDomainOption} onChange={value => updateVisibility('showOwnDomainOption', value)} disabled={!!savingVisibility} ariaLabel="Show On Domain button"/></span></div>
+            </div>
+            <div className="block text-sm font-medium text-slate-700">Website module
+              <div className={`${inputClass} mt-1 flex items-center justify-between bg-slate-50 text-slate-700`}>
+                <span>{selectedModule?.name || activeModule?.name || 'Website module'}</span>
+              </div>
+            </div>
             <section className="space-y-3">
               <h2 className="border-b border-slate-100 pb-2 text-sm font-bold text-slate-900">Welcome and builder guidance</h2>
               {field('welcomeTitle', 'Welcome heading', `Welcome to ${selectedModule?.name || 'your website'}!`)}
@@ -140,7 +203,7 @@ export default function WelcomePageAdmin() {
               {field('addressDescription', 'Address section description', 'Select how you want your store to appear online.')}
               {field('subdomainTitle', 'Subdomain card title', 'Use a WEPZO subdomain')}
               {field('subdomainDescription', 'Subdomain card description', 'Choose a WEPZO web address. Setup charges are shown in the builder before payment.', true)}
-              {field('subdomainBadge', 'Subdomain badge', '₹500 setup')}
+              <p className="rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-600">Subdomain price is set in Website Subscription Plans and updates here automatically: <strong>{subdomainPriceLabel(selectedModule)}</strong>.</p>
               <label className="block text-sm font-medium text-slate-700">Subdomain benefits <span className="font-normal text-slate-400">(one per line)</span>
                 <textarea rows="3" value={content.subdomainBenefitsText} onChange={event => update('subdomainBenefitsText', event.target.value)} className={`${inputClass} mt-1`} placeholder={'Guided domain setup\nNo technical setup needed\nPrice shown before checkout'}/>
               </label>
@@ -177,7 +240,9 @@ export default function WelcomePageAdmin() {
               <p className="mt-1">{selectedModule?.description || 'Add a module description from Website Modules.'}</p>
               <p className="mt-1">Preview video: {selectedModule?.videoUrl ? 'Available' : 'Not added'} · Preview images: {images.length}</p>
             </div>
-            <button type="submit" disabled={saving || !selectedModule} className={`inline-flex items-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50 ${listBtnNavy}`}><Save size={16}/>{saving ? 'Saving...' : 'Save Welcome Page'}</button>
+            <div className="flex justify-end">
+              <button type="submit" disabled={saving || !selectedModule} className={`inline-flex items-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50 ${listBtnNavy}`}><Save size={16}/>{saving ? 'Saving...' : 'Save Welcome Page'}</button>
+            </div>
           </form>
 
           <section className="h-fit overflow-hidden rounded-2xl border border-slate-200 bg-slate-50 shadow-sm">
@@ -196,14 +261,14 @@ export default function WelcomePageAdmin() {
                 <p className="font-semibold text-slate-900">{content.addressTitle || 'Choose Your Website Address'}</p>
                 <p className="mt-1 text-sm text-slate-600">{content.addressDescription || 'Select how you want your store to appear online.'}</p>
               </div>
-              <div className="rounded-xl border border-blue-200 bg-white p-4">
+              {content.showSubdomainOption && <div className="rounded-xl border border-blue-200 bg-white p-4">
                 <p className="font-semibold text-slate-900">{content.subdomainTitle || 'Use WEPZO Subdomain'}</p>
                 <p className="mt-1 text-sm text-slate-600">{content.subdomainDescription || 'Choose a WEPZO web address. Setup charges are shown in the builder before payment.'}</p>
-                <span className="mt-2 inline-block rounded bg-orange-100 px-2 py-1 text-xs text-orange-800">{content.subdomainBadge || '₹500 setup'}</span>
+                <span className="mt-2 inline-block rounded bg-orange-100 px-2 py-1 text-xs text-orange-800">{subdomainPriceLabel(selectedModule)}</span>
                 <p className="mt-2 whitespace-pre-line text-xs text-slate-600">{content.subdomainBenefitsText || 'Guided domain setup\nNo technical setup needed\nPrice shown before checkout'}</p>
                 <button type="button" disabled className="mt-3 rounded-lg bg-blue-800 px-4 py-2 text-sm font-semibold text-white">{content.continueLabel || 'Continue & Build'}</button>
-              </div>
-              <div className="rounded-xl border border-slate-200 bg-white p-4"><p className="font-semibold text-slate-900">{content.ownDomainTitle || 'Use Your Own Domain'}</p><p className="mt-1 text-sm text-slate-600">{content.ownDomainDescription || 'Open a sample storefront preview styled with your own domain.'}</p><span className="mt-2 inline-block rounded bg-violet-100 px-2 py-1 text-xs text-violet-800">{content.ownDomainBadge || 'Recommended'}</span><p className="mt-2 whitespace-pre-line text-xs text-slate-600">{content.ownDomainBenefitsText || 'See your store design\nTry cart and sample order\nNo real customer data'}</p></div>
+              </div>}
+              {content.showOwnDomainOption && <div className="rounded-xl border border-slate-200 bg-white p-4"><p className="font-semibold text-slate-900">{content.ownDomainTitle || 'Use Your Own Domain'}</p><p className="mt-1 text-sm text-slate-600">{content.ownDomainDescription || 'Open a sample storefront preview styled with your own domain.'}</p><span className="mt-2 inline-block rounded bg-violet-100 px-2 py-1 text-xs text-violet-800">{content.ownDomainBadge || 'Recommended'}</span><p className="mt-2 whitespace-pre-line text-xs text-slate-600">{content.ownDomainBenefitsText || 'See your store design\nTry cart and sample order\nNo real customer data'}</p></div>}
               <div className="rounded-xl bg-white p-4"><p className="font-semibold text-slate-900">{content.tutorialTitle || 'How to build your website'}</p><p className="mt-1 text-sm text-slate-600">{content.tutorialDescription || 'Watch the module video to get started.'}</p></div>
               {(content.helpTitle || content.helpLinksText) && <div className="rounded-xl bg-white p-4"><p className="font-semibold text-slate-900">{content.helpTitle || 'Helpful guides'}</p><p className="mt-1 text-sm text-slate-600">{content.helpDescription || 'Guides for your domain, design and products.'}</p><p className="mt-1 whitespace-pre-line text-sm text-blue-800">{helpLinks.map(link => link.label).join(' · ') || 'Add guide links above.'}</p></div>}
               {(content.supportTitle || content.supportDescription || content.supportEmail || content.supportWhatsApp) && <div className="rounded-xl bg-white p-4"><p className="font-semibold text-slate-900">{content.supportTitle || 'Need a hand?'}</p><p className="mt-1 text-sm text-slate-600">{content.supportDescription}</p><p className="mt-1 text-xs text-slate-500">{[content.supportEmailLabel, content.supportWhatsAppLabel, content.helpCenterLabel].filter(Boolean).join(' · ')}</p></div>}

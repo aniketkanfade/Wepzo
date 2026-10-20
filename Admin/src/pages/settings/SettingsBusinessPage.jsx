@@ -2,11 +2,12 @@ import { useEffect, useState } from 'react';
 import { MapContainer, Marker, TileLayer, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-import { Building2, ClipboardList, Headphones, Heart, ImagePlus, MapPin, Monitor, RotateCcw, Save, Search, ShoppingCart, Smartphone, Upload, UserRound } from 'lucide-react';
+import { ArrowLeftRight, Building2, ClipboardList, Headphones, Heart, ImagePlus, MapPin, Monitor, RotateCcw, Save, Search, ShoppingCart, Smartphone, Truck, Upload, UserRound } from 'lucide-react';
 import api from '../../api/axios';
 import { listBtnNavy, listBtnOutline, LIST_CARD_BORDER } from '../../constants/listTheme';
 import { getAdminModuleKey } from '../../constants/adminModules';
 import { useModuleStore } from '../../store/useStore';
+import { numericInputValue } from '../../utils/numericInput';
 
 const DEFAULT_FORM = {
   platformName: '',
@@ -24,6 +25,14 @@ const DEFAULT_FORM = {
     priceColor: '#e94a0b',
     headerBackground: '#ffffff',
     headerText: '#172744',
+    headerIconColor: '#172744',
+    headerHoverBackground: '#f1f5f9',
+    headerHoverText: '#172744',
+    headerCategoryHoverBackground: '#f1f5f9',
+    deliveryTimeText: '#dc2626',
+    deliveryTimeIcon: '#dc2626',
+    cartCountBackground: '#304ca3',
+    favoritesCountBackground: '#f43f5e',
     searchBackground: '#f8f9fb',
     searchButton: '#304ca3',
     buttonBackground: '#304ca3',
@@ -32,6 +41,13 @@ const DEFAULT_FORM = {
     footerText: '#ffffff',
     pageBackground: '#ffffff',
     surfaceBackground: '#ffffff',
+    productCardBackground: '#ffffff',
+    productCardText: '#1f2937',
+    productCardHoverBackground: '#fff7ed',
+    productCardHoverText: '#172744',
+    productCardHoverBorder: '#f2c9ad',
+    buttonHoverBackground: '#f4510b',
+    buttonHoverText: '#ffffff',
   },
   maintenanceMode: false,
   timezone: 'Asia/Kolkata',
@@ -141,6 +157,9 @@ function MarketingWebsitePreview({ form, viewMode = 'desktop' }) {
 }
 
 function LaptopStorefrontPreview({ form, moduleName, moduleKey, viewMode = 'desktop' }) {
+  const [hoveredHeaderAction, setHoveredHeaderAction] = useState('');
+  const [hoveredPreviewProduct, setHoveredPreviewProduct] = useState('');
+  const [hoveredPreviewButton, setHoveredPreviewButton] = useState(false);
   if (moduleKey === 'marketing') return <MarketingWebsitePreview form={form} viewMode={viewMode} />;
   if (moduleKey === 'information-web') return <WebPageThemePreview form={form} viewMode={viewMode} />;
   const colors = { ...DEFAULT_FORM.themeColors, ...(form.themeColors || {}) };
@@ -161,15 +180,18 @@ function LaptopStorefrontPreview({ form, moduleName, moduleKey, viewMode = 'desk
       <div className="flex h-5 items-center justify-center bg-slate-900"><span className="h-1 w-12 rounded-full bg-slate-600" /></div>
       <div className="flex h-11 items-center gap-2 px-2" style={{ backgroundColor: colors.headerBackground, color: colors.headerText }}>
         {logo ? <img src={logo} alt={storeName} className="h-7 w-7 shrink-0 rounded-full object-contain" /> : <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full text-xs font-bold" style={{ backgroundColor: form.primaryColor || '#f45b15', color: colors.buttonText }}>{storeName.slice(0, 1).toUpperCase()}</span>}
-        <div className="min-w-0 flex-1 leading-tight"><strong className="block truncate text-[9px]">{storeName}</strong><span className="inline-flex items-center gap-0.5 text-[8px]"><MapPin size={9} />440001</span></div>
-        <div className="flex shrink-0 items-center gap-2">{actions.map(([Icon, label]) => <span key={label} title={label}><Icon size={13} /></span>)}</div>
+        <div className="min-w-0 flex-1 leading-tight"><strong className="block truncate text-[9px]">{storeName}</strong>{isQuickCommerce && <span className="flex items-center gap-0.5 text-[7px]" style={{ color: colors.deliveryTimeText }}><Truck size={8} style={{ color: colors.deliveryTimeIcon }} />Delivery in 15 mins</span>}<span className="inline-flex items-center gap-0.5 text-[7px]"><MapPin size={8} style={{ color: colors.headerIconColor || colors.headerText }} />440001</span></div>
+        <div className="flex shrink-0 items-center gap-2" style={{ color: colors.headerIconColor || colors.headerText }}>{actions.map(([Icon, label]) => <span key={label} title={label} className="relative rounded px-1" onMouseEnter={() => setHoveredHeaderAction(label)} onMouseLeave={() => setHoveredHeaderAction('')} style={hoveredHeaderAction === label ? { backgroundColor: colors.headerHoverBackground, color: colors.headerHoverText } : undefined}><Icon size={13} />{isQuickCommerce && (label === 'Cart' || label === 'Wishlist') && <b className="absolute -right-1.5 -top-1 grid h-3 min-w-3 place-items-center rounded-full px-0.5 text-[6px] leading-none text-white" style={{ backgroundColor: label === 'Cart' ? colors.cartCountBackground || colors.buttonBackground : colors.favoritesCountBackground }}>2</b>}</span>)}</div>
       </div>
       <div className="px-2 py-1.5" style={{ backgroundColor: colors.headerBackground }}><div className="flex h-8 overflow-hidden rounded-md border border-slate-200" style={{ backgroundColor: colors.searchBackground }}><span className="flex min-w-0 flex-1 items-center px-2 text-[9px] text-slate-500">Search products, brands and more...</span><span className="grid w-8 shrink-0 place-items-center" style={{ backgroundColor: colors.searchButton, color: colors.buttonText }}><Search size={13} /></span></div></div>
       <nav className="flex h-8 items-stretch gap-5 border-y border-slate-200 px-3 text-[9px]" style={{ backgroundColor: colors.headerBackground, color: colors.headerText }}><span className="flex items-center border-b-2 font-semibold" style={{ borderColor: form.primaryColor || '#f45b15', color: form.primaryColor || '#f45b15' }}>Home</span><span className="flex items-center">{moduleName || 'Module'}</span></nav>
       <div className="h-[330px] overflow-hidden p-3" style={{ backgroundColor: colors.pageBackground }}>
         <div className="mb-3 flex min-h-[68px] items-center justify-between rounded-lg px-3 py-2" style={{ backgroundColor: colors.surfaceBackground }}><div><strong className="block text-[11px] leading-tight text-slate-900">{heroTitle}</strong><span className="mt-1 block text-[8px] text-slate-500">{heroSubtitle}</span></div><span className="inline-flex rounded px-2 py-1.5 text-[8px] font-semibold" style={{ backgroundColor: colors.buttonBackground, color: colors.buttonText }}>Shop now</span></div>
         <div className="mb-2 flex items-center justify-between"><strong className="text-[10px] text-slate-900">{productSectionTitle}</strong><span className="text-[8px]" style={{ color: form.primaryColor || '#f45b15' }}>View all</span></div>
-        <div className="grid grid-cols-2 gap-2">{previewProducts.slice(0, 2).map(product => <div key={product.name} className="min-h-[174px] overflow-hidden rounded-md border border-slate-200 p-2" style={{ backgroundColor: colors.surfaceBackground }}><div className="grid h-[96px] place-items-center overflow-hidden rounded bg-white"><img src={product.image} alt={product.name} className="h-full w-full object-contain" /></div><strong className="mt-1 block truncate text-[8px] text-slate-800">{product.name}</strong><span className="block text-[9px] font-semibold" style={{ color: colors.priceColor }}>{product.price}</span><span className="mt-1 grid h-6 place-items-center rounded text-[8px] font-semibold" style={{ backgroundColor: colors.buttonBackground, color: colors.buttonText }}>Add to cart</span></div>)}</div>
+        <div className="grid grid-cols-2 gap-2">{previewProducts.slice(0, 2).map(product => {
+          const productHovered = isQuickCommerce && hoveredPreviewProduct === product.name;
+          return <div key={product.name} onMouseEnter={() => setHoveredPreviewProduct(product.name)} onMouseLeave={() => setHoveredPreviewProduct('')} className="min-h-[174px] overflow-hidden rounded-md border p-2 transition-colors" style={{ backgroundColor: isQuickCommerce ? (productHovered ? colors.productCardHoverBackground : colors.productCardBackground) : colors.surfaceBackground, color: isQuickCommerce && productHovered ? colors.productCardHoverText : isQuickCommerce ? colors.productCardText : '#1f2937', borderColor: productHovered ? colors.productCardHoverBorder : '#e2e8f0' }}><div className="grid h-[96px] place-items-center overflow-hidden rounded bg-white"><img src={product.image} alt={product.name} className="h-full w-full object-contain" /></div><strong className="mt-1 block truncate text-[8px]">{product.name}</strong><span className="block text-[9px] font-semibold" style={{ color: colors.priceColor }}>{product.price}</span><span onMouseEnter={() => setHoveredPreviewButton(true)} onMouseLeave={() => setHoveredPreviewButton(false)} className="mt-1 grid h-6 place-items-center rounded text-[8px] font-semibold" style={{ backgroundColor: isQuickCommerce && hoveredPreviewButton ? colors.buttonHoverBackground : colors.buttonBackground, color: isQuickCommerce && hoveredPreviewButton ? colors.buttonHoverText : colors.buttonText }}>Add to cart</span></div>;
+        })}</div>
       </div>
       <div className="flex h-7 items-center justify-center text-[8px]" style={{ backgroundColor: colors.footerBackground, color: colors.footerText }}>{form.copyrightText || storeName}</div>
     </div>
@@ -181,13 +203,13 @@ function LaptopStorefrontPreview({ form, moduleName, moduleKey, viewMode = 'desk
         <div className="flex h-6 items-center gap-1.5 bg-slate-900 px-3"><i className="h-1.5 w-1.5 rounded-full bg-slate-500" /><i className="h-1.5 w-1.5 rounded-full bg-slate-600" /><i className="h-1.5 w-1.5 rounded-full bg-slate-600" /><span className="ml-3 flex h-3.5 flex-1 items-center rounded-sm bg-slate-800 px-2 text-[7px] text-slate-500">store.example.com</span><span className="ml-2 h-1 w-1 rounded-full bg-slate-600" /></div>
         <div className="flex min-h-[58px] items-center gap-4 px-4" style={{ backgroundColor: colors.headerBackground, color: colors.headerText }}>
           {logo ? <img src={logo} alt={storeName} className="h-8 w-8 shrink-0 rounded-full object-contain" /> : <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full text-sm font-bold" style={{ backgroundColor: form.primaryColor || '#f45b15', color: colors.buttonText }}>{storeName.slice(0, 1).toUpperCase()}</span>}
-          <div className="min-w-[90px] leading-tight"><strong className="block truncate text-[10px]">{storeName}</strong><span className="inline-flex items-center gap-0.5 whitespace-nowrap text-[9px]"><MapPin size={10} />Deliver to 440001</span></div>
+          <div className="min-w-[90px] leading-tight"><strong className="block truncate text-[10px]">{storeName}</strong><span className="inline-flex items-center gap-0.5 whitespace-nowrap text-[9px]"><MapPin size={10} style={{ color: colors.headerIconColor || colors.headerText }} />Deliver to 440001</span></div>
           <div className="flex h-9 min-w-0 flex-1 overflow-hidden rounded-md border border-slate-200" style={{ backgroundColor: colors.searchBackground }}>
             <span className="flex min-w-0 flex-1 items-center overflow-hidden whitespace-nowrap px-3 text-ellipsis text-[10px] text-slate-500">Search products, brands and more...</span>
             <span className="grid w-10 shrink-0 place-items-center" style={{ backgroundColor: colors.searchButton, color: colors.buttonText }}><Search size={15} /></span>
           </div>
-          <div className="flex shrink-0 items-center gap-2">
-            {actions.map(([Icon, label]) => <span key={label} className="grid justify-items-center gap-0.5 whitespace-nowrap text-[7px] leading-none"><Icon size={13} />{label}</span>)}
+          <div className="flex shrink-0 items-center gap-2" style={{ color: colors.headerIconColor || colors.headerText }}>
+            {actions.map(([Icon, label]) => <span key={label} className="grid justify-items-center gap-0.5 whitespace-nowrap rounded px-1 text-[7px] leading-none" onMouseEnter={() => setHoveredHeaderAction(label)} onMouseLeave={() => setHoveredHeaderAction('')} style={hoveredHeaderAction === label ? { backgroundColor: colors.headerHoverBackground, color: colors.headerHoverText } : undefined}><span className="relative"><Icon size={13} />{isQuickCommerce && (label === 'Cart' || label === 'Wishlist') && <b className="absolute -right-1.5 -top-1 grid h-3 min-w-3 place-items-center rounded-full px-0.5 text-[6px] leading-none text-white" style={{ backgroundColor: label === 'Cart' ? colors.cartCountBackground || colors.buttonBackground : colors.favoritesCountBackground }}>2</b>}</span>{label}</span>)}
           </div>
         </div>
         <nav className="flex h-9 items-stretch gap-7 border-y border-slate-200 px-5 text-[10px]" style={{ backgroundColor: colors.headerBackground, color: colors.headerText }}>
@@ -202,11 +224,11 @@ function LaptopStorefrontPreview({ form, moduleName, moduleKey, viewMode = 'desk
           </div>
           <div className="mb-2 flex items-center justify-between"><strong className="text-xs text-slate-900">{productSectionTitle}</strong><span className="text-[9px]" style={{ color: form.primaryColor || '#f45b15' }}>View all</span></div>
           <div className="grid grid-cols-5 gap-2">
-            {previewProducts.map(product => <div key={product.name} className="overflow-hidden rounded-md border border-slate-200 p-1.5" style={{ backgroundColor: colors.surfaceBackground }}>
+            {previewProducts.map(product => <div key={product.name} onMouseEnter={() => setHoveredPreviewProduct(product.name)} onMouseLeave={() => setHoveredPreviewProduct('')} className="overflow-hidden rounded-md border p-1.5 transition-colors" style={{ backgroundColor: isQuickCommerce ? (hoveredPreviewProduct === product.name ? colors.productCardHoverBackground : colors.productCardBackground) : colors.surfaceBackground, color: hoveredPreviewProduct === product.name ? colors.productCardHoverText : colors.productCardText, borderColor: hoveredPreviewProduct === product.name ? colors.productCardHoverBorder : '#e2e8f0' }}>
               <div className="grid h-[78px] place-items-center overflow-hidden rounded bg-white"><img src={product.image} alt={product.name} className="h-full w-full object-contain" /></div>
-              <strong className="mt-1 block truncate text-[9px] text-slate-800">{product.name}</strong>
+              <strong className="mt-1 block truncate text-[9px]" style={{ color: isQuickCommerce && hoveredPreviewProduct === product.name ? colors.productCardHoverText : isQuickCommerce ? colors.productCardText : '#1f2937' }}>{product.name}</strong>
               <span className="block text-[10px] font-semibold" style={{ color: colors.priceColor }}>{product.price}</span>
-              <span className="mt-1 grid h-6 place-items-center rounded text-[8px] font-semibold" style={{ backgroundColor: colors.buttonBackground, color: colors.buttonText }}>Add to cart</span>
+              <span onMouseEnter={() => setHoveredPreviewButton(true)} onMouseLeave={() => setHoveredPreviewButton(false)} className="mt-1 grid h-6 place-items-center rounded text-[8px] font-semibold" style={{ backgroundColor: isQuickCommerce && hoveredPreviewButton ? colors.buttonHoverBackground : colors.buttonBackground, color: isQuickCommerce && hoveredPreviewButton ? colors.buttonHoverText : colors.buttonText }}>Add to cart</span>
             </div>)}
           </div>
         </div>
@@ -274,6 +296,7 @@ export default function SettingsBusinessPage({ colorsOnly = false }) {
     ...current,
     themeColors: { ...DEFAULT_FORM.themeColors, ...(current.themeColors || {}), [key]: value },
   }));
+  const copyThemeColor = (source, target) => setThemeColor(target, themeColorValue(source));
 
   const uploadImage = (key, file) => {
     if (!file) return;
@@ -315,16 +338,31 @@ export default function SettingsBusinessPage({ colorsOnly = false }) {
 
   const latitude = Number(form.businessLat) || 21.1458;
   const longitude = Number(form.businessLng) || 79.0882;
+  const headerThemeColorControls = [
+    ['headerBackground', 'Header background'], ['headerText', 'Header text'],
+    ['headerIconColor', 'Header icons'],
+    ['headerHoverBackground', 'Header hover background'], ['headerHoverText', 'Header hover text'],
+    ['headerCategoryHoverBackground', 'Header category hover background'],
+    ['deliveryTimeText', 'Delivery time text'], ['deliveryTimeIcon', 'Delivery time icon'],
+    ['cartCountBackground', 'Cart count badge'], ['favoritesCountBackground', 'Favorites count badge'],
+  ];
   const themeColorControls = [
     ['primaryColor', 'Brand and active accent'], ['priceColor', 'Product price'],
-    ['headerBackground', 'Header background'], ['headerText', 'Header text and icons'],
     ['searchBackground', 'Search bar background'], ['searchButton', 'Search button'],
     ['buttonBackground', 'Main buttons'], ['buttonText', 'Button text'],
     ['footerBackground', 'Footer background'], ['footerText', 'Footer text'],
     ['pageBackground', 'Page background'], ['surfaceBackground', 'Cards and surfaces'],
+    ['productCardBackground', 'Product card background'], ['productCardText', 'Product card text'],
+    ['productCardHoverBackground', 'Product card hover background'],
+    ['productCardHoverText', 'Product card hover text'], ['productCardHoverBorder', 'Product card hover border'],
+    ['buttonHoverBackground', 'Button hover background'], ['buttonHoverText', 'Button hover text'],
   ];
+  const themeColorValue = key => form.themeColors?.[key]
+    || (key === 'cartCountBackground' ? form.themeColors?.buttonBackground || form.primaryColor || '#f4510b' : null)
+    || DEFAULT_FORM.themeColors[key]
+    || '#f4510b';
   const renderThemeColor = ([key, label]) => <label key={key} className="flex min-h-14 items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700">
-    <span>{label}</span><input aria-label={label} type="color" value={key === 'primaryColor' ? form.primaryColor || '#f45b15' : form.themeColors?.[key] || DEFAULT_FORM.themeColors[key]} onChange={event => key === 'primaryColor' ? set('primaryColor', event.target.value) : setThemeColor(key, event.target.value)} className="h-9 w-11 shrink-0 cursor-pointer rounded border-0 bg-transparent" />
+    <span>{label}</span><input aria-label={label} type="color" value={key === 'primaryColor' ? form.primaryColor || '#f45b15' : themeColorValue(key)} onChange={event => key === 'primaryColor' ? set('primaryColor', event.target.value) : setThemeColor(key, event.target.value)} className="h-9 w-11 shrink-0 cursor-pointer rounded border-0 bg-transparent" />
   </label>;
 
   if (loading) return <div className="py-20 text-center text-slate-400">Loading business settings...</div>;
@@ -335,9 +373,18 @@ export default function SettingsBusinessPage({ colorsOnly = false }) {
       <button type="submit" disabled={saving} className={`inline-flex items-center gap-2 rounded-lg px-5 py-2.5 text-sm font-semibold disabled:opacity-50 ${listBtnNavy}`}><Save size={15} />{saved ? 'Saved' : saving ? 'Saving...' : 'Save Colors'}</button>
     </div>
     {error && <p role="alert" className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</p>}
-    <Section title={getAdminModuleKey(activeModule) === 'marketing' ? 'Website colors' : 'Storefront colors'} description={getAdminModuleKey(activeModule) === 'marketing' ? 'Preview your Marketing website with its current brand, call-to-action, footer, and page colors.' : 'Choose separate colors for the header, search bar, buttons, footer, and page surfaces.'}>
-      <div className="grid items-start gap-4 xl:grid-cols-[minmax(160px,0.8fr)_minmax(500px,2.5fr)_minmax(160px,0.8fr)]">
-        <div className="grid gap-2">{themeColorControls.slice(0, 6).map(renderThemeColor)}</div>
+    <Section title={getAdminModuleKey(activeModule) === 'marketing' ? 'Website colors' : 'Storefront colors'} description={getAdminModuleKey(activeModule) === 'marketing' ? 'Preview your Marketing website with its current brand, call-to-action, footer, and page colors.' : 'Set storefront, card, and hover colors; the Quick Commerce preview uses these theme settings.'}>
+      <div className="grid items-start gap-4 xl:grid-cols-[minmax(190px,0.9fr)_minmax(500px,2.5fr)_minmax(190px,0.9fr)]">
+        <div className="space-y-3">
+          <div>
+            <h3 className="mb-2 text-sm font-semibold text-slate-800">Header colors</h3>
+            <div className="grid gap-2">{headerThemeColorControls.map(renderThemeColor)}</div>
+            <div className="mt-2 grid grid-cols-2 gap-2">
+              <button type="button" onClick={() => copyThemeColor('headerText', 'headerIconColor')} className="inline-flex items-center justify-center gap-1 rounded-lg border border-slate-200 px-2 py-2 text-[11px] font-medium text-slate-600 hover:bg-slate-50"><ArrowLeftRight size={13} />Text → icons</button>
+              <button type="button" onClick={() => copyThemeColor('headerIconColor', 'headerText')} className="inline-flex items-center justify-center gap-1 rounded-lg border border-slate-200 px-2 py-2 text-[11px] font-medium text-slate-600 hover:bg-slate-50"><ArrowLeftRight size={13} />Icons → text</button>
+            </div>
+          </div>
+        </div>
         <div className="min-w-0 space-y-3">
           <div className="flex items-center justify-between gap-3">
             <span className="text-sm font-semibold text-slate-700">Preview</span>
@@ -347,7 +394,10 @@ export default function SettingsBusinessPage({ colorsOnly = false }) {
           </div>
           <LaptopStorefrontPreview form={form} moduleName={activeModule?.name} moduleKey={getAdminModuleKey(activeModule)} viewMode={previewMode} />
         </div>
-        <div className="grid gap-2">{themeColorControls.slice(6).map(renderThemeColor)}</div>
+        <div className="space-y-4">
+          <div><h3 className="mb-2 text-sm font-semibold text-slate-800">Storefront colors</h3><div className="grid gap-2">{themeColorControls.slice(0, 10).map(renderThemeColor)}</div></div>
+          <div><h3 className="mb-2 text-sm font-semibold text-slate-800">Product card &amp; hover colors</h3><div className="grid gap-2">{themeColorControls.slice(10).map(renderThemeColor)}</div></div>
+        </div>
       </div>
     </Section>
     <div className="flex justify-end gap-2"><button type="button" onClick={loadSettings} className={`inline-flex items-center gap-2 rounded-lg px-4 py-2.5 text-sm ${listBtnOutline}`}><RotateCcw size={14} />Reset</button><button type="submit" disabled={saving} className={`inline-flex items-center gap-2 rounded-lg px-5 py-2.5 text-sm font-semibold disabled:opacity-50 ${listBtnNavy}`}><Save size={14} />{saved ? 'Saved' : saving ? 'Saving...' : 'Save Colors'}</button></div>
@@ -391,18 +441,18 @@ export default function SettingsBusinessPage({ colorsOnly = false }) {
       <div className="grid gap-4 rounded-lg bg-slate-50 p-4 sm:grid-cols-3">
         <label className={labelClass}>Currency Symbol<select className={inputClass} value={form.currencySymbol || '₹'} onChange={event => { const option = CURRENCIES.find(item => item.symbol === event.target.value); setForm(current => ({ ...current, currencySymbol: event.target.value, currency: option?.code || current.currency })); }}>{CURRENCIES.map(item => <option key={item.code} value={item.symbol}>{item.code} ({item.symbol})</option>)}</select></label>
         <fieldset><legend className={labelClass}>Currency Position</legend><RadioGroup name="currencyPosition" value={form.currencyPosition || 'left'} onChange={value => set('currencyPosition', value)} options={ [['left', `${form.currencySymbol || '₹'} Left`], ['right', `${form.currencySymbol || '₹'} Right`]] } /></fieldset>
-        <label className={labelClass}>Digit After Decimal Point<input type="number" min="0" max="4" className={inputClass} value={form.decimalDigits ?? 0} onChange={event => set('decimalDigits', event.target.value)} /></label>
+        <label className={labelClass}>Digit After Decimal Point<input type="number" min="0" max="4" className={inputClass} value={numericInputValue(form.decimalDigits ?? 0)} onChange={event => set('decimalDigits', event.target.value)} /></label>
       </div>
     </Section>
 
     <Section title="Business Model Setup" description="Choose how stores are charged and set default commission rates.">
       <div className="grid gap-4 sm:grid-cols-2"><Switch label="Subscription" description="Allow stores to operate using subscription packages." checked={form.subscriptionEnabled} onChange={value => set('subscriptionEnabled', value)} /><Switch label="Commission" description="Charge commission per order and delivery charge." checked={form.commissionEnabled} onChange={value => set('commissionEnabled', value)} /></div>
-      <div className="grid gap-4 sm:grid-cols-2"><label className={labelClass}>Default Commission Rate On Order (%) *<input type="number" min="0" max="100" step="0.1" className={inputClass} value={form.defaultCommission ?? 2.5} onChange={event => set('defaultCommission', event.target.value)} /></label><label className={labelClass}>Commission Rate On Delivery Charge (%) *<input type="number" min="0" max="100" step="0.1" className={inputClass} value={form.deliveryCommission ?? 7} onChange={event => set('deliveryCommission', event.target.value)} /></label></div>
+      <div className="grid gap-4 sm:grid-cols-2"><label className={labelClass}>Default Commission Rate On Order (%) *<input type="number" min="0" max="100" step="0.1" className={inputClass} value={numericInputValue(form.defaultCommission ?? 2.5)} onChange={event => set('defaultCommission', event.target.value)} /></label><label className={labelClass}>Commission Rate On Delivery Charge (%) *<input type="number" min="0" max="100" step="0.1" className={inputClass} value={numericInputValue(form.deliveryCommission ?? 7)} onChange={event => set('deliveryCommission', event.target.value)} /></label></div>
     </Section>
 
     <Section title="Additional Charge Setup" description="Optional customer-paid charge added to orders.">
       <Switch label="Status" checked={form.additionalChargeEnabled} onChange={value => set('additionalChargeEnabled', value)} />
-      <div className="grid gap-4 sm:grid-cols-2"><label className={labelClass}>Additional Charge Name<input maxLength={50} className={inputClass} value={form.additionalChargeName || ''} onChange={event => set('additionalChargeName', event.target.value)} /></label><label className={labelClass}>Charge Amount ({form.currencySymbol || '₹'})<input type="number" min="0" step="0.01" className={inputClass} value={form.additionalChargeAmount ?? 0} onChange={event => set('additionalChargeAmount', event.target.value)} /></label></div>
+      <div className="grid gap-4 sm:grid-cols-2"><label className={labelClass}>Additional Charge Name<input maxLength={50} className={inputClass} value={form.additionalChargeName || ''} onChange={event => set('additionalChargeName', event.target.value)} /></label><label className={labelClass}>Charge Amount ({form.currencySymbol || '₹'})<input type="number" min="0" step="0.01" className={inputClass} value={numericInputValue(form.additionalChargeAmount ?? 0)} onChange={event => set('additionalChargeAmount', event.target.value)} /></label></div>
     </Section>
 
     <Section title="Other Setup" description="Country selection and customer-facing legal text.">

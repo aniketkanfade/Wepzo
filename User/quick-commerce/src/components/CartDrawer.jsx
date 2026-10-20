@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Minus, Plus, ShieldCheck, ShoppingBag, Tag, Trash2, Truck, X } from 'lucide-react';
+import { ArrowLeft, ShieldCheck, ShoppingBag, Tag, Truck, X } from 'lucide-react';
 import { useCart } from '../store/cart';
 import { useLocationStore } from '../store/location';
 import { useAuthStore } from '../store/auth';
 import { shop } from '../api';
 import { formatMoney, useSiteSettings } from '../store/siteSettings';
+import CartItemRow from './CartItemRow';
 
 export default function CartDrawer({ onClose, backgroundLocation: backgroundLocationProp }) {
   const items = useCart(s => s.items);
@@ -105,14 +106,16 @@ export default function CartDrawer({ onClose, backgroundLocation: backgroundLoca
     navigate(next, { state: { backgroundLocation } });
   };
   const total = quote?.total ?? subtotal;
-  const freeDeliveryAt = 199;
+  const freeDeliveryAt = Number(quote?.freeAbove) || 0;
+  const showFreeDelivery = freeDeliveryAt > 0
+    || (quote?.freeDelivery && quote?.ruleSource !== 'quick_commerce_radius');
   const remainingForFreeDelivery = Math.max(0, freeDeliveryAt - subtotal);
-  const progress = Math.min(100, (subtotal / freeDeliveryAt) * 100);
+  const progress = freeDeliveryAt > 0 ? Math.min(100, (subtotal / freeDeliveryAt) * 100) : 100;
 
   return (
     <div className="qc-cart-overlay fixed inset-0 z-[1100] flex justify-end" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) onClose(); }}>
       <div className="absolute inset-0 bg-slate-950/45 backdrop-blur-[1px]" />
-      <aside role="dialog" aria-modal="true" aria-labelledby="cart-drawer-title" className="qc-cart-drawer relative box-border flex h-full w-full min-w-0 max-w-[420px] flex-col overflow-x-hidden bg-white shadow-2xl animate-[qc-cart-in_.22s_ease-out]">
+      <aside role="dialog" aria-modal="true" aria-labelledby="cart-drawer-title" className="qc-cart-drawer relative box-border flex h-full w-full min-w-0 max-w-[480px] flex-col overflow-x-hidden bg-white shadow-2xl animate-[qc-cart-in_.22s_ease-out]">
         <header className="flex h-[68px] shrink-0 items-center justify-between border-b border-slate-100 px-5">
           <div className="flex items-center gap-2">
             <button type="button" onClick={onClose} aria-label="Continue shopping" className="grid h-9 w-9 place-items-center rounded-full text-slate-600 hover:bg-slate-100"><ArrowLeft size={19} /></button>
@@ -130,64 +133,50 @@ export default function CartDrawer({ onClose, backgroundLocation: backgroundLoca
           </div>
         ) : (
           <>
-            <div className="shrink-0 px-4 pt-3">
-              <div className="rounded-xl bg-emerald-50 px-4 py-3 text-emerald-700">
-                <div className="flex items-center gap-2 text-sm font-semibold"><Truck size={19} />
-                  {remainingForFreeDelivery > 0 ? `Add ${formatMoney(remainingForFreeDelivery, business)} more for FREE delivery` : 'You have unlocked FREE delivery'}
-                </div>
-                <div className="mt-2.5 h-1.5 overflow-hidden rounded-full bg-emerald-200"><div className="h-full rounded-full bg-emerald-500 transition-all" style={{ width: `${progress}%` }} /></div>
-                <div className="mt-1 flex justify-between text-[10px] text-emerald-700/70"><span>{formatMoney(subtotal, business)}</span><span>{formatMoney(freeDeliveryAt, business)}</span></div>
-              </div>
-            </div>
-
-            <ul className="box-border min-w-0 w-full flex-1 space-y-2 overflow-y-auto px-4 py-3">
-              {items.map(item => (
-                <li key={item.cartKey || item.id} className="box-border w-full min-w-0 overflow-hidden rounded-xl border border-slate-100 bg-white p-3 shadow-[0_2px_12px_rgba(15,23,42,0.04)]">
-                  <div className="flex min-w-0 gap-3">
-                    <div className="grid h-[82px] w-[82px] shrink-0 place-items-center overflow-hidden rounded-lg bg-slate-50">
-                      <img src={item.image} alt={item.name} className="h-full w-full object-contain mix-blend-multiply" />
+            <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+              <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+                {showFreeDelivery && <div className="px-4 pt-3">
+                  <div className="rounded-xl bg-emerald-50 px-4 py-3 text-emerald-700">
+                    <div className="flex items-center gap-2 text-sm font-semibold"><Truck size={19} />
+                      {remainingForFreeDelivery > 0 ? `Add ${formatMoney(remainingForFreeDelivery, business)} more for FREE delivery` : 'You have unlocked FREE delivery'}
                     </div>
-                    <div className="min-w-0 flex-1">
-                      <p className="line-clamp-2 text-[13px] font-semibold leading-snug text-slate-800">{item.name}</p>
-                      <p className="mt-0.5 text-xs text-slate-400">{item.unit}</p>
-                      <div className="mt-1.5 flex items-baseline gap-2"><strong className="text-base text-slate-900">{formatMoney(item.price, business)}</strong>{item.mrp > item.price && <del className="text-xs text-slate-400">{formatMoney(item.mrp, business)}</del>}</div>
-                      <div className="mt-2 flex items-center justify-between">
-                        <div className="flex h-8 items-center overflow-hidden rounded-full bg-slate-100">
-                          <button type="button" aria-label={`Decrease ${item.name} quantity`} onClick={() => setQty(item.cartKey || item.id, item.qty - 1)} className="grid h-8 w-9 place-items-center text-slate-600 hover:bg-slate-200"><Minus size={14} /></button>
-                          <span className="min-w-6 text-center text-sm font-semibold">{item.qty}</span>
-                          <button type="button" aria-label={`Increase ${item.name} quantity`} onClick={() => setQty(item.cartKey || item.id, item.qty + 1)} className="grid h-8 w-9 place-items-center text-slate-600 hover:bg-slate-200"><Plus size={14} /></button>
-                        </div>
-                        <button type="button" aria-label={`Remove ${item.name}`} onClick={() => remove(item.cartKey || item.id)} className="grid h-8 w-8 place-items-center rounded-full text-rose-500 hover:bg-rose-50"><Trash2 size={16} /></button>
-                      </div>
-                    </div>
+                    {freeDeliveryAt > 0 && <div className="mt-2.5 h-1.5 overflow-hidden rounded-full bg-emerald-200"><div className="h-full rounded-full bg-emerald-500 transition-all" style={{ width: `${progress}%` }} /></div>}
+                    {freeDeliveryAt > 0 && <div className="mt-1 flex justify-between text-[10px] text-emerald-700/70"><span>{formatMoney(subtotal, business)}</span><span>{formatMoney(freeDeliveryAt, business)}</span></div>}
                   </div>
-                </li>
-              ))}
-            </ul>
+                </div>}
 
-            <footer className="box-border w-full min-w-0 shrink-0 border-t border-slate-100 bg-white px-4 pb-4 pt-2.5">
-              <button type="button" onClick={openCoupons} className="mb-2.5 flex w-full items-center justify-between rounded-xl border border-slate-100 px-3 py-2.5 text-left text-sm font-medium text-slate-700 hover:bg-slate-50">
-                <span className="flex items-center gap-2"><Tag size={17} className="text-brand-600" /> {couponCode ? `Applied: ${couponCode}` : 'Apply Coupon'}</span><span className="text-lg leading-none">›</span>
-              </button>
-              <div className="space-y-1.5 px-1 text-[13px]">
-                <div className="flex justify-between text-slate-600"><span>Items price</span><span>{formatMoney(itemsPrice, business)}</span></div>
-                {productDiscount > 0 && <div className="flex justify-between text-emerald-600"><span>Product discount</span><span>− {formatMoney(productDiscount, business)}</span></div>}
-                <div className="flex justify-between text-slate-600"><span>Subtotal</span><span className="font-semibold text-slate-900">{formatMoney(quote?.itemsTotal ?? subtotal, business)}</span></div>
-                {quote?.couponDiscount > 0 && <div className="flex justify-between text-emerald-600"><span>Coupon Discount</span><span>− {formatMoney(quote.couponDiscount, business)}</span></div>}
-                <div className="flex justify-between text-slate-600"><span>Delivery Charge</span><span className={quote?.freeDelivery || quote?.deliveryCharge === 0 ? 'font-medium text-emerald-600' : 'font-semibold text-slate-900'}>{quote ? (quote.freeDelivery || !quote.deliveryCharge ? 'FREE' : formatMoney(quote.deliveryCharge, business)) : 'Calculated at checkout'}</span></div>
-                {quote?.platformFee > 0 && <div className="flex justify-between text-slate-600"><span>Platform Fee</span><span>{formatMoney(quote.platformFee, business)}</span></div>}
-                {quote?.taxAmount > 0 && <div className="flex justify-between text-slate-600"><span>{quote.taxName || 'GST'}{quote.taxPercent ? ` (${quote.taxPercent}%)` : ''}{quote.taxIncluded ? ' (included)' : ''}</span><span>{formatMoney(quote.taxAmount, business)}</span></div>}
+                <ul className="box-border min-w-0 w-full space-y-2 px-4 py-3">
+                  {items.map(item => <CartItemRow key={item.cartKey || item.id} item={item} business={business} onSetQty={setQty} onRemove={remove} />)}
+                </ul>
+
+                <div className="px-4 pb-4">
+                  <button type="button" onClick={openCoupons} className="mb-2.5 flex w-full items-center justify-between rounded-xl border border-slate-100 px-3 py-2.5 text-left text-sm font-medium text-slate-700 hover:bg-slate-50">
+                    <span className="flex items-center gap-2"><Tag size={17} className="text-brand-600" /> {couponCode ? `Applied: ${couponCode}` : 'Apply Coupon'}</span><span className="text-lg leading-none">›</span>
+                  </button>
+                  <div className="space-y-1.5 px-1 text-[13px]">
+                    <div className="flex justify-between text-slate-600"><span>Items price</span><span>{formatMoney(itemsPrice, business)}</span></div>
+                    {productDiscount > 0 && <div className="flex justify-between text-emerald-600"><span>Product discount</span><span>− {formatMoney(productDiscount, business)}</span></div>}
+                    <div className="flex justify-between text-slate-600"><span>Subtotal</span><span className="font-semibold text-slate-900">{formatMoney(quote?.itemsTotal ?? subtotal, business)}</span></div>
+                    {quote?.couponDiscount > 0 && <div className="flex justify-between text-emerald-600"><span>Coupon Discount</span><span>− {formatMoney(quote.couponDiscount, business)}</span></div>}
+                    <div className="flex justify-between text-slate-600"><span>Delivery Charge</span><span className={quote?.freeDelivery || quote?.deliveryCharge === 0 ? 'font-medium text-emerald-600' : 'font-semibold text-slate-900'}>{quote ? (quote.freeDelivery || !quote.deliveryCharge ? 'FREE' : formatMoney(quote.deliveryCharge, business)) : 'Calculated at checkout'}</span></div>
+                    {quote?.platformFee > 0 && <div className="flex justify-between text-slate-600"><span>Platform Fee</span><span>{formatMoney(quote.platformFee, business)}</span></div>}
+                    {quote?.taxAmount > 0 && <div className="flex justify-between text-slate-600"><span>{quote.taxName || 'GST'}{quote.taxPercent ? ` (${quote.taxPercent}%)` : ''}{quote.taxIncluded ? ' (included)' : ''}</span><span>{formatMoney(quote.taxAmount, business)}</span></div>}
+                  </div>
+                  <div className="mt-2.5 flex items-center justify-between rounded-xl bg-slate-50 px-3 py-2.5">
+                    <div><p className="font-bold text-slate-900">Total Amount</p><p className="text-[10px] text-slate-500">Inclusive of all taxes</p></div>
+                    <strong className="text-xl font-extrabold text-slate-900">{formatMoney(total, business)}</strong>
+                  </div>
+                  {quote?.deliverable === false && quote?.message && <p className="mt-2 text-xs text-rose-600">{quote.message}</p>}
+                  <div className="mt-2.5 flex items-center justify-center gap-1.5 text-[10px] text-slate-500"><ShieldCheck size={14} className="text-emerald-600" /> Secure checkout · Easy returns</div>
+                </div>
               </div>
-              <div className="mt-2.5 flex items-center justify-between rounded-xl bg-slate-50 px-3 py-2.5">
-                <div><p className="font-bold text-slate-900">Total Amount</p><p className="text-[10px] text-slate-500">Inclusive of all taxes</p></div>
-                <strong className="text-xl font-extrabold text-slate-900">{formatMoney(total, business)}</strong>
-              </div>
-              {quote?.deliverable === false && quote?.message && <p className="mt-2 text-xs text-rose-600">{quote.message}</p>}
+
+              <footer className="box-border w-full min-w-0 shrink-0 border-t border-slate-100 bg-white px-4 pb-4 pt-2.5">
               <button type="button" onClick={goCheckout} disabled={quote?.deliverable === false} className="mt-2.5 flex w-full items-center justify-between rounded-xl bg-brand-600 px-4 py-3 text-sm font-bold text-white shadow-lg shadow-orange-500/15 transition hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-50">
                 <span>{user ? 'Proceed to Checkout' : 'Login to Checkout'}</span><span className="text-lg leading-none">›</span>
               </button>
-              <div className="mt-2.5 flex items-center justify-center gap-1.5 text-[10px] text-slate-500"><ShieldCheck size={14} className="text-emerald-600" /> Secure checkout · Easy returns</div>
             </footer>
+            </div>
           </>
         )}
       </aside>

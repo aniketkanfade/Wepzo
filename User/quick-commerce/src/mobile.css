@@ -328,11 +328,11 @@
 
   .qc-home .qc-product-card .qc-product-discount-badge {
     top: 3px;
-    right: 3px;
-    padding: 2px 4px;
-    border-radius: 4px;
+    left: 3px;
+    right: auto;
+    padding: 4px 5px 7px;
     font-size: 7px;
-    line-height: 1.15;
+    line-height: 1;
   }
 
   .qc-home .qc-add-button {
@@ -414,7 +414,6 @@
   }
 
   .qc-product-carousel-page .qc-product-card > div > a {
-    min-height: 1.4em;
     font-size: 9px;
     line-height: 1.4;
     white-space: nowrap;
@@ -442,11 +441,11 @@
 
   .qc-product-carousel-page .qc-product-card .qc-product-discount-badge {
     top: 3px;
-    right: 3px;
-    padding: 2px 4px;
-    border-radius: 4px;
+    left: 3px;
+    right: auto;
+    padding: 4px 5px 7px;
     font-size: 7px;
-    line-height: 1.15;
+    line-height: 1;
   }
 
   .qc-product-carousel-page .qc-product-card img {
@@ -466,8 +465,7 @@
     display: block;
   }
 
-  .qc-product-card .qc-product-card-prices + .qc-card-quantity,
-  .qc-product-card .qc-product-card-prices + .qc-add-button {
+  .qc-product-card .qc-product-cart-action {
     display: none !important;
   }
 
@@ -807,7 +805,7 @@
   gap: 7px;
   flex: 0 0 auto;
   padding: 0 5px;
-  border: 1px solid #f4510b;
+  border: 1px solid var(--brand-color);
   border-radius: 8px;
   background: #fff;
   color: #263246;
@@ -821,15 +819,23 @@
   height: 25px;
   place-items: center;
   border: 0;
-  background: transparent;
-  color: #f4510b;
+  border-radius: 0;
+  background: #fff;
+  color: #263246;
   font-size: 17px;
   line-height: 1;
+  transition: background-color .16s ease, color .16s ease, border-color .16s ease;
+}
+
+.qc-card-quantity button:hover,
+.qc-card-quantity button:focus-visible {
+  background: #fff;
+  color: #263246;
 }
 
 .qc-card-added-toast {
   position: fixed;
-  z-index: 100;
+  z-index: 1100;
   top: max(12px, env(safe-area-inset-top));
   left: 50%;
   transform: translateX(-50%);
@@ -1012,11 +1018,12 @@
   }
 
   .qc-header-search .qc-search-tool-mic {
-    width: 24px;
-    height: 27px;
-    flex-basis: 24px;
-    border-radius: 999px;
-    background: #19398f !important;
+    width: 28px;
+    height: 28px;
+    flex-basis: 28px;
+    border-radius: 8px;
+    background: var(--search-button, #304ca3) !important;
+    color: #fff !important;
   }
 
   .qc-header-search .qc-search-tool-mic svg {

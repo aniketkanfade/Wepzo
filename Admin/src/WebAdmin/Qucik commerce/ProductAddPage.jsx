@@ -16,6 +16,7 @@ import AttributeValueChips from './components/AttributeValueChips';
 import { PageCard, PageCardHeader } from './components/PageCard';
 import { capitalizeWords } from '../../utils/mediaUtils';
 import { isColorAttribute, getColorHex, hashColor } from '../../utils/colorMap';
+import { numericInputValue } from '../../utils/numericInput';
 import { buildVariantSpecs } from './components/VariantSpecPanel';
 
 const ATTRIBUTE_PRESETS = {
@@ -802,7 +803,7 @@ export default function ProductAddPage() {
                                     placeholder="SKU" className={tableSkuCls} />
                                 </td>
                                 <td className={tdCls} onClick={e => e.stopPropagation()}>
-                                  <input type="number" value={variant.price} onChange={e => updateVariant(variant.id, { price: e.target.value })}
+                                  <input type="number" value={numericInputValue(variant.price)} onChange={e => updateVariant(variant.id, { price: e.target.value })}
                                     placeholder="0" className={tableNumCls} />
                                 </td>
                                 <td className={tdCls} onClick={e => e.stopPropagation()}>
@@ -814,12 +815,12 @@ export default function ProductAddPage() {
                                   </select>
                                 </td>
                                 <td className={tdCls} onClick={e => e.stopPropagation()}>
-                                  <input type="number" value={variant.discount ?? 0}
+                                  <input type="number" value={numericInputValue(variant.discount)}
                                     onChange={e => updateVariant(variant.id, { discount: e.target.value })}
                                     placeholder="0" className={tableNumCls} />
                                 </td>
                                 <td className={tdCls} onClick={e => e.stopPropagation()}>
-                                  <input type="number" value={variant.stock} onChange={e => updateVariant(variant.id, { stock: e.target.value })}
+                                  <input type="number" value={numericInputValue(variant.stock)} onChange={e => updateVariant(variant.id, { stock: e.target.value })}
                                     placeholder="0" className={tableNumCls} />
                                 </td>
                                 <td className={`${tdCls} text-center`} onClick={e => e.stopPropagation()}>
@@ -969,7 +970,7 @@ export default function ProductAddPage() {
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                 <div>
                   <label className="text-sm font-medium text-gray-700 mb-1.5 block">Unit Price (₹)</label>
-                  <input type="number" value={form.price} onChange={e => setForm({ ...form, price: e.target.value })} className={inputCls} />
+                  <input type="number" value={numericInputValue(form.price)} onChange={e => setForm({ ...form, price: e.target.value })} className={inputCls} />
                 </div>
                 <div>
                   <label className="text-sm font-medium text-gray-700 mb-1.5 block">Discount Type</label>
@@ -978,11 +979,11 @@ export default function ProductAddPage() {
                 </div>
                 <div>
                   <label className="text-sm font-medium text-gray-700 mb-1.5 block">Discount</label>
-                  <input type="number" value={form.discount} onChange={e => setForm({ ...form, discount: e.target.value })} className={inputCls} />
+                  <input type="number" value={numericInputValue(form.discount)} onChange={e => setForm({ ...form, discount: e.target.value })} className={inputCls} />
                 </div>
                 <div>
                   <label className="text-sm font-medium text-gray-700 mb-1.5 block">Total Stock</label>
-                  <input type="number" value={form.stock} onChange={e => setForm({ ...form, stock: e.target.value })} className={inputCls} />
+                  <input type="number" value={numericInputValue(form.stock)} onChange={e => setForm({ ...form, stock: e.target.value })} className={inputCls} />
                 </div>
               </div>
             </SectionCard>

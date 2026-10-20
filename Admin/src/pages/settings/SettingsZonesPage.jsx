@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Sparkles, Grid2x2, Link2, MoreVertical, Download, Search, RotateCcw, Loader2, Eye, Pencil, Trash2 } from 'lucide-react';
+import { Sparkles, Grid2x2, Link2, MoreVertical, Download, Search, RotateCcw, Loader2, Pencil, Trash2 } from 'lucide-react';
 import api from '../../api/axios';
 import { useAuthStore, useModuleStore } from '../../store/useStore';
 import NavyToggle from '../../WebAdmin/Qucik commerce/components/NavyToggle';
@@ -8,7 +8,7 @@ import ZoneDrawMap from '../../WebAdmin/Qucik commerce/components/ZoneDrawMap';
 import { useListPagination } from '../../hooks/useListPagination';
 import { fetchPincodePolygon } from '../../constants/nagpurPincodes';
 import {
-  STATES, citiesInState, getCity, pincodeLabel, findPin,
+  getCity, pincodeLabel, findPin,
 } from '../../constants/locations';
 import {
   LIST_CARD_BORDER as CARD_BORDER,
@@ -82,17 +82,41 @@ async function loadStatePincodes(state) {
   return [...unique.values()].sort((a, b) => a.pin.localeCompare(b.pin));
 }
 
+async function locateCity(city, state) {
+  const query = new URLSearchParams({
+    q: `${city}, ${state}, India`,
+    format: 'jsonv2',
+    limit: '1',
+    countrycodes: 'in',
+  });
+  const response = await fetch(`https://nominatim.openstreetmap.org/search?${query}`, {
+    headers: { 'Accept-Language': 'en' },
+  });
+  if (!response.ok) throw new Error(`City map lookup failed (${response.status})`);
+  const results = await response.json();
+  const lat = Number(results[0]?.lat);
+  const lng = Number(results[0]?.lon);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) throw new Error('City map location was not found');
+  return { lat, lng };
+}
+
 export default function SettingsZonesPage() {
   const navigate = useNavigate();
   const { activeModule } = useModuleStore();
   const user = useAuthStore(state => state.user);
-  const isReadOnly = user?.role === 'website_user';
+  const isWebsiteUser = user?.role === 'website_user';
   const activeModuleKey = String(activeModule?.slug || activeModule?.type || '').toLowerCase();
   const defaultCommerceType = ['e-commerce', 'e_commerce', 'ecommerce'].includes(activeModuleKey) ? 'ecommerce' : 'quick_commerce';
   const [zones, setZones] = useState([]);
   const [modules, setModules] = useState([]);
   const [states, setStates] = useState([]);
   const [geoLoading, setGeoLoading] = useState(false);
+  const [cities, setCities] = useState([]);
+  const [citiesLoading, setCitiesLoading] = useState(false);
+  const [citiesError, setCitiesError] = useState('');
+  const [citiesReload, setCitiesReload] = useState(0);
+  const [cityMapLoading, setCityMapLoading] = useState(false);
+  const [cityMapError, setCityMapError] = useState('');
   const [statePins, setStatePins] = useState([]);
   const [pinsLoading, setPinsLoading] = useState(false);
   const [pinsError, setPinsError] = useState('');
@@ -110,13 +134,18 @@ export default function SettingsZonesPage() {
   const isQuick = form.commerceType === 'quick_commerce';
 
   const load = () => {
-    api.get('/zones').then(r => setZones(r.data || [])).catch(() => setZones([]));
+    api.get('/zones').then(r => {
+      const responseZones = Array.isArray(r.data) ? r.data : [];
+      const visibleZones = isWebsiteUser
+        ? responseZones.filter(zone => user?.websiteId && String(zone.websiteId || '') === String(user.websiteId))
+        : responseZones;
+      setZones(visibleZones);
+    }).catch(() => setZones([]));
     api.get('/system-modules').then(r => setModules(r.data || [])).catch(() => setModules([]));
   };
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); }, [isWebsiteUser, user?.websiteId]);
 
   useEffect(() => {
-    if (isQuick) { setStates([]); return undefined; }
     let cancelled = false;
     setGeoLoading(true);
     api.get('/geography/states', { params: { country: 'India' } })
@@ -124,7 +153,30 @@ export default function SettingsZonesPage() {
       .catch(() => { if (!cancelled) setStates(INDIA_STATES); })
       .finally(() => { if (!cancelled) setGeoLoading(false); });
     return () => { cancelled = true; };
-  }, [isQuick]);
+  }, []);
+
+  useEffect(() => {
+    if (!isQuick || !form.state) {
+      setCities([]);
+      setCitiesError('');
+      return undefined;
+    }
+    let cancelled = false;
+    setCitiesLoading(true);
+    setCitiesError('');
+    api.get('/geography/cities', { params: { country: 'India', state: form.state } })
+      .then(({ data }) => {
+        if (!cancelled) setCities([...new Set(Array.isArray(data) ? data.filter(Boolean) : [])]);
+      })
+      .catch(error => {
+        if (!cancelled) {
+          setCities([]);
+          setCitiesError(error.response?.data?.message || 'Is state ke cities load nahi ho paaye. Dobara try karein.');
+        }
+      })
+      .finally(() => { if (!cancelled) setCitiesLoading(false); });
+    return () => { cancelled = true; };
+  }, [form.state, isQuick, citiesReload]);
 
   useEffect(() => {
     if (isQuick || !form.state) { setStatePins([]); setPinsError(''); return undefined; }
@@ -145,7 +197,10 @@ export default function SettingsZonesPage() {
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
   const currentTypeLabel = isQuick ? 'Quick Commerce' : 'E-Commerce';
-  const cityMeta = getCity(form.state, form.city);
+  const knownCityMeta = getCity(form.state, form.city);
+  const cityMeta = knownCityMeta || (isQuick && form.city && Number.isFinite(Number(form.lat)) && Number.isFinite(Number(form.lng))
+    ? { state: form.state, name: form.city, lat: Number(form.lat), lng: Number(form.lng), radiusKm: Number(form.radiusKm) || 18 }
+    : null);
 
   const matchesSearch = (z) =>
     (z.name || '').toLowerCase().includes(search.toLowerCase()) ||
@@ -258,6 +313,7 @@ export default function SettingsZonesPage() {
     if (!form.name.trim()) return alert('Business zone name zaroori hai');
     if (isQuick) {
       if (!form.state || !form.city) return alert('State aur city select karo');
+      if (cityMapLoading || cityMapError) return alert('City map location load hone ke baad zone draw karo');
       if ((form.polygon || []).length < 3 || !form.polygonClosed) {
         return alert('City ke andar points jodo — last point first (green) point par wapas lao tab zone close hoga');
       }
@@ -318,7 +374,7 @@ export default function SettingsZonesPage() {
       state: z.state || '',
       selectedStates: Array.isArray(z.selectedStates) ? z.selectedStates : (z.state ? [z.state] : []),
       city: z.city || '',
-      radiusKm: z.radiusKm || 0,
+      radiusKm: Number((Number(z.radiusKm) || 0).toFixed(1)),
       lat: z.lat || 21.1458,
       lng: z.lng || 79.0882,
       polygon: z.polygon || [],
@@ -371,12 +427,13 @@ export default function SettingsZonesPage() {
         <p className="text-sm text-sky-700 mt-2 bg-sky-50 border border-sky-100 rounded-lg px-3 py-2">
           {isQuick
             ? 'Quick Commerce: city select karo, phir city ke andar points jodo. Last point first (green) point par wapas aao — tab zone close hoga. Har point drag karke adjust hoga.'
-            : 'E-Commerce: All India, selected states ya selected PIN codes me se coverage choose karein. All India coverage baaki E-Commerce zones ko band kar degi.'}
+            : isWebsiteUser
+              ? 'E-Commerce: apni website ke liye selected PIN codes me service coverage choose karein.'
+              : 'E-Commerce: All India, selected states ya selected PIN codes me se coverage choose karein. All India coverage baaki E-Commerce zones ko band kar degi.'}
         </p>
       </div>
 
-      {isReadOnly && <p className="rounded-lg border border-blue-100 bg-blue-50 px-4 py-3 text-sm text-blue-800">Main Admin ke shared service areas yahan view kar sakte hain. Zone ya location add/edit karne ke liye Main Admin access chahiye.</p>}
-      {!isReadOnly && <form id="add-zone-form" onSubmit={handleSubmit} className="bg-white rounded-xl border shadow-sm overflow-visible" style={{ borderColor: CARD_BORDER }}>
+      <form id="add-zone-form" onSubmit={handleSubmit} className="bg-white rounded-xl border shadow-sm overflow-visible" style={{ borderColor: CARD_BORDER }}>
         <div className="flex items-center justify-between px-5 py-4 border-b" style={{ borderColor: CARD_BORDER }}>
           <h2 className="font-semibold text-gray-800">{editingId ? 'Edit Zone' : 'Add New Zone'}</h2>
         </div>
@@ -409,37 +466,70 @@ export default function SettingsZonesPage() {
               {isQuick ? (
                 <>
                   <div>
+                    <label className={labelCls}>State</label>
+                    <select
+                      className={inputCls}
+                      value={form.state}
+                      disabled={geoLoading}
+                      onChange={e => setForm(f => ({
+                        ...f,
+                        state: e.target.value,
+                        city: '',
+                        polygon: [],
+                        polygonClosed: false,
+                      }))}>
+                      <option value="">{geoLoading ? 'Loading states...' : 'Select state'}</option>
+                      {states.map(state => <option key={state} value={state}>{state}</option>)}
+                    </select>
+                  </div>
+                  <div>
                     <label className={labelCls}>City</label>
                     <select
                       className={inputCls}
-                      value={form.state && form.city ? `${form.state}|${form.city}` : ''}
-                      onChange={e => {
-                        const [state, name] = e.target.value.split('|');
-                        const meta = getCity(state, name);
+                      value={form.city}
+                      disabled={!form.state || citiesLoading || cityMapLoading}
+                      onChange={async e => {
+                        const city = e.target.value;
+                        if (!city) {
+                          setForm(f => ({ ...f, city: '', polygon: [], polygonClosed: false }));
+                          setCityMapError('');
+                          return;
+                        }
+                        const known = getCity(form.state, city);
+                        setCityMapError('');
                         setForm(f => ({
                           ...f,
-                          state,
-                          city: name,
-                          lat: meta?.lat || f.lat,
-                          lng: meta?.lng || f.lng,
+                          city,
+                          lat: known?.lat || f.lat,
+                          lng: known?.lng || f.lng,
                           polygon: [],
                           polygonClosed: false,
                         }));
+                        if (known) return;
+                        setCityMapLoading(true);
+                        try {
+                          const location = await locateCity(city, form.state);
+                          setForm(f => ({ ...f, lat: location.lat, lng: location.lng }));
+                        } catch (error) {
+                          setCityMapError(error.message || 'City map location load nahi hui.');
+                        } finally {
+                          setCityMapLoading(false);
+                        }
                       }}>
-                      <option value="">Select city</option>
-                      {STATES.map(s => (
-                        <optgroup key={s} label={s}>
-                          {citiesInState(s).map(c => (
-                            <option key={`${s}-${c.name}`} value={`${s}|${c.name}`}>{c.name}</option>
-                          ))}
-                        </optgroup>
-                      ))}
+                      <option value="">{!form.state ? 'Select state first' : citiesLoading ? 'Loading cities...' : 'Select city'}</option>
+                      {cities.map(city => <option key={city} value={city}>{city}</option>)}
                     </select>
-                    <p className="text-[11px] text-gray-400 mt-1">Zone sirf selected city ke andar draw hoga. Har point drag karke adjust kar sakte ho. Last point first (green) point par wapas lao to close.</p>
+                    {citiesError
+                      ? <p className="mt-1 text-xs text-red-600">{citiesError} <button type="button" className="underline" onClick={() => setCitiesReload(value => value + 1)}>Retry</button></p>
+                      : cityMapLoading
+                        ? <p className="mt-1 text-xs text-sky-700">City map location loading...</p>
+                        : cityMapError
+                          ? <p className="mt-1 text-xs text-red-600">{cityMapError}</p>
+                          : <p className="text-[11px] text-gray-400 mt-1">Zone sirf selected city ke andar draw hoga. Har point drag karke adjust kar sakte ho. Last point first (green) point par wapas lao to close.</p>}
                   </div>
                   <div>
                     <label className={labelCls}>Discoverable Radius (Km) — optional</label>
-                    <input type="number" min={0} step={0.1} className={inputCls} value={form.radiusKm}
+                    <input type="number" min={0} step={0.1} className={inputCls} value={form.radiusKm || ''}
                       onChange={e => set('radiusKm', e.target.value)} />
                   </div>
                 </>
@@ -452,7 +542,7 @@ export default function SettingsZonesPage() {
                         { value: 'country', label: 'All India' },
                         { value: 'state', label: 'Selected states' },
                         { value: 'pincode', label: 'Selected PIN codes' },
-                      ].map(option => (
+                      ].filter(option => !isWebsiteUser || option.value === 'pincode').map(option => (
                         <button
                           key={option.value}
                           type="button"
@@ -473,9 +563,9 @@ export default function SettingsZonesPage() {
                         </button>
                       ))}
                     </div>
-                    <p className="mt-1 text-[11px] text-gray-400">
+                    {!isWebsiteUser && <p className="mt-1 text-[11px] text-gray-400">
                       All India coverage takes priority and automatically turns off the other E-Commerce zones.
-                    </p>
+                    </p>}
                   </div>
                   {form.scope === 'state' && <div>
                     <label className={labelCls}>States with full-state delivery</label>
@@ -584,8 +674,9 @@ export default function SettingsZonesPage() {
                 closed={!!form.polygonClosed}
                 city={cityMeta}
                 pinAreas={isQuick ? [] : (form.pinAreas || [])}
-                drawEnabled={isQuick && !!form.city}
+                drawEnabled={isQuick && !!form.city && !cityMapLoading && !cityMapError}
                 onCenterChange={(lat, lng) => setForm(f => ({ ...f, lat, lng }))}
+                onRadiusChange={radiusKm => set('radiusKm', Number(radiusKm.toFixed(1)))}
                 onPolygonChange={polygon => setForm(f => ({ ...f, polygon }))}
                 onClosedChange={closed => set('polygonClosed', closed)}
               /></>
@@ -607,7 +698,7 @@ export default function SettingsZonesPage() {
             </button>
           </div>
         </div>
-      </form>}
+      </form>
 
       <ZoneTable
         title={isQuick ? 'Quick Commerce Zone List' : 'E-Commerce Zone List'}
@@ -619,7 +710,6 @@ export default function SettingsZonesPage() {
         searchPlaceholder={isQuick ? 'Search Quick Commerce zone' : 'Search E-Commerce zone / Pin'}
         onExport={exportCsv}
         coverKind={isQuick ? 'quick' : 'ecom'}
-        readOnly={isReadOnly}
         menuId={menuId}
         setMenuId={setMenuId}
         onDefault={makeDefault}
@@ -666,7 +756,7 @@ export default function SettingsZonesPage() {
               drawEnabled={false}
             />
               : <p className="rounded-lg bg-gray-50 p-4 text-sm text-gray-700">Service area: {[viewZone.city, ...(viewZone.selectedStates || []), viewZone.state, viewZone.country].filter(Boolean).join(', ') || '—'}. Zone covers the selected {viewZone.scope || 'area'}.</p>}
-            {!isReadOnly && <div className="flex justify-end gap-2 mt-4">
+            <div className="flex justify-end gap-2 mt-4">
               <button type="button" onClick={() => startEdit(viewZone)}
                 className={`inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold ${listBtnNavy}`}>
                 <Pencil size={14} /> Edit
@@ -675,7 +765,7 @@ export default function SettingsZonesPage() {
                 className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm text-red-600 border border-red-200 hover:bg-red-50">
                 <Trash2 size={14} /> Delete
               </button>
-            </div>}
+            </div>
           </div>
         </div>
       )}
@@ -684,7 +774,7 @@ export default function SettingsZonesPage() {
   );
 }
 
-function ZoneTable({ title, rows, pager, searchInput, onSearchInputChange, onSearch, searchPlaceholder, onExport, coverKind, readOnly, menuId, setMenuId, onDefault, onToggle, onView, onEdit, onConnect, onSearchCharge, onDelete }) {
+function ZoneTable({ title, rows, pager, searchInput, onSearchInputChange, onSearch, searchPlaceholder, onExport, coverKind, menuId, setMenuId, onDefault, onToggle, onView, onEdit, onConnect, onSearchCharge, onDelete }) {
   const { page, perPage, total } = pager;
   return (
     <div className="bg-white rounded-xl border shadow-sm overflow-hidden" style={{ borderColor: CARD_BORDER }}>
@@ -754,19 +844,18 @@ function ZoneTable({ title, rows, pager, searchInput, onSearchInputChange, onSea
                 <td className={listTdClass}>
                   {z.isDefault ? (
                     <span className="text-xs font-semibold text-emerald-600">Default</span>
-                  ) : !readOnly ? (
+                  ) : (
                     <button type="button" onClick={() => onDefault(z)}
                       className="text-xs px-3 py-1 rounded-lg border text-gray-600 hover:bg-gray-50">
                       Make default
                     </button>
-                  ) : null}
+                  )}
                 </td>
                 <td className={listTdClass}>
-                  {readOnly ? <span className="text-xs text-gray-500">{z.status ? 'Active' : 'Inactive'}</span> : <NavyToggle checked={!!z.status} onChange={() => onToggle(z)} />}
+                  <NavyToggle checked={!!z.status} onChange={() => onToggle(z)} />
                 </td>
                 <td className={listTdClass}>
                   <div className="flex items-center gap-1.5 relative">
-                    {readOnly ? <button type="button" title="View service area" aria-label="View service area" onClick={() => onView(z)} className="w-8 h-8 flex items-center justify-center rounded-lg border text-sky-600 hover:bg-sky-50"><Eye size={14}/></button> : <>
                     <button type="button" title="Delivery Settings" aria-label="Delivery Settings" onClick={() => onConnect(z)}
                       className="w-8 h-8 flex items-center justify-center rounded-lg border text-sky-600 hover:bg-sky-50"
                       style={{ borderColor: '#bae6fd' }}>
@@ -789,7 +878,6 @@ function ZoneTable({ title, rows, pager, searchInput, onSearchInputChange, onSea
                         <button type="button" onClick={() => onDelete(z)} className="w-full text-left px-3 py-1.5 text-red-500 hover:bg-red-50">Delete</button>
                       </div>
                     )}
-                    </>}
                   </div>
                 </td>
               </tr>

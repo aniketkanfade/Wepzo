@@ -253,6 +253,98 @@ button { font: inherit; }
 .site-header .brand { color: var(--header-text, #172744); }
 .site-header,
 .site-footer { border-color: color-mix(in srgb, var(--header-text, #172744) 16%, transparent); }
+
+/* Marketing workspace dashboard: match the clean Wepzo admin shell. */
+.workspace-shell {
+  min-height: 100vh;
+  background: #edf3ff;
+  --ws-orange: #285be8;
+  --ws-navy: #172744;
+  --ws-muted: #718096;
+}
+.ws-sidebar {
+  width: 260px;
+  padding: 0 0 12px;
+  border-right-color: #dfe6f0;
+  box-shadow: 1px 0 8px #17274408;
+}
+.ws-brand {
+  height: 57px;
+  flex: 0 0 57px;
+  padding: 0 18px;
+  border-bottom: 1px solid #e9edf3;
+}
+.ws-brand .brand { gap: 8px; font-size: 25px; letter-spacing: -1.5px; }
+.ws-brand .brand-icon,
+.ws-brand .brand-image { width: 31px; height: 31px; }
+.ws-menu-search {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  height: 37px;
+  margin: 19px 10px 0;
+  padding: 0 11px;
+  border: 1px solid #dce5f1;
+  border-radius: 6px;
+  background: #fff;
+  color: #285be8;
+}
+.ws-menu-search span { font-size: 17px; line-height: 1; }
+.ws-menu-search input { width: 100%; min-width: 0; border: 0; outline: 0; background: transparent; color: #34445f; font: 12px 'DM Sans', sans-serif; }
+.ws-menu-search input::placeholder { color: #8793a4; }
+.ws-workspace-switch { margin: 16px 10px 0; border-radius: 6px; }
+.ws-nav-label { padding: 20px 28px 8px; color: #172744; letter-spacing: .04em; }
+.ws-nav { gap: 0; }
+.ws-nav button {
+  min-height: 47px;
+  padding: 0 28px;
+  border-bottom: 1px solid #edf1f6;
+  border-radius: 0;
+  color: #34445f;
+  font-size: 13px;
+}
+.ws-nav button:hover { background: #f5f8fd; }
+.ws-nav button.active {
+  background: #eef5ff;
+  color: #285be8;
+  box-shadow: inset -5px 0 #285be8;
+}
+.ws-nav-icon { font-size: 16px; }
+.ws-main { margin-left: 260px; }
+.ws-topbar {
+  height: 57px;
+  padding: 0 22px;
+  border-bottom-color: #e3e9f2;
+  box-shadow: 0 2px 7px #17274408;
+}
+.ws-top-actions { gap: 11px; }
+.ws-top-icon { border-color: #dce5f1; border-radius: 7px; }
+.ws-content { max-width: none; padding: 8px 9px 40px; }
+.ws-mode-switch { display: none; }
+.ws-welcome {
+  min-height: 77px;
+  margin: 0 0 14px;
+  padding: 12px 15px;
+  border: 1px solid #e5eaf2;
+  background: #f7f9fc;
+  box-shadow: 0 1px 4px #182d4a0b;
+}
+.ws-welcome h1 { margin-top: 0; color: #111827; font-size: 19px; letter-spacing: -.3px; }
+.ws-welcome p { color: #26364e; font-size: 13px; }
+.ws-metric,
+.ws-card { background: #f5f7fb; border-color: #e1e7f0; border-radius: 7px; box-shadow: 0 1px 4px #182d4a08; }
+.ws-primary { border-color: #285be8; background: #285be8; }
+.ws-primary:hover { background: #214bc7; }
+@media (max-width: 1050px) {
+  .ws-sidebar { width: 220px; }
+  .ws-main { margin-left: 220px; }
+}
+@media (max-width: 700px) {
+  .ws-sidebar { width: 265px; padding: 0 0 12px; }
+  .ws-main { margin-left: 0; }
+  .ws-content { padding: 8px 8px 30px; }
+  .ws-welcome { align-items: flex-start; padding: 12px; }
+}
 .button-primary,
 .brand-icon,
 .send-bubble,

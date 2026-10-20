@@ -25,6 +25,7 @@ export default function CategoryPage() {
   const subCategoryId = params.get('subCategoryId') || '';
   const childCategoryId = params.get('childCategoryId') || '';
   const categoryText = params.get('category') || '';
+  const brandId = params.get('brand') || '';
   const q = params.get('q') || '';
   const visualSearch = params.get('visualSearch') === '1';
   const storeId = params.get('storeId') || '';
@@ -95,10 +96,10 @@ export default function CategoryPage() {
         .catch(() => setItems([]));
       return;
     }
-    shop.products({ category: productCategory || undefined, module: moduleSlug || undefined, q: q || undefined, storeId: storeId || undefined, store: storeName || undefined, sort, lat: location?.lat, lng: location?.lng })
+    shop.products({ category: productCategory || undefined, brand: brandId || undefined, module: moduleSlug || undefined, q: q || undefined, storeId: storeId || undefined, store: storeName || undefined, sort, lat: location?.lat, lng: location?.lng })
       .then(setItems)
       .catch(() => setItems([]));
-  }, [productCategory, moduleSlug, q, storeId, storeName, sort, wishlistOnly, wished, visualSearch, location?.lat, location?.lng]);
+  }, [productCategory, brandId, moduleSlug, q, storeId, storeName, sort, wishlistOnly, wished, visualSearch, location?.lat, location?.lng]);
 
   const select = (updates, clearKeys = []) => {
     const next = new URLSearchParams(params);

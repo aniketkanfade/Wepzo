@@ -99,6 +99,97 @@
 			"command": "Set-Location AdminApp; npx expo install expo-image-picker",
 			"isBackground": false,
 			"problemMatcher": []
+		},
+		{
+			"label": "Verify repo status",
+			"type": "shell",
+			"command": "Set-Location \"C:\\Users\\anike\\Wepzo\"; git status --short",
+			"isBackground": false,
+			"problemMatcher": []
+		},
+		{
+			"label": "Inspect task diff final",
+			"type": "shell",
+			"command": "Set-Location \"C:\\Users\\anike\\Wepzo\"; git --no-pager diff -- .vscode/tasks.json",
+			"isBackground": false,
+			"problemMatcher": []
+		},
+		{
+			"label": "Start E-Commerce preview",
+			"type": "shell",
+			"command": "npm --prefix User/E-Commerce run dev -- --host 0.0.0.0",
+			"isBackground": true,
+			"problemMatcher": []
+		},
+		{
+			"label": "Build Admin preview changes",
+			"type": "shell",
+			"command": "npm --prefix Admin run build",
+			"isBackground": false,
+			"problemMatcher": []
+		},
+		{
+			"label": "Check backend syntax",
+			"type": "shell",
+			"command": "node --check Backend/routes/memoryApi.js",
+			"isBackground": false,
+			"problemMatcher": []
+		},
+		{
+			"label": "Verify module preview syntax",
+			"type": "shell",
+			"command": "node --check Backend/routes/memoryApi.js",
+			"isBackground": false,
+			"problemMatcher": []
+		},
+		{
+			"label": "Build Quick Commerce preview",
+			"type": "shell",
+			"command": "npm --prefix User/quick-commerce run build",
+			"isBackground": false,
+			"problemMatcher": []
+		},
+		{
+			"label": "Check backend preview changes",
+			"type": "shell",
+			"command": "node --check Backend/routes/memoryApi.js",
+			"isBackground": false,
+			"problemMatcher": []
+		},
+		{
+			"label": "Build On Domain preview",
+			"type": "shell",
+			"command": "npm --prefix Admin run build",
+			"isBackground": false,
+			"problemMatcher": []
+		},
+		{
+			"label": "Review preview change files",
+			"type": "shell",
+			"command": "git --no-pager status --short",
+			"isBackground": false,
+			"problemMatcher": []
+		},
+		{
+			"label": "Inspect module preview records",
+			"type": "shell",
+			"command": "node -e \"const s=require('./Backend/data/wepzo-store.json'); const mods=s.websiteModules||[]; console.log(JSON.stringify({modules:mods.map(m=>({_id:m._id,name:m.name,slug:m.slug,type:m.type})), websites:(s.websites||[]).filter(w=>w.status==='published').map(w=>({_id:w._id,userId:w.userId,moduleId:w.websiteModuleId,moduleSlug:w.websiteModuleSlug,moduleType:w.moduleType,name:w.name,publishedAt:w.publishedAt}))},null,2))\"",
+			"isBackground": false,
+			"problemMatcher": []
+		},
+		{
+			"label": "Build Store Single storefront",
+			"type": "shell",
+			"command": "npm --prefix User/store-single run build",
+			"isBackground": false,
+			"problemMatcher": []
+		},
+		{
+			"label": "Check VPS hosting scripts",
+			"type": "shell",
+			"command": "$git = (Get-Command git).Source; $bash = Join-Path (Split-Path $git -Parent) '..\\bin\\bash.exe'; if (Test-Path $bash) { & $bash -n Backend/scripts/setup-vps-hosting.sh; if ($?) { & $bash -n Backend/scripts/wepzo-vps-deploy.sh } } else { Write-Error 'Git Bash was not found next to git.' }",
+			"isBackground": false,
+			"problemMatcher": []
 		}
 	]
 }

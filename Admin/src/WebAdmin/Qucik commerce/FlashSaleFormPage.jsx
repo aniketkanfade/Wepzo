@@ -4,6 +4,7 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import api from '../../api/axios';
 import { PageCard } from './components/PageCard';
 import { listBtnNavy, listBtnOutline } from '../../constants/listTheme';
+import { numericInputValue } from '../../utils/numericInput';
 
 function activeModules(list) {
   return (Array.isArray(list) ? list : []).filter(item =>
@@ -362,7 +363,7 @@ export default function FlashSaleFormPage() {
                         <td className="px-4 py-3">₹{Number(product.price || 0).toFixed(2)}</td>
                         <td className="px-4 py-3">
                           <div className="flex w-24 items-center rounded-md border border-slate-200 px-2">
-                            <input type="number" min="0" max="100" value={product.discountPercent}
+                            <input type="number" min="0" max="100" value={numericInputValue(product.discountPercent)}
                               onChange={event => updateProductDiscount(key, event.target.value)} className="w-full py-1.5 outline-none" />
                             <span className="text-slate-400">%</span>
                           </div>

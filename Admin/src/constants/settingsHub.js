@@ -219,6 +219,7 @@ export const SETTINGS_PAGE_FORMS = {
     icon: CreditCard,
     relatedLinks: [{ label: 'Tax Information', path: '/settings/zones/tax' }],
     fields: [
+      { key: 'onlinePaymentEnabled', label: 'Online Payments', type: 'toggle' },
       { key: 'razorpayEnabled', label: 'Razorpay', type: 'toggle' },
       { key: 'phonepeEnabled', label: 'PhonePe', type: 'toggle' },
       { key: 'cashfreeEnabled', label: 'Cashfree', type: 'toggle' },

@@ -1,10 +1,14 @@
 const params = new URLSearchParams(window.location.search)
 
-export const API = (import.meta.env.VITE_E_COMMERCE_API_URL || import.meta.env.VITE_API_URL || 'http://localhost:5000/api').replace(/\/$/, '')
+export const API = (import.meta.env.VITE_E_COMMERCE_API_URL || import.meta.env.VITE_API_URL || (import.meta.env.DEV ? 'http://localhost:5000/api' : '/api')).replace(/\/$/, '')
 export const BUILDER_PREVIEW = params.get('builderPreview') === '1'
 export const ADMIN_PREVIEW = params.get('adminPreview') === '1'
-export const WEBSITE_ID = import.meta.env.VITE_WEBSITE_ID || params.get('websiteId') || ''
-export const WEBSITE_MODULE_ID = import.meta.env.VITE_WEBSITE_MODULE_ID || params.get('moduleId') || ''
+export const WEBSITE_ID = (ADMIN_PREVIEW
+  ? params.get('websiteId')
+  : import.meta.env.VITE_WEBSITE_ID || params.get('websiteId')) || ''
+export const WEBSITE_MODULE_ID = (ADMIN_PREVIEW
+  ? params.get('moduleId')
+  : import.meta.env.VITE_WEBSITE_MODULE_ID || params.get('moduleId')) || ''
 
 export const storageKey = key => `${key}:${WEBSITE_ID || window.location.hostname}`
 
@@ -67,6 +71,7 @@ export async function request(path, options = {}) {
   const headers = {
     'Content-Type': 'application/json',
     'X-Website-Module': 'e-commerce',
+    ...(ADMIN_PREVIEW ? { 'X-Admin-Preview': '1' } : {}),
     ...(WEBSITE_ID ? { 'X-Website-Id': WEBSITE_ID } : {}),
     ...(WEBSITE_MODULE_ID ? { 'X-Website-Module-Id': WEBSITE_MODULE_ID } : {}),
     ...(options.headers || {}),

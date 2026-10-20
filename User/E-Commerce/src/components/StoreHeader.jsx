@@ -87,7 +87,6 @@ export default function StoreHeader({ business, customer, query, setQuery, searc
         aria-controls="product-search-suggestions"
         aria-activedescendant={searchOpen && suggestions[activeSuggestion] ? `search-suggestion-${suggestions[activeSuggestion]._id || suggestions[activeSuggestion].id}` : undefined}
       />
-      <button type="button" aria-label="Search" onClick={() => { setSearchOpen(false); onSearch?.() }}><Icon><circle cx="10.8" cy="10.8" r="6.3"/><path d="m16 16 4.2 4.2"/></Icon></button>
       {searchOpen && searchTerm && <div id="product-search-suggestions" className="search-suggestions" role="listbox" aria-label="Matching products">
         {suggestions.length ? suggestions.map((product, index) => {
           const id = product._id || product.id

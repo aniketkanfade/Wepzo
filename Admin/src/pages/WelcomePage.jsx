@@ -17,6 +17,11 @@ function safeLink(value) {
   }
 }
 
+function subdomainPriceLabel(module) {
+  if (module?.subdomainPriceMode === 'free' || Number(module?.subdomainPrice) === 0) return 'Free';
+  return `₹${Number(module?.subdomainPrice ?? 500).toLocaleString('en-IN')} setup`;
+}
+
 export default function WelcomePage() {
   const location = useLocation();
   const navigate = useNavigate();
@@ -66,7 +71,20 @@ export default function WelcomePage() {
     return () => { active = false; };
   }, []);
 
+  useEffect(() => {
+    if (choice === 'subdomain' && selectedModule.showSubdomainOption === false) {
+      setChoice(selectedModule.showOwnDomainOption === false ? '' : 'own-domain');
+    } else if (choice === 'own-domain' && selectedModule.showOwnDomainOption === false) {
+      setChoice(selectedModule.showSubdomainOption === false ? '' : 'subdomain');
+    }
+  }, [choice, selectedModule.showSubdomainOption, selectedModule.showOwnDomainOption]);
+
   const startBuilding = () => {
+    if (choice === 'own-domain' && selectedModule.showOwnDomainOption !== false) {
+      openOwnDomainPage();
+      return;
+    }
+    if (selectedModule.showSubdomainOption === false) return;
     resetBuilder();
     navigate('/website-builder', {
       state: {
@@ -128,23 +146,25 @@ export default function WelcomePage() {
         </section>
 
         <section className="mt-4">
-          <h2 className="text-xl font-bold text-slate-900">{selectedModule.addressTitle?.trim() || 'Choose Your Website Address'}</h2>
-          <p className="mt-1 text-sm text-slate-600">{selectedModule.addressDescription?.trim() || 'Select how you want your store to appear online.'}</p>
-          <div className="mt-4 grid gap-4 md:grid-cols-2">
-            <button type="button" aria-pressed={choice === 'subdomain'} onClick={() => setChoice('subdomain')} className={`rounded-xl border p-5 text-left transition ${choice === 'subdomain' ? 'border-blue-500 bg-blue-50/30 shadow-[0_0_0_1px_rgba(59,130,246,0.10)]' : 'border-slate-200 bg-white hover:border-blue-300'}`}>
+          {(selectedModule.showSubdomainOption !== false || selectedModule.showOwnDomainOption !== false) && <>
+            <h2 className="text-xl font-bold text-slate-900">{selectedModule.addressTitle?.trim() || 'Choose Your Website Address'}</h2>
+            <p className="mt-1 text-sm text-slate-600">{selectedModule.addressDescription?.trim() || 'Select how you want your store to appear online.'}</p>
+          </>}
+          {(selectedModule.showSubdomainOption !== false || selectedModule.showOwnDomainOption !== false) && <div className="mt-4 grid gap-4 md:grid-cols-2">
+            {selectedModule.showSubdomainOption !== false && <button type="button" aria-pressed={choice === 'subdomain'} onClick={() => setChoice('subdomain')} className={`rounded-xl border p-5 text-left transition ${choice === 'subdomain' ? 'border-blue-500 bg-blue-50/30 shadow-[0_0_0_1px_rgba(59,130,246,0.10)]' : 'border-slate-200 bg-white hover:border-blue-300'}`}>
               <div className="flex items-start gap-2.5">
                 <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-blue-100 text-blue-700"><Globe size={17}/></span>
                 <span className="min-w-0 flex-1">
-                  <span className="flex flex-wrap items-center gap-x-2 gap-y-1"><span className="text-sm font-bold text-slate-900">{selectedModule.subdomainTitle?.trim() || 'Use WEPZO Subdomain'}</span><span className="rounded-full bg-orange-100 px-2.5 py-1 text-xs font-semibold text-orange-800">{selectedModule.subdomainBadge?.trim() || '₹500 setup'}</span></span>
+                  <span className="flex flex-wrap items-center gap-x-2 gap-y-1"><span className="text-sm font-bold text-slate-900">{selectedModule.subdomainTitle?.trim() || 'Use WEPZO Subdomain'}</span><span className="rounded-full bg-orange-100 px-2.5 py-1 text-xs font-semibold text-orange-800">{subdomainPriceLabel(selectedModule)}</span></span>
                   <span className="mt-2 block text-sm leading-5 text-slate-600">{selectedModule.subdomainDescription?.trim() || 'Choose a WEPZO web address. Setup charges are shown in the builder before payment.'}</span>
                   <span className="mt-3 flex max-w-[320px] items-center gap-1 rounded bg-slate-100 px-3 py-2 text-xs text-slate-600"><span>https://</span><span className="rounded bg-white px-2 py-1 font-semibold text-slate-800">{websiteName.toLowerCase().replace(/\s+/g, '')}</span><span>.wepzo.shop</span><Check size={14} className="ml-auto text-emerald-600"/></span>
                   <span className="mt-3 grid grid-cols-1 gap-2 text-xs text-slate-600 sm:grid-cols-2">{subdomainBenefits.map((benefit, index) => <span key={`${benefit}-${index}`}>✓ &nbsp;{benefit}</span>)}</span>
                 </span>
                 <span className={`mt-0.5 grid h-3.5 w-3.5 shrink-0 place-items-center rounded-full border ${choice === 'subdomain' ? 'border-blue-600' : 'border-slate-300'}`}>{choice === 'subdomain' && <span className="h-2 w-2 rounded-full bg-blue-600"/>}</span>
               </div>
-            </button>
+            </button>}
 
-            <button type="button" aria-pressed={choice === 'own-domain'} onClick={() => { setChoice('own-domain'); openOwnDomainPage(); }} className={`rounded-xl border p-5 text-left transition ${choice === 'own-domain' ? 'border-blue-500 bg-blue-50/30' : 'border-slate-200 bg-white hover:border-blue-300'}`}>
+            {selectedModule.showOwnDomainOption !== false && <button type="button" aria-pressed={choice === 'own-domain'} onClick={() => setChoice('own-domain')} className={`rounded-xl border p-5 text-left transition ${choice === 'own-domain' ? 'border-blue-500 bg-blue-50/30' : 'border-slate-200 bg-white hover:border-blue-300'}`}>
               <div className="flex items-start gap-2.5">
                 <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-slate-100 text-slate-600"><Link2 size={17}/></span>
                 <span className="min-w-0 flex-1">
@@ -155,9 +175,9 @@ export default function WelcomePage() {
                 </span>
                 <span className="mt-0.5 h-3.5 w-3.5 shrink-0 rounded-full border border-slate-300"/>
               </div>
-            </button>
-          </div>
-          <button type="button" onClick={startBuilding} className="mx-auto mt-4 flex min-h-11 items-center justify-center gap-2 rounded-lg bg-[#ff681c] px-7 py-3 text-sm font-bold text-white shadow-sm transition hover:bg-[#ed5910]">{selectedModule.continueLabel?.trim() || 'Continue & Build My Website'}<ArrowRight size={17}/></button>
+            </button>}
+          </div>}
+          {(selectedModule.showSubdomainOption !== false || selectedModule.showOwnDomainOption !== false) && <button type="button" onClick={startBuilding} className="mx-auto mt-4 flex min-h-11 items-center justify-center gap-2 rounded-lg bg-[#ff681c] px-7 py-3 text-sm font-bold text-white shadow-sm transition hover:bg-[#ed5910]">{selectedModule.continueLabel?.trim() || 'Continue & Build My Website'}<ArrowRight size={17}/></button>}
         </section>
 
         <section className="mt-5 grid gap-4 sm:grid-cols-3">

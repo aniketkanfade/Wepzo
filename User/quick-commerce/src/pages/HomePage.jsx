@@ -118,6 +118,7 @@ export default function HomePage({ componentEnabled = () => true, builderPreview
   const city = currentLocation?.city || data?.city || '';
   const activeModule = data?.modules?.find(m => m.slug === moduleSlug);
   const catalogPath = moduleSlug ? `/c?module=${encodeURIComponent(moduleSlug)}` : '/c';
+  const brandPath = id => { const query = new URLSearchParams(); if (moduleSlug) query.set('module', moduleSlug); query.set('brand', id); return `/c?${query.toString()}`; };
   const visibleCategories = (data?.categories || []).filter(c => c.status !== false && (!moduleSlug || c.moduleId === activeModule?._id));
   const allHomeProducts = [...new Map(
     [...(data?.flash || []), ...(data?.bestsellers || []), ...(data?.newest || [])]
@@ -239,8 +240,8 @@ export default function HomePage({ componentEnabled = () => true, builderPreview
         {productSections.length > 0 && <ProductGridCarousel products={data.bestsellers} />}
       </section>}
 
-      {homeMidBanners.length > 0 && <section className="space-y-3"><h2 className="text-lg font-bold text-slate-900">Offers and promotions</h2><PromotionBannerRail banners={homeMidBanners} label="Home middle banners"/></section>}
-      {moduleCategoryBanners.length > 0 && <section className="space-y-3"><h2 className="text-lg font-bold text-slate-900">Featured in {activeModule?.name || 'this module'}</h2><PromotionBannerRail banners={moduleCategoryBanners} label="Module category banners"/></section>}
+      {componentEnabled('quick-commerce-offer-banner') && homeMidBanners.length > 0 && <section className="space-y-3"><h2 className="text-lg font-bold text-slate-900">Offers and promotions</h2><PromotionBannerRail banners={homeMidBanners} label="Home middle banners"/></section>}
+      {componentEnabled('quick-commerce-category-tiles') && moduleCategoryBanners.length > 0 && <section className="space-y-3"><h2 className="text-lg font-bold text-slate-900">Featured in {activeModule?.name || 'this module'}</h2><PromotionBannerRail banners={moduleCategoryBanners} label="Module category banners"/></section>}
 
       {componentEnabled('quick-commerce-product-grid') && (
         productSections.length > 0 ? (
@@ -283,7 +284,7 @@ export default function HomePage({ componentEnabled = () => true, builderPreview
         </Link>)}</Rail>
       </section>}
       {componentEnabled('quick-commerce-brand-section') && (data.brands || []).length > 0 && <section className="qc-brand-section"><div className="flex items-center justify-between mb-3"><h2 className="text-lg font-bold text-slate-900">Top Brands</h2><Link to={catalogPath} className="qc-home-view-all text-sm text-brand-600">View All</Link></div>
-        <div className="qc-brand-grid">{data.brands.map(brand=><Link to={catalogPath} key={brand.id} className="qc-brand">
+        <div className="qc-brand-grid">{data.brands.map(brand=><Link to={brandPath(brand.id)} key={brand.id} className="qc-brand">
           <span className="qc-brand-logo">{brand.image ? <img src={brand.image} alt={`${brand.name} logo`} /> : <span>{String(brand.name || 'B').slice(0, 1).toUpperCase()}</span>}</span>
           <span className="qc-brand-name">{brand.name}</span>
         </Link>)}</div>

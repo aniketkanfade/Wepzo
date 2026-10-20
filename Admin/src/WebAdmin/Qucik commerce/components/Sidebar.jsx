@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import api from '../../../api/axios';
+import { isWebsiteServiceActive } from '../../../utils/websiteService';
 import {
   LayoutDashboard, Package, ShoppingCart, Megaphone, Store, CalendarDays, Clock3, CircleCheck, LoaderCircle, PackageOpen, PackageCheck, Ban, CircleAlert, Banknote, ListOrdered,
   ChevronDown, ChevronRight, Search, Settings, Users, Shield, Layers, CreditCard, Pencil,
@@ -116,6 +117,7 @@ const getDashboardItem = module => ({ label: 'Dashboard', path: getAdminModulePa
 const MARKETING_MENU_ITEMS = [
   getDashboardItem({ slug: 'marketing' }),
   { label: 'Website Content', path: '/marketing/website-content', accessPath: '/website-builder', icon: Globe2 },
+  { label: 'Inquiries', path: '/marketing/inquiries', icon: Mail },
   { label: 'Content Add', path: '/marketing/content-add', icon: FileText },
   { label: 'Users', path: '/marketing/users', icon: Users },
   { label: 'Subscriptions', path: '/marketing/subscriptions', icon: CreditCard },
@@ -256,7 +258,7 @@ function MenuItem({ item, depth = 0, openKey, openDepth, onOpenChange, badgeCoun
   );
 }
 
-export default function Sidebar({ mobileOpen, onClose, websiteAccess }) {
+export default function Sidebar({ mobileOpen, onClose, websiteAccess, showOwnDomainOption = true }) {
   const { user } = useAuthStore();
   const { activeModule } = useModuleStore();
   const location = useLocation();
@@ -270,19 +272,26 @@ export default function Sidebar({ mobileOpen, onClose, websiteAccess }) {
   const [activeOpenDepth, setActiveOpenDepth] = useState(null);
   const [badgeCounts, setBadgeCounts] = useState({ requests: 0 });
   const [hasPaidWebsite, setHasPaidWebsite] = useState(false);
+  const [onDomainPurchased, setOnDomainPurchased] = useState(false);
+  const [onDomainStatusReady, setOnDomainStatusReady] = useState(false);
 
   useEffect(() => {
     if (!isWebsiteUser) {
       setHasPaidWebsite(false);
+      setOnDomainPurchased(false);
+      setOnDomainStatusReady(true);
       return undefined;
     }
     let active = true;
+    setOnDomainStatusReady(false);
     api.get('/websites').then(({ data }) => {
       const websites = Array.isArray(data) ? data : [];
-      if (active) setHasPaidWebsite(websites.some(website =>
-        website.purchase?.status === 'paid' || (website.status === 'published' && !website.purchase)
-      ));
+      if (active) setHasPaidWebsite(websites.some(isWebsiteServiceActive));
     }).catch(() => { if (active) setHasPaidWebsite(false); });
+    api.get('/on-domain/package').then(({ data }) => {
+      if (active) setOnDomainPurchased(data?.purchased === true || data?.domainHostingPurchased === true);
+    }).catch(() => { if (active) setOnDomainPurchased(false); })
+      .finally(() => { if (active) setOnDomainStatusReady(true); });
     return () => { active = false; };
   }, [isWebsiteUser, user?.id, user?.websiteId, user?.selectedModuleSlug]);
 
@@ -385,9 +394,8 @@ export default function Sidebar({ mobileOpen, onClose, websiteAccess }) {
         </div>
         <nav className="flex-1 overflow-y-auto px-3 pb-4 space-y-0.5">
           {isWebsiteUser && hasPaidWebsite && allowedSidebarPaths.has('/website-builder') && <div className="mb-3 border-b border-slate-100 pb-3">
-            <p className="mb-1 px-3 pt-2 text-[10px] font-bold uppercase tracking-wider text-gray-400">My Website</p>
-            <NavLink to="/website-builder" className={({ isActive }) => `flex items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm font-medium ${isActive ? 'bg-[#f0f4ff] text-[#1a3a8a]' : 'text-gray-700 hover:bg-gray-50'}`}><Pencil size={16}/>Edit Website</NavLink>
-            <NavLink to="/on-domain" className={({ isActive }) => `flex items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm font-medium ${isActive ? 'bg-[#f0f4ff] text-[#1a3a8a]' : 'text-gray-700 hover:bg-gray-50'}`}><Globe2 size={16}/>On Domain</NavLink>
+            {onDomainStatusReady && !onDomainPurchased && <NavLink to="/website-builder" className={({ isActive }) => `flex items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm font-medium ${isActive ? 'bg-[#f0f4ff] text-[#1a3a8a]' : 'text-gray-700 hover:bg-gray-50'}`}><Pencil size={16}/>Edit Website</NavLink>}
+            {onDomainStatusReady && !onDomainPurchased && showOwnDomainOption && <NavLink to="/on-domain" className={({ isActive }) => `flex items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm font-medium ${isActive ? 'bg-[#f0f4ff] text-[#1a3a8a]' : 'text-gray-700 hover:bg-gray-50'}`}><Globe2 size={16}/>On Domain</NavLink>}
             <NavLink to="/website-subscription" className={({ isActive }) => `flex items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm font-medium ${isActive ? 'bg-[#f0f4ff] text-[#1a3a8a]' : 'text-gray-700 hover:bg-gray-50'}`}><CreditCard size={16}/>Plan & Subscription</NavLink>
           </div>}
           {renderMenu(visibleMenuItems)}

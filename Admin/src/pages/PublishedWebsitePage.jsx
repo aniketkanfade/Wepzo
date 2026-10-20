@@ -18,9 +18,13 @@ export default function PublishedWebsitePage() {
     return () => { alive = false; };
   }, [websiteId]);
 
-  const moduleKey = getAdminModuleKey({ slug: website?.websiteModuleSlug, name: website?.moduleName });
+  const moduleKey = getAdminModuleKey({
+    slug: website?.websiteModuleSlug || website?.moduleType,
+    type: website?.moduleType,
+    name: website?.moduleName,
+  });
   const storefrontUrl = useMemo(() => {
-    if (!website || !['quick-commerce', 'e-commerce', 'information-web'].includes(moduleKey)) return '';
+    if (!website || !['quick-commerce', 'e-commerce', 'store-single', 'information-web'].includes(moduleKey)) return '';
     if (moduleKey === 'information-web') {
       const url = new URL(import.meta.env.VITE_GENERAL_PREVIEW_URL || 'http://localhost:5174/', window.location.origin);
       url.searchParams.set('published', '1');
@@ -33,6 +37,13 @@ export default function PublishedWebsitePage() {
       url.searchParams.set('published', '1');
       url.searchParams.set('websiteId', website._id);
       if (website.websiteModuleId) url.searchParams.set('moduleId', website.websiteModuleId);
+      return url.href;
+    }
+    if (moduleKey === 'store-single') {
+      const url = new URL(import.meta.env.VITE_STORE_SINGLE_PREVIEW_URL || 'http://localhost:5175/', window.location.origin);
+      url.searchParams.set('published', '1');
+      url.searchParams.set('websiteId', website._id);
+      if (website.websiteModuleId) url.searchParams.set('websiteModuleId', website.websiteModuleId);
       return url.href;
     }
     const url = new URL(import.meta.env.VITE_QC_PREVIEW_URL || 'http://localhost:3001/', window.location.origin);

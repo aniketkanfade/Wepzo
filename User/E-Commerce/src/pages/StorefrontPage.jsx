@@ -16,7 +16,7 @@ import StoreFooter from '../components/StoreFooter'
 import StoreHeader from '../components/StoreHeader'
 import StoreNavigation from '../components/StoreNavigation'
 import { CookieNotice, MaintenancePage, Toast } from '../components/StoreNotices'
-import { ADMIN_PREVIEW, imageOf, money } from '../lib/storefront'
+import { imageOf, money } from '../lib/storefront'
 import useStorefront from '../hooks/useStorefront'
 
 const asList = value => Array.isArray(value) ? value : value ? [value] : []
@@ -52,7 +52,7 @@ export default function StorefrontPage() {
   } = store
 
   const mainAdminWebsite = home?.isMainWebsite === true
-  const showDefaultStorefront = mainAdminWebsite || (ADMIN_PREVIEW && selectedComponentData.length === 0)
+  const showDefaultStorefront = mainAdminWebsite || selectedComponentData.length === 0
   const hasComponent = (...slugs) => selectedComponentData.some(component => slugs.includes(String(component.slug || '').toLowerCase()))
   const hasComponentType = (...types) => selectedComponentData.some(component => types.includes(String(component.type || '').toLowerCase().replace(/-/g, '_')))
   const componentEnabled = (slugs, types = []) => hasComponent(...slugs) || (types.length > 0 && hasComponentType(...types))

@@ -1,6 +1,6 @@
 import { formatMoney, useSiteSettings } from '../store/siteSettings';
 
-export default function BillBreakdown({ quote, items }) {
+export default function BillBreakdown({ quote, items, showItems = true }) {
   const business = useSiteSettings(s => s.business);
   if (!quote) return null;
   const itemsPrice = items?.reduce((total, item) => {
@@ -12,7 +12,7 @@ export default function BillBreakdown({ quote, items }) {
   const freeDelivery = quote.freeDelivery || Number(quote.deliveryCharge) === 0;
   return (
     <dl className="text-sm space-y-1.5 text-slate-600">
-      {items?.map(i => (
+      {showItems && items?.map(i => (
         <div key={i.id || i.name} className="flex justify-between">
           <dt>{i.name} × {i.qty}</dt>
           <dd>{formatMoney(i.price * i.qty, business)}</dd>

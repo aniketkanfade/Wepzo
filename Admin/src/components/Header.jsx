@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { Search, Bell, ChevronDown, LayoutGrid, Menu, Settings, Globe, X, Layers, UserRound, LogOut, Ban, Trash2, ExternalLink } from 'lucide-react';
+import { Search, Bell, ChevronDown, LayoutGrid, Menu, Settings, Globe, X, Layers, UserRound, LogOut, Ban, Trash2, ExternalLink, CreditCard } from 'lucide-react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuthStore, useBuilderStore } from '../store/useStore';
 import useAdminOrderAlerts from '../hooks/useAdminOrderAlerts';
@@ -123,7 +123,6 @@ export default function Header({ onMenuToggle, showMenuToggle = true, websiteAcc
     const headerOptions = [
       { path: moduleAdminPath, label: `${user.selectedModuleName || 'Module'} Admin` },
       ...WEBSITE_HEADER_ACCESS_OPTIONS.filter(item => item.path !== '/website-builder'),
-      ...(granted.has('/website-builder') ? [{ path: '/website-builder', label: tenantWebsite?.name || 'Website Builder' }] : []),
     ];
     const links = headerOptions.filter(item => granted.has(item.path) || grantedHeaderChildren(item.children || [], granted).length > 0);
     const searchItems = flattenNavigation([
@@ -256,6 +255,9 @@ export default function Header({ onMenuToggle, showMenuToggle = true, websiteAcc
             <Link to="/settings" className="block px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 rounded-t-lg">
               Settings
             </Link>
+            {user?.role === 'main_admin' && <Link to="/settings/payment-gateway" className="block px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50">
+              <CreditCard size={14} className="mr-2 inline" />Payment Gateway
+            </Link>}
             <button type="button" onClick={logout} className="w-full text-left px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 rounded-b-lg">
               Logout
             </button>

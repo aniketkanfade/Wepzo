@@ -3,6 +3,7 @@ import { Receipt, Save, RotateCcw } from 'lucide-react';
 import api from '../../api/axios';
 import NavyToggle from '../../WebAdmin/Qucik commerce/components/NavyToggle';
 import { LIST_NAVY as NAVY, LIST_CARD_BORDER as CARD_BORDER, listBtnNavy, listBtnOutline } from '../../constants/listTheme';
+import { numericInputValue } from '../../utils/numericInput';
 
 export default function SettingsTaxPage() {
   const [form, setForm] = useState({});
@@ -64,7 +65,7 @@ export default function SettingsTaxPage() {
           </div>
           <div>
             <label className={labelCls}>Tax Percent (%)</label>
-            <input type="number" step="0.1" className={inputCls} value={form.taxPercent ?? 18}
+            <input type="number" step="0.1" className={inputCls} value={numericInputValue(form.taxPercent ?? 18)}
               onChange={e => set('taxPercent', Number(e.target.value))} />
           </div>
           <div className="sm:col-span-2">

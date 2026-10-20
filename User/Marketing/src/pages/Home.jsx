@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { useBranding } from '../BrandingContext.jsx'
+import { marketingPublicRequest, useBranding } from '../BrandingContext.jsx'
 import Header from '../components/Header.jsx'
 import Hero from '../components/Hero.jsx'
 import ServiceCards from '../components/ServiceCards.jsx'
@@ -40,20 +40,30 @@ function About() {
 
 function Contact() {
   const [submitted, setSubmitted] = useState(false)
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState('')
   const { siteContent } = useBranding()
   const content = siteContent?.contact || {}
   if (content.enabled === false) return null
-  function submit(event) {
+  async function submit(event) {
     event.preventDefault()
-    const data = new FormData(event.currentTarget)
-    const subject = encodeURIComponent(`${siteContent?.brand?.name || 'Wepzo'} enquiry from ${data.get('name')}`)
-    const body = encodeURIComponent(`Name: ${data.get('name')}\nEmail: ${data.get('email')}\n\n${data.get('message')}`)
-    window.location.href = `mailto:${content.email}?subject=${subject}&body=${body}`
-    setSubmitted(true)
+    const form = event.currentTarget
+    const values = Object.fromEntries(new FormData(form).entries())
+    setSubmitting(true)
+    setError('')
+    setSubmitted(false)
+    try {
+      await marketingPublicRequest('/marketing/public/inquiries', { method: 'POST', body: JSON.stringify(values) })
+      form.reset()
+      setSubmitted(true)
+    } catch (requestError) {
+      setError(requestError.message || 'Your inquiry could not be sent. Please try again.')
+    } finally {
+      setSubmitting(false)
+    }
   }
-  return <section className="marketing-section contact-section" id="contact"><div className="section-heading"><span>{content.eyebrow}</span><h2>{content.title}</h2><p>{content.description}</p><a className="contact-email" href={`mailto:${content.email}`}>{content.email}</a></div><form className="contact-form" onSubmit={submit}><label>{content.nameLabel}<input name="name" required placeholder={content.namePlaceholder} /></label><label>{content.emailLabel}<input name="email" type="email" required placeholder={content.emailPlaceholder} /></label><label>{content.messageLabel}<textarea name="message" required rows="4" placeholder={content.messagePlaceholder} /></label><button className="button button-primary" type="submit">{content.submitLabel} <span>→</span></button>{submitted && <p className="form-note" role="status">{content.successMessage}</p>}</form></section>
+  return <section className="marketing-section contact-section" id="contact"><div className="section-heading"><span>{content.eyebrow}</span><h2>{content.title}</h2><p>{content.description}</p><a className="contact-email" href={'mailto:' + content.email}>{content.email}</a></div><form className="contact-form" onSubmit={submit}><label>{content.nameLabel}<input name="name" required maxLength="120" placeholder={content.namePlaceholder} /></label><label>{content.emailLabel}<input name="email" type="email" required maxLength="254" placeholder={content.emailPlaceholder} /></label><label>{content.messageLabel}<textarea name="message" required maxLength="5000" rows="4" placeholder={content.messagePlaceholder} /></label>{error && <p className="auth-error" role="alert">{error}</p>}<button className="button button-primary" type="submit" disabled={submitting}>{submitting ? 'Sending...' : content.submitLabel} <span>&rarr;</span></button>{submitted && <p className="form-note" role="status">{content.successMessage || 'Thanks, your inquiry was sent.'}</p>}</form></section>
 }
-
 function FinalCta() {
   const { siteContent } = useBranding()
   const content = siteContent?.finalCta || {}

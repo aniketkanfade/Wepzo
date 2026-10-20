@@ -7,6 +7,8 @@ const https = require('https');
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
+const { execFile } = require('child_process');
+const { promisify } = require('util');
 const { sendEmail, sendTestEmail } = require('../lib/smtpTransport');
 const { sendSmsTest } = require('../lib/smsGateway');
 const { v4: uuidv4 } = require('uuid');
@@ -26,6 +28,8 @@ const {
 } = require('../lib/storeDiscountUtils');
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
+const execFileAsync = promisify(execFile);
+const VPS_DEPLOY_HELPER = process.env.WEPZO_VPS_DEPLOY_HELPER || '/usr/local/sbin/wepzo-vps-deploy';
 const zonePinValue = value => value && typeof value === 'object'
   ? (value.pin || value.pincode || value.pin_code || value.Pincode)
   : value;
@@ -505,6 +509,10 @@ function normalizeWebsiteModuleSlug(value) {
     'quick-commerce': 'quick-commerce',
     ecommerce: 'e-commerce',
     'e-commerce': 'e-commerce',
+    'store-singlepage-web': 'store-single',
+    'store-single-page': 'store-single',
+    'store-singlepage': 'store-single',
+    'store-single': 'store-single',
     marketing: 'marketing',
     general: 'general',
     'information-web': 'general',
@@ -513,13 +521,30 @@ function normalizeWebsiteModuleSlug(value) {
   return map[raw] || raw;
 }
 
+function websiteModuleSlugFor(module = {}) {
+  const values = [
+    module.slug,
+    module.type,
+    module.websiteModuleSlug,
+    module.moduleType,
+  ].map(value => String(value || '').trim().toLowerCase().replace(/_/g, '-'));
+  if (values.some(value => ['quick-commerce', 'quickcommerce', 'qcommerce'].includes(value))) return 'quick-commerce';
+  if (values.some(value => ['ecommerce'].includes(value)) && /quick[\s-]?commerce|qcommerce/i.test(String(module.name || ''))) {
+    return 'quick-commerce';
+  }
+  if (values.some(value => ['e-commerce', 'ecommerce'].includes(value))) return 'e-commerce';
+  if (!values.some(Boolean) && /quick[\s-]?commerce|qcommerce/i.test(String(module.name || ''))) return 'quick-commerce';
+  if (!values.some(Boolean) && /e[\s-]?commerce/i.test(String(module.name || ''))) return 'e-commerce';
+  return normalizeWebsiteModuleSlug(values.find(Boolean) || module.name || '');
+}
+
 function isQuickCommerceStorefront(websiteContext) {
-  return normalizeWebsiteModuleSlug(
-    websiteContext?.website?.websiteModuleSlug
-      || websiteContext?.website?.moduleType
-      || websiteContext?.moduleSlug
-      || ''
-  ) === 'quick-commerce';
+  if (websiteContext?.module) return websiteModuleSlugFor(websiteContext.module) === 'quick-commerce';
+  if (websiteContext?.moduleSlug) return websiteContext.moduleSlug === 'quick-commerce';
+  const websiteModule = websiteContext?.website && websiteModuleForWebsite(websiteContext.website);
+  return websiteModule
+    ? websiteModuleSlugFor(websiteModule) === 'quick-commerce'
+    : websiteModuleSlugFor(websiteContext?.website || {}) === 'quick-commerce';
 }
 
 function websiteBuilderType(module) {
@@ -628,14 +653,14 @@ function adminWebsiteModuleSlug(req) {
   const normalizedRequested = normalizeWebsiteModuleSlug(requested);
   if (explicitModuleId) {
     const module = (store.websiteModules || []).find(item => String(item._id) === String(explicitModuleId));
-    if (module) return normalizeWebsiteModuleSlug(module.slug || module.type || normalizedRequested || 'quick-commerce');
+    if (module) return websiteModuleSlugFor(module);
   }
   const module = (store.websiteModules || []).find(item => {
-    const slug = normalizeWebsiteModuleSlug(item.slug || '');
+    const slug = websiteModuleSlugFor(item);
     const id = String(item._id || '').trim();
     return id === explicitModuleId || slug === normalizedRequested || String(item.slug || '').toLowerCase() === requested;
   });
-  return module ? normalizeWebsiteModuleSlug(module.slug || module.type || normalizedRequested) : (normalizedRequested || 'quick-commerce');
+  return module ? websiteModuleSlugFor(module) : (normalizedRequested || 'quick-commerce');
 }
 function adminWebsiteModuleInfo(req) {
   const slug = normalizeWebsiteModuleSlug(adminWebsiteModuleSlug(req) || '');
@@ -643,7 +668,7 @@ function adminWebsiteModuleInfo(req) {
   const explicitModuleId = explicitId || String(req.get('X-Website-Module-Id') || req.headers['x-website-module-id'] || '').trim();
   const module = (store.websiteModules || []).find(item => {
     if (explicitModuleId && String(item._id) === String(explicitModuleId)) return true;
-    return normalizeWebsiteModuleSlug(item.slug || item.type || '') === slug;
+    return websiteModuleSlugFor(item) === slug;
   });
   const name = String(module?.name || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
   const quickCommerce = ['quick-commerce', 'quick_commerce', 'qcommerce'].includes(slug)
@@ -814,6 +839,26 @@ function websiteSubscriptionExpired(website) {
 function websiteContextForRequest(req, { requirePublished = false } = {}) {
   const requestedWebsiteId = String(req.get('X-Website-Id') || req.query?.websiteId || req.body?.websiteId || '').trim();
   const requestedModuleSlug = normalizeWebsiteModuleSlug(req.get('X-Website-Module') || req.query?.moduleType || '');
+  const requestedModuleId = String(req.get('X-Website-Module-Id') || req.query?.websiteModuleId || req.body?.websiteModuleId || '').trim();
+  const requestedModule = (store.websiteModules || []).find(item =>
+    requestedModuleId && String(item._id) === requestedModuleId
+  ) || (store.websiteModules || []).find(item =>
+    requestedModuleSlug && websiteModuleSlugFor(item) === requestedModuleSlug
+  );
+  const moduleSlug = requestedModule
+    ? websiteModuleSlugFor(requestedModule)
+    : requestedModuleSlug;
+  const adminPreviewRequested = req.get('X-Admin-Preview') === '1';
+  if (adminPreviewRequested && !requestedWebsiteId) {
+    return {
+      website: null,
+      websiteId: '',
+      moduleId: String(requestedModule?._id || requestedModuleId),
+      moduleSlug,
+      module: requestedModule || null,
+      isMainWebsite: true,
+    };
+  }
   const requestHost = normalizeWebsiteHost(req.get('X-Forwarded-Host') || req.get('Origin') || req.get('Host') || req.hostname);
   const matchedHostWebsite = requestHost ? (store.websites || []).find(item =>
     normalizeWebsiteHost(item.domain?.fullDomain || item.domain?.name) === requestHost
@@ -839,26 +884,41 @@ function websiteContextForRequest(req, { requirePublished = false } = {}) {
     return { error: { status: 403, message: 'Website ID does not match this domain' } };
   }
   const websiteId = requestedWebsiteId || String(hostWebsite?._id || '');
-  if (!websiteId) return { website: null, websiteId: '', moduleId: '', moduleSlug: requestedModuleSlug, isMainWebsite: false };
+  if (!websiteId) return {
+    website: null,
+    websiteId: '',
+    moduleId: String(requestedModule?._id || requestedModuleId),
+    moduleSlug,
+    module: requestedModule || null,
+    isMainWebsite: adminPreviewRequested,
+  };
   const website = requestedWebsiteId
     ? (store.websites || []).find(item => String(item._id) === requestedWebsiteId)
     : hostWebsite;
   if (!website || ((requirePublished || hostWebsite) && website.status !== 'published')) {
     return { error: { status: 404, message: 'Published website not found' } };
   }
+  const websiteOwner = adminPreviewRequested
+    ? (store.users || []).find(user => String(user._id) === String(website.userId))
+    : null;
+  if (adminPreviewRequested && (websiteOwner?.role !== 'main_admin' || website.status !== 'published')) {
+    return { error: { status: 403, message: 'Admin preview is only available for a published Main Admin website.' } };
+  }
   if ((requirePublished || hostWebsite) && websiteSubscriptionExpired(website)) {
     return { error: { status: 402, message: 'Website subscription has expired. Renew the subscription to restore the website.' } };
   }
-  const websiteModuleSlug = normalizeWebsiteModuleSlug(website.websiteModuleSlug || website.moduleType || '');
+  const module = (store.websiteModules || []).find(item =>
+    website.websiteModuleId && String(item._id) === String(website.websiteModuleId)
+  ) || (store.websiteModules || []).find(item =>
+    websiteModuleSlugFor(item) === websiteModuleSlugFor(website)
+  );
+  const websiteModuleSlug = module
+    ? websiteModuleSlugFor(module)
+    : websiteModuleSlugFor(website);
   if (requestedModuleSlug && websiteModuleSlug && requestedModuleSlug !== websiteModuleSlug) {
     return { error: { status: 403, message: 'Website module does not match this website' } };
   }
-  const module = (store.websiteModules || []).find(item =>
-    (website.websiteModuleId && String(item._id) === String(website.websiteModuleId))
-    || normalizeWebsiteModuleSlug(item.slug || item.type || '') === normalizeWebsiteModuleSlug(website.websiteModuleSlug || website.moduleType || '')
-  );
   const moduleId = String(website.websiteModuleId || module?._id || '');
-  const requestedModuleId = String(req.get('X-Website-Module-Id') || req.query?.websiteModuleId || req.body?.websiteModuleId || '').trim();
   if (requestedModuleId && moduleId && requestedModuleId !== moduleId) {
     return { error: { status: 403, message: 'Website module does not match this website' } };
   }
@@ -867,7 +927,9 @@ function websiteContextForRequest(req, { requirePublished = false } = {}) {
     websiteId,
     moduleId,
     moduleSlug: websiteModuleSlug || requestedModuleSlug,
-    isMainWebsite: !!mainWebsiteHost && String(website._id) === String(mainEcommerceWebsite?._id || ''),
+    module,
+    isMainWebsite: (!!mainWebsiteHost && String(website._id) === String(mainEcommerceWebsite?._id || ''))
+      || (adminPreviewRequested && websiteOwner?.role === 'main_admin'),
   };
 }
 
@@ -2367,7 +2429,7 @@ router.put('/components/:id', auth, requireWebsiteBuilderAccess, (req, res) => {
       const id = entry.componentId && typeof entry.componentId === 'object' ? entry.componentId._id : entry.componentId;
       if (String(id) === String(component._id)) entry.price = Number(component.price) || 0;
     });
-    website.totalAmount = (website.components || []).reduce((sum, entry) => sum + (Number(entry.price) || 0), 0) + (Number(website.domain?.price) || 0);
+    website.totalAmount = websiteTotalAmount(website);
   });
   syncData(store);
   res.json(component);
@@ -2852,6 +2914,48 @@ router.put('/marketing/site-content', auth, (req, res) => {
   }
   schedulePersist();
   res.json({ websiteId, content: site.content, updatedAt: site.updatedAt });
+});
+
+router.get('/marketing/inquiries', auth, (req, res) => {
+  if (adminWebsiteModuleSlug(req) !== 'marketing') {
+    return res.status(403).json({ message: 'Select the Marketing website module first.' });
+  }
+
+  let selectedWebsiteId = '';
+  let showAll = false;
+  if (req.user?.role === 'website_user') {
+    selectedWebsiteId = marketingAdminWebsiteId(req, res);
+    if (selectedWebsiteId === null) return;
+  } else if (req.user?.role === 'main_admin') {
+    const requestedWebsiteId = String(req.query?.websiteId ?? 'all').trim();
+    if (requestedWebsiteId === 'all') showAll = true;
+    else if (requestedWebsiteId === 'platform') selectedWebsiteId = '';
+    else {
+      const website = (store.websites || []).find(item => String(item._id) === requestedWebsiteId
+        && normalizeWebsiteModuleSlug(item.websiteModuleSlug || item.moduleType || '') === 'marketing');
+      if (!website) return res.status(404).json({ message: 'Marketing website not found.' });
+      selectedWebsiteId = String(website._id);
+    }
+  } else {
+    return res.status(403).json({ message: 'Marketing inquiry access is required.' });
+  }
+
+  const websitesById = new Map((store.websites || []).map(website => [String(website._id), website]));
+  const inquiries = (store.marketingInquiries || [])
+    .filter(item => normalizeWebsiteModuleSlug(item.websiteModuleSlug || 'marketing') === 'marketing')
+    .filter(item => showAll || String(item.websiteId || '') === selectedWebsiteId)
+    .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0))
+    .map(item => {
+      const websiteId = String(item.websiteId || '');
+      const website = websitesById.get(websiteId);
+      return {
+        ...item,
+        websiteId,
+        tenantId: websiteId,
+        websiteName: website?.name || (websiteId ? 'Marketing website' : 'Main Marketing website'),
+      };
+    });
+  res.json(inquiries);
 });
 
 router.get('/stores', auth, (req, res) => {
@@ -4029,6 +4133,42 @@ router.get('/marketing/public/site-content', (req, res) => {
     updatedAt: site?.updatedAt || '',
   });
 });
+
+router.post('/marketing/public/inquiries', (req, res) => {
+  const scope = publicMarketingWebsiteScope(req);
+  if (scope.error) return res.status(scope.error.status).json({ message: scope.error.message });
+
+  const name = String(req.body?.name || '').trim().slice(0, 120);
+  const email = String(req.body?.email || '').trim().toLowerCase().slice(0, 254);
+  const phone = String(req.body?.phone || '').trim().slice(0, 40);
+  const subject = String(req.body?.subject || '').trim().slice(0, 180);
+  const message = String(req.body?.message || '').trim().slice(0, 5000);
+  if (!name || !email || !message) return res.status(400).json({ message: 'Name, email, and message are required.' });
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).json({ message: 'Enter a valid email address.' });
+
+  const websiteId = String(scope.websiteId || '');
+  const website = websiteId ? (store.websites || []).find(item => String(item._id) === websiteId) : null;
+  if (websiteId && !website) return res.status(404).json({ message: 'Marketing website not found.' });
+  const inquiry = {
+    _id: uuidv4(),
+    websiteId,
+    websiteModuleSlug: 'marketing',
+    ...(website?.websiteModuleId ? { websiteModuleId: String(website.websiteModuleId) } : {}),
+    name,
+    email,
+    phone,
+    subject,
+    message,
+    status: 'new',
+    source: String(req.get('Origin') || req.get('Host') || '').slice(0, 255),
+    createdAt: new Date().toISOString(),
+  };
+  store.marketingInquiries = store.marketingInquiries || [];
+  store.marketingInquiries.unshift(inquiry);
+  schedulePersist();
+  return res.status(201).json({ id: inquiry._id, message: 'Your inquiry has been received.' });
+});
+
 router.get('/roles', auth, (req, res) => res.json((store.roles || []).filter(role => isInAdminWebsiteModule(req, role))));
 
 router.post('/roles', auth, (req, res) => {
@@ -4113,6 +4253,32 @@ const BUSINESS_PAYMENT_SECRETS = [
   'firebaseServiceAccount', 'storageAccessKey', 'storageSecretKey',
   'porterApiKey', 'shadowfaxToken', 'shiprocketApiPassword',
 ];
+const GLOBAL_PAYMENT_GATEWAY_KEYS = [
+  'razorpayEnabled', 'phonepeEnabled', 'cashfreeEnabled', 'paymentGateway',
+  'razorpayKey', 'razorpayKeySecret', 'phonepeClientId', 'phonepeClientSecret',
+  'phonepeClientVersion', 'phonepeEnvironment', 'cashfreeAppId', 'cashfreeSecretKey',
+  'cashfreeEnvironment', 'paymentReturnUrl', 'paymentCurrency', 'defaultCommission', 'refundWindowDays',
+];
+const SHOP_PAYMENT_GATEWAY_SECRETS = ['razorpayKeySecret', 'phonepeClientSecret', 'cashfreeSecretKey'];
+
+function globalPaymentGatewaySettings() {
+  const moduleSettings = store.businessSettingsByModule || {};
+  const legacyCandidates = [
+    moduleSettings['main-module:quick-commerce'],
+    moduleSettings['main-module:e-commerce'],
+    ...Object.entries(moduleSettings)
+      .filter(([key, value]) => key.startsWith('main-module:') && value && typeof value === 'object')
+      .map(([, value]) => value),
+    moduleSettings['quick-commerce'],
+    moduleSettings.qcommerce,
+    store.businessSettings,
+  ].filter(Boolean);
+  const saved = store.paymentGatewaySettings || {};
+  return Object.fromEntries(GLOBAL_PAYMENT_GATEWAY_KEYS
+    .filter(key => Object.prototype.hasOwnProperty.call(saved, key) || legacyCandidates.some(candidate => Object.prototype.hasOwnProperty.call(candidate, key)))
+    .map(key => [key, Object.prototype.hasOwnProperty.call(saved, key) ? saved[key] : legacyCandidates.find(candidate => Object.prototype.hasOwnProperty.call(candidate, key))[key]]));
+}
+
 function paymentCredentialsKey() {
   const configuredKey = String(process.env.PAYMENT_CREDENTIALS_ENCRYPTION_KEY || '');
   if (configuredKey.length < 32) {
@@ -4161,6 +4327,45 @@ function businessSettingsForRequest(req) {
   return store.businessSettingsByModule?.[info.moduleSlug] || {};
 }
 
+router.get('/settings/payment-gateway', auth, (req, res) => {
+  if (req.user.role !== 'main_admin') return res.status(403).json({ message: 'Only Main Admin can view global payment gateway settings.' });
+  res.json(businessSettingsResponse(globalPaymentGatewaySettings()));
+});
+
+router.put('/settings/payment-gateway', auth, (req, res) => {
+  if (req.user.role !== 'main_admin') return res.status(403).json({ message: 'Only Main Admin can configure the global payment gateway.' });
+  const incoming = {};
+  GLOBAL_PAYMENT_GATEWAY_KEYS.forEach(key => {
+    if (Object.prototype.hasOwnProperty.call(req.body || {}, key)) incoming[key] = req.body[key];
+  });
+  const existing = globalPaymentGatewaySettings();
+  BUSINESS_PAYMENT_SECRETS.forEach(key => {
+    if (!GLOBAL_PAYMENT_GATEWAY_KEYS.includes(key) || !String(incoming[key] || '').trim()) delete incoming[key];
+  });
+  const enabledProviders = ['razorpay', 'phonepe', 'cashfree'].filter(provider =>
+    incoming[`${provider}Enabled`] === true
+      || (incoming[`${provider}Enabled`] === undefined && existing[`${provider}Enabled`] === true)
+  );
+  if (enabledProviders.length > 1) return res.status(400).json({ message: 'Enable only one payment gateway at a time.' });
+  const selectedGateway = String(incoming.paymentGateway || existing.paymentGateway || '').toLowerCase();
+  if (selectedGateway && !['razorpay', 'phonepe', 'cashfree'].includes(selectedGateway)) {
+    return res.status(400).json({ message: 'Choose Razorpay, PhonePe, or Cashfree.' });
+  }
+  if (enabledProviders.length && enabledProviders[0] !== selectedGateway) {
+    return res.status(400).json({ message: 'The active gateway must match the enabled gateway.' });
+  }
+  try {
+    BUSINESS_PAYMENT_SECRETS.forEach(key => {
+      if (GLOBAL_PAYMENT_GATEWAY_KEYS.includes(key) && incoming[key]) incoming[key] = encryptPaymentSecret(incoming[key]);
+    });
+  } catch (error) {
+    return res.status(error.status || 503).json({ message: error.message || 'Payment credentials could not be encrypted.' });
+  }
+  store.paymentGatewaySettings = { ...existing, ...incoming };
+  syncData(store);
+  res.json(businessSettingsResponse(store.paymentGatewaySettings));
+});
+
 router.get('/settings/business', auth, (req, res) => {
   res.json(businessSettingsResponse(businessSettingsForRequest(req)));
 });
@@ -4168,11 +4373,19 @@ router.get('/settings/business', auth, (req, res) => {
 router.put('/settings/business', auth, (req, res) => {
   const scope = businessSettingsScope(req);
   const info = businessSettingsModule(req);
-  const paymentSecretsProvided = BUSINESS_PAYMENT_SECRETS.some(key =>
+  const protectedIntegrationSecretsProvided = BUSINESS_PAYMENT_SECRETS
+    .filter(key => !SHOP_PAYMENT_GATEWAY_SECRETS.includes(key))
+    .some(key =>
+      Object.prototype.hasOwnProperty.call(req.body || {}, key) && String(req.body[key] || '').trim()
+    );
+  const shopPaymentSecretsProvided = SHOP_PAYMENT_GATEWAY_SECRETS.some(key =>
     Object.prototype.hasOwnProperty.call(req.body || {}, key) && String(req.body[key] || '').trim()
   );
-  if (paymentSecretsProvided && req.user.role !== 'main_admin') {
+  if (protectedIntegrationSecretsProvided && req.user.role !== 'main_admin') {
     return res.status(403).json({ message: 'Main admin access is required to configure integration secrets.' });
+  }
+  if (shopPaymentSecretsProvided && req.user.role !== 'main_admin' && req.user.role !== 'website_user') {
+    return res.status(403).json({ message: 'Only the tenant admin can configure storefront payment credentials.' });
   }
   if (!store.businessSettingsByModule || Array.isArray(store.businessSettingsByModule)) store.businessSettingsByModule = {};
   const existing = store.businessSettingsByModule[scope]
@@ -4190,6 +4403,19 @@ router.put('/settings/business', auth, (req, res) => {
     return res.status(error.status || 503).json({ message: error.message || 'Payment credentials could not be encrypted.' });
   }
   const updated = { ...existing, ...incoming };
+  const gatewayKeys = ['razorpayEnabled', 'phonepeEnabled', 'cashfreeEnabled', 'paymentGateway'];
+  const touchesGatewaySettings = gatewayKeys.some(key => Object.prototype.hasOwnProperty.call(incoming, key))
+    || SHOP_PAYMENT_GATEWAY_SECRETS.some(key => Object.prototype.hasOwnProperty.call(incoming, key));
+  if (touchesGatewaySettings) {
+    const enabledGateways = ['razorpay', 'phonepe', 'cashfree'].filter(provider => updated[`${provider}Enabled`] === true);
+    const selectedGateway = String(updated.paymentGateway || '').toLowerCase();
+    if (enabledGateways.length > 1 || (enabledGateways.length === 1 && enabledGateways[0] !== selectedGateway)) {
+      return res.status(400).json({ message: 'Enable only one storefront payment gateway, and select that same gateway.' });
+    }
+    if (selectedGateway && !['razorpay', 'phonepe', 'cashfree'].includes(selectedGateway)) {
+      return res.status(400).json({ message: 'Choose Razorpay, PhonePe, or Cashfree.' });
+    }
+  }
   store.businessSettingsByModule[scope] = updated;
   if (info.isQuickCommerce) store.businessSettings = updated;
   syncData(store);
@@ -4408,13 +4634,22 @@ router.post('/zone-location-options', auth, (req, res) => {
   res.status(201).json(item);
 });
 
-router.get('/zones', auth, (req, res) => res.json((store.deliveryZones || []).filter(zone => isInAdminWebsiteModule(req, zone, { includeShared: req.user?.role === 'website_user' })).map(zone => enrichZone(zone, req))));
+router.get('/zones', auth, (req, res) => {
+  const websiteId = String(req.user?.websiteId || '');
+  const zones = (store.deliveryZones || []).filter(zone => {
+    if (req.user?.role === 'website_user' && (!websiteId || String(zone.websiteId || '') !== websiteId)) return false;
+    return isInAdminWebsiteModule(req, zone);
+  });
+  res.json(zones.map(zone => enrichZone(zone, req)));
+});
 
 router.post('/zones', auth, (req, res) => {
   const body = req.body || {};
   const name = (body.name || '').trim();
   if (!name) return res.status(400).json({ message: 'Zone name zaroori hai' });
-  if (req.user?.role === 'website_user') return res.status(403).json({ message: 'Main Admin manages shared service areas' });
+  if (req.user?.role === 'website_user' && !req.user.websiteId) {
+    return res.status(403).json({ message: 'Website account is not linked to a website' });
+  }
   const isEcom = body.commerceType === 'ecommerce';
   const requestedScope = String(body.scope || '').trim().toLowerCase();
   const allIndiaCoverage = body.countryWide === true || String(body.countryWide).toLowerCase() === 'true'
@@ -4903,9 +5138,9 @@ router.delete('/system-modules/:id', auth, (req, res) => {
   store.systemModules = (store.systemModules || []).filter(m => m._id !== req.params.id || !isInAdminWebsiteModule(req, m));
   res.json({ message: 'Deleted' });
 });
-router.get('/public/website-modules', (req, res) => res.json((store.websiteModules || []).filter(module => module.status !== false && module.status !== 'false' && module.status !== 'inactive').map(({ _id, name, slug, type, image, images, videoUrl, description, welcomeTitle, welcomeDescription, welcomeIntro, builderTip, addressTitle, addressDescription, subdomainTitle, subdomainDescription, subdomainBadge, subdomainBenefits, ownDomainTitle, ownDomainDescription, ownDomainBadge, ownDomainBenefits, continueLabel, tutorialTitle, tutorialDescription, helpTitle, helpDescription, helpLinks, supportTitle, supportDescription, supportEmail, supportWhatsApp, supportWhatsappLabel, supportEmailLabel, helpCenterLabel }) => {
+router.get('/public/website-modules', (req, res) => res.json((store.websiteModules || []).filter(module => module.status !== false && module.status !== 'false' && module.status !== 'inactive').map(({ _id, name, slug, type, image, images, videoUrl, description, welcomeTitle, welcomeDescription, welcomeIntro, builderTip, addressTitle, addressDescription, showSubdomainOption, showOwnDomainOption, subdomainTitle, subdomainDescription, subdomainBadge, subdomainBenefits, subdomainPriceMode, subdomainPrice, ownDomainTitle, ownDomainDescription, ownDomainBadge, ownDomainBenefits, fullPurchasePriceMode, fullPurchaseAmount, continueLabel, tutorialTitle, tutorialDescription, helpTitle, helpDescription, helpLinks, supportTitle, supportDescription, supportEmail, supportWhatsApp, supportWhatsappLabel, supportEmailLabel, helpCenterLabel }) => {
   const canonicalSlug = normalizeWebsiteModuleSlug(slug || type || '');
-  return { _id, name, slug: canonicalSlug || slug, type: normalizeWebsiteModuleSlug(type || slug || '') || type, image, images: Array.isArray(images) ? images : (image ? [image] : []), videoUrl, description, welcomeTitle: welcomeTitle || '', welcomeDescription: welcomeDescription || '', welcomeIntro: welcomeIntro || '', builderTip: builderTip || '', addressTitle: addressTitle || '', addressDescription: addressDescription || '', subdomainTitle: subdomainTitle || '', subdomainDescription: subdomainDescription || '', subdomainBadge: subdomainBadge || '', subdomainBenefits: Array.isArray(subdomainBenefits) ? subdomainBenefits : [], ownDomainTitle: ownDomainTitle || '', ownDomainDescription: ownDomainDescription || '', ownDomainBadge: ownDomainBadge || '', ownDomainBenefits: Array.isArray(ownDomainBenefits) ? ownDomainBenefits : [], continueLabel: continueLabel || '', tutorialTitle: tutorialTitle || '', tutorialDescription: tutorialDescription || '', helpTitle: helpTitle || '', helpDescription: helpDescription || '', helpLinks: Array.isArray(helpLinks) ? helpLinks : [], supportTitle: supportTitle || '', supportDescription: supportDescription || '', supportEmail: supportEmail || '', supportWhatsApp: supportWhatsApp || '', supportWhatsappLabel: supportWhatsappLabel || '', supportEmailLabel: supportEmailLabel || '', helpCenterLabel: helpCenterLabel || '' };
+  return { _id, name, slug: canonicalSlug || slug, type: normalizeWebsiteModuleSlug(type || slug || '') || type, image, images: Array.isArray(images) ? images : (image ? [image] : []), videoUrl, description, welcomeTitle: welcomeTitle || '', welcomeDescription: welcomeDescription || '', welcomeIntro: welcomeIntro || '', builderTip: builderTip || '', addressTitle: addressTitle || '', addressDescription: addressDescription || '', showSubdomainOption: showSubdomainOption !== false, showOwnDomainOption: showOwnDomainOption !== false, subdomainTitle: subdomainTitle || '', subdomainDescription: subdomainDescription || '', subdomainBadge: subdomainBadge || '', subdomainBenefits: Array.isArray(subdomainBenefits) ? subdomainBenefits : [], subdomainPriceMode: subdomainPriceMode === 'free' || (subdomainPriceMode == null && Number(subdomainPrice) === 0) ? 'free' : 'fixed', subdomainPrice: Math.max(0, Number(subdomainPrice ?? 500) || 0), fullPurchasePriceMode: ['free', 'fixed'].includes(fullPurchasePriceMode) ? fullPurchasePriceMode : 'components', fullPurchaseAmount: Math.max(0, Number(fullPurchaseAmount) || 0), ownDomainTitle: ownDomainTitle || '', ownDomainDescription: ownDomainDescription || '', ownDomainBadge: ownDomainBadge || '', ownDomainBenefits: Array.isArray(ownDomainBenefits) ? ownDomainBenefits : [], continueLabel: continueLabel || '', tutorialTitle: tutorialTitle || '', tutorialDescription: tutorialDescription || '', helpTitle: helpTitle || '', helpDescription: helpDescription || '', helpLinks: Array.isArray(helpLinks) ? helpLinks : [], supportTitle: supportTitle || '', supportDescription: supportDescription || '', supportEmail: supportEmail || '', supportWhatsApp: supportWhatsApp || '', supportWhatsappLabel: supportWhatsappLabel || '', supportEmailLabel: supportEmailLabel || '', helpCenterLabel: helpCenterLabel || '' };
 })));
 router.get('/website-modules', auth, (req, res) => {
   let renamedLegacyModule = false;
@@ -4917,9 +5152,15 @@ router.get('/website-modules', auth, (req, res) => {
   });
   if (renamedLegacyModule) schedulePersist();
   if (req.user.role === 'website_user' || req.user.employeeId) {
-    const moduleSlug = normalizeWebsiteModuleSlug(req.user.selectedModuleSlug || req.user.websiteModuleSlug || '');
-    const ownModule = (store.websiteModules || []).find(module => normalizeWebsiteModuleSlug(module.slug || '') === moduleSlug);
-    return res.json(ownModule ? [{ ...ownModule, slug: normalizeWebsiteModuleSlug(ownModule.slug || ownModule.type || ''), type: normalizeWebsiteModuleSlug(ownModule.type || ownModule.slug || '') || ownModule.type }] : []);
+    const moduleSlug = websiteModuleSlugFor({
+      slug: req.user.selectedModuleSlug || req.user.websiteModuleSlug,
+      name: req.user.selectedModuleName,
+      type: req.user.selectedModuleType,
+    });
+    const moduleId = String(req.user.selectedModuleId || req.user.websiteModuleId || '').trim();
+    const ownModule = (store.websiteModules || []).find(module => moduleId && String(module._id) === moduleId)
+      || (store.websiteModules || []).find(module => websiteModuleSlugFor(module) === moduleSlug);
+    return res.json(ownModule ? [{ ...ownModule, slug: websiteModuleSlugFor(ownModule), type: websiteModuleSlugFor(ownModule) }] : []);
   }
   if (req.user.role !== 'main_admin') return res.status(403).json({ message: 'Only Main Admin can manage Website Modules' });
   res.json(store.websiteModules || []);
@@ -4931,7 +5172,7 @@ router.get('/my-website-access', auth, (req, res) => {
   ) || (store.websiteModules || []).find(item => item.slug === req.user.selectedModuleSlug);
   if (!module) return res.json({ moduleSlug: req.user.selectedModuleSlug, moduleName: req.user.selectedModuleName || '', header: [], sidebar: [] });
   const access = module.access || { header: [], sidebar: [] };
-  const moduleSlug = normalizeWebsiteModuleSlug(module.slug || module.type || '');
+  const moduleSlug = websiteModuleSlugFor(module);
   const moduleName = String(module.name || '').toLowerCase();
   const isQuickCommerce = ['quick-commerce', 'qcommerce', 'quick_commerce'].includes(moduleSlug) || moduleName.includes('quick commerce');
   let changed = false;
@@ -4979,12 +5220,65 @@ function onDomainModule(req) {
   return moduleIds.length || moduleSlugs.length ? null : adminWebsiteModuleInfo(req).module;
 }
 
+function onDomainWebsiteForUser(req, module) {
+  const userWebsites = (store.websites || []).filter(website => String(website.userId || '') === String(req.user?._id)
+    || (req.user?.websiteId && String(website._id) === String(req.user.websiteId)));
+  const matchesModule = website => (website.websiteModuleId && String(website.websiteModuleId) === String(module?._id))
+    || websiteModuleSlugFor(website) === websiteModuleSlugFor(module);
+  return userWebsites.find(website => String(website._id) === String(req.user?.websiteId || '') && matchesModule(website))
+    || userWebsites.find(matchesModule)
+    || null;
+}
+
+function onDomainFreeMode(module) {
+  if (module?.onDomainFreeEnabled != null) return module.onDomainFreeEnabled === true;
+  const hasLegacyPricingFlags = module?.onDomainPaymentEnabled != null || module?.onDomainSubscriptionEnabled != null;
+  return !hasLegacyPricingFlags && module?.onDomainEnabled === true && !(Number(module?.onDomainPrice) > 0);
+}
+
+function onDomainPaymentMode(module) {
+  if (module?.onDomainPaymentEnabled != null) return module.onDomainPaymentEnabled === true;
+  return !onDomainFreeMode(module) && Number(module?.onDomainPrice) > 0;
+}
+
+function onDomainSubscriptionMode(module) {
+  return module?.onDomainSubscriptionEnabled === true;
+}
+
+function onDomainPageEnabled(module) {
+  return module?.onDomainEnabled === true
+    || onDomainFreeMode(module)
+    || onDomainPaymentMode(module)
+    || onDomainSubscriptionMode(module);
+}
+
+function onDomainHostingExpired(website) {
+  const expiresAt = website?.hosting?.subscriptionExpiresAt;
+  return website?.hosting?.billingMode === 'subscription'
+    && !!expiresAt
+    && new Date(expiresAt).getTime() <= Date.now();
+}
+
 function onDomainPurchaseForUser(req, module) {
   if (!Array.isArray(store.ownDomainOrders)) store.ownDomainOrders = [];
   return store.ownDomainOrders.find(order =>
     String(order.userId) === String(req.user?._id)
     && String(order.moduleId) === String(module?._id)
     && order.status === 'paid'
+    && (['package', 'package+hosting'].includes(order.purpose) || (!order.purpose && !order.websiteId)
+      || (order.purpose === 'subscription' && new Date(order.expiresAt || 0).getTime() > Date.now()))
+  );
+}
+
+function onDomainHostingPurchaseForUser(req, module, websiteId) {
+  if (!Array.isArray(store.ownDomainOrders)) store.ownDomainOrders = [];
+  return store.ownDomainOrders.find(order =>
+    String(order.userId) === String(req.user?._id)
+    && String(order.moduleId) === String(module?._id)
+    && String(order.websiteId || '') === String(websiteId || '')
+    && ['hosting', 'package+hosting', 'subscription'].includes(order.purpose)
+    && order.status === 'paid'
+    && (order.purpose !== 'subscription' || new Date(order.expiresAt || 0).getTime() > Date.now())
   );
 }
 
@@ -4998,16 +5292,58 @@ router.get('/on-domain/package', auth, (req, res) => {
   if (req.user.role !== 'website_user') return res.status(403).json({ message: 'Website account zaroori hai' });
   const module = onDomainModule(req);
   if (!module) return res.status(404).json({ message: 'Website module not found' });
+  const selectedWebsite = onDomainWebsiteForUser(req, module);
+  const populatedTenantWebsite = selectedWebsite ? populateWebsite(selectedWebsite) : null;
+  const tenantWebsite = selectedWebsite ? {
+    id: String(selectedWebsite._id),
+    websiteModuleId: selectedWebsite.websiteModuleId || module._id,
+    websiteModuleSlug: websiteModuleSlugFor(selectedWebsite),
+    moduleName: populatedTenantWebsite.moduleName || module.name || '',
+    status: selectedWebsite.status || 'draft',
+    domain: selectedWebsite.domain ? { type: selectedWebsite.domain.type || '', fullDomain: selectedWebsite.domain.fullDomain || '' } : null,
+    hosting: selectedWebsite.hosting ? {
+      status: selectedWebsite.hosting.status || '',
+      domain: selectedWebsite.hosting.domain || '',
+      url: selectedWebsite.hosting.url || '',
+      sslStatus: selectedWebsite.hosting.sslStatus || '',
+      message: selectedWebsite.hosting.message || '',
+      billingMode: selectedWebsite.hosting.billingMode || '',
+      subscriptionPlanName: selectedWebsite.hosting.subscriptionPlanName || '',
+      subscriptionExpiresAt: selectedWebsite.hosting.subscriptionExpiresAt || '',
+    } : null,
+    components: populatedTenantWebsite.components.map(component =>
+      typeof component.componentId === 'object' ? component.componentId?.slug || '' : ''
+    ).filter(Boolean),
+  } : null;
   const packagePath = onDomainPackagePath(module);
-  const purchased = !!onDomainPurchaseForUser(req, module);
+  const freeEnabled = onDomainFreeMode(module);
+  const purchased = freeEnabled || !!onDomainPurchaseForUser(req, module);
   res.json({
     moduleId: module._id,
     moduleName: module.name || req.user.selectedModuleName || 'Website',
+    moduleSlug: websiteModuleSlugFor(module),
     title: module.onDomainTitle || 'Use Your Own Domain',
     description: module.onDomainDescription || '',
     price: Math.max(0, Number(module.onDomainPrice) || 0),
+    freeEnabled,
+    paymentEnabled: onDomainPaymentMode(module),
+    subscriptionEnabled: onDomainSubscriptionMode(module),
+    subscriptionPlans: (Array.isArray(module.onDomainPlans) ? module.onDomainPlans : []).map(plan => ({
+      id: String(plan.id || ''),
+      name: plan.name || '',
+      description: plan.description || '',
+      price: Math.max(0, Number(plan.price) || 0),
+      durationValue: Number(plan.durationValue) || 30,
+      durationUnit: plan.durationUnit || 'day',
+    })),
     steps: Array.isArray(module.onDomainSteps) ? module.onDomainSteps : [],
-    enabled: module.onDomainEnabled === true,
+    enabled: onDomainPageEnabled(module),
+    showSubdomainOption: module.showSubdomainOption !== false,
+    showOwnDomainOption: module.showOwnDomainOption !== false,
+    websiteServiceEnded: !!selectedWebsite && !!(selectedWebsite.serviceStoppedAt || websiteSubscriptionExpired(selectedWebsite)),
+    domainHostingPurchased: !!selectedWebsite && (selectedWebsite.hosting?.billingMode === 'free'
+      || !!onDomainHostingPurchaseForUser(req, module, selectedWebsite._id)),
+    tenantWebsite,
     hasPackage: !!packagePath && fs.existsSync(packagePath),
     packageName: module.onDomainPackageOriginalName || '',
     purchased,
@@ -5019,77 +5355,479 @@ router.post('/on-domain/checkout', auth, async (req, res) => {
   const module = onDomainModule(req);
   if (!module) return res.status(404).json({ message: 'Website module not found' });
   const packagePath = onDomainPackagePath(module);
-  if (module.onDomainEnabled !== true || !packagePath || !fs.existsSync(packagePath)) {
+  if (!onDomainPageEnabled(module) || !packagePath || !fs.existsSync(packagePath)) {
     return res.status(404).json({ message: 'The On Domain package is not available for this module yet.' });
   }
+  if (onDomainFreeMode(module) || !onDomainPaymentMode(module)) return res.status(403).json({ message: 'One-time package payment is not enabled for this module.' });
   if (onDomainPurchaseForUser(req, module)) return res.status(409).json({ message: 'This package has already been purchased.' });
   const amount = Number(module.onDomainPrice);
   const amountPaise = Math.round(amount * 100);
   if (!Number.isFinite(amount) || amountPaise <= 0) return res.status(400).json({ message: 'The On Domain package price is not configured.' });
   if (!Array.isArray(store.ownDomainOrders)) store.ownDomainOrders = [];
   try {
-    const order = await razorpayRequest('/v1/orders', {
-      amount: amountPaise,
-      currency: 'INR',
-      receipt: `od-${crypto.randomBytes(10).toString('hex')}`,
-      notes: { product: 'on-domain-package', userId: String(req.user._id), moduleId: String(module._id) },
-    });
     const purchase = {
       _id: uuidv4(),
       userId: String(req.user._id),
       moduleId: String(module._id),
       moduleSlug: normalizeWebsiteModuleSlug(module.slug || module.type || ''),
-      orderId: order.id,
+      purpose: 'package',
       amount,
       status: 'pending',
       createdAt: new Date().toISOString(),
     };
+    const checkout = await createConfiguredGatewayCheckout({
+      req, purchase, amount, currency: 'INR', name: module.name || 'WEPZO',
+      description: module.onDomainTitle || 'On Domain website package',
+      customer: { id: req.user._id, name: req.user.name, email: req.user.email, phone: req.user.phone },
+      notes: { product: 'on-domain-package', userId: String(req.user._id), moduleId: String(module._id) },
+    });
     store.ownDomainOrders.push(purchase);
     schedulePersist();
-    res.json({
-      keyId: process.env.RAZORPAY_KEY_ID,
-      orderId: order.id,
-      amount: amountPaise,
-      currency: 'INR',
-      name: module.name || 'WEPZO',
-      description: module.onDomainTitle || 'On Domain website package',
-    });
+    res.json(checkout);
   } catch (error) {
     res.status(error.status || 502).json({ message: error.message || 'Payment order could not be created.' });
   }
 });
 
-router.post('/on-domain/checkout/verify', auth, (req, res) => {
+router.post('/on-domain/checkout/verify', auth, async (req, res) => {
   if (req.user.role !== 'website_user') return res.status(403).json({ message: 'Website account zaroori hai' });
   const module = onDomainModule(req);
   if (!module) return res.status(404).json({ message: 'Website module not found' });
   if (!Array.isArray(store.ownDomainOrders)) store.ownDomainOrders = [];
-  const orderId = String(req.body?.razorpay_order_id || '');
+  const orderId = String(req.body?.orderId || req.body?.razorpay_order_id || '');
   const paymentId = String(req.body?.razorpay_payment_id || '');
   const signature = String(req.body?.razorpay_signature || '');
   const purchase = store.ownDomainOrders.find(order =>
     String(order.userId) === String(req.user._id)
     && String(order.moduleId) === String(module._id)
-    && order.orderId === orderId
+    && (order.purpose === 'package' || order.purpose === 'package+hosting' || (!order.purpose && !order.websiteId))
+    && (String(order._id) === String(req.body?.purchaseId || '') || order.orderId === orderId)
   );
   if (!purchase) return res.status(404).json({ message: 'Matching On Domain payment was not found.' });
   if (purchase.status === 'paid') return res.json({ purchased: true });
   if (purchase.status !== 'pending') return res.status(409).json({ message: 'This On Domain payment is not pending.' });
-  if (!verifyRazorpaySignature(orderId, paymentId, signature)) {
-    return res.status(400).json({ message: 'Payment verification failed.' });
+  try {
+    const verifiedPaymentId = purchase.paymentGateway
+      ? await verifyConfiguredGatewayPayment({ purchase, body: req.body || {} })
+      : (verifyRazorpaySignature(orderId || String(req.body?.razorpay_order_id || ''), paymentId, signature)
+        ? paymentId
+        : (() => { throw Object.assign(new Error('Payment verification failed.'), { status: 400 }); })());
+    purchase.status = 'paid';
+    purchase.paymentId = verifiedPaymentId;
+    purchase.paidAt = new Date().toISOString();
+    schedulePersist();
+    res.json({ purchased: true });
+  } catch (error) {
+    res.status(error.status || 502).json({ message: error.message || 'Payment verification failed.' });
+  }
+});
+
+router.post('/on-domain/free-hosting', auth, async (req, res) => {
+  if (req.user.role !== 'website_user') return res.status(403).json({ message: 'Website account zaroori hai' });
+  const module = onDomainModule(req);
+  if (!module || !onDomainPageEnabled(module)) return res.status(404).json({ message: 'On Domain is not enabled for this module.' });
+  if (!onDomainFreeMode(module)) return res.status(403).json({ message: 'Free On Domain hosting is not enabled for this module.' });
+  const website = onDomainWebsiteForUser(req, module);
+  if (!website) return res.status(404).json({ message: 'Tenant website not found for this module.' });
+  const domainName = normalizeWebsiteDomain(req.body?.domainName);
+  const availability = websiteDomainAvailability(domainName, 'custom', website._id);
+  if (!availability.available) return res.status(domainName ? 409 : 400).json({ message: availability.message });
+  if (website.serviceStoppedAt || websiteSubscriptionExpired(website)) return res.status(402).json({ message: 'Renew or reactivate the tenant website service before hosting it.' });
+  if (website.status !== 'published') {
+    if (website.status !== 'draft') return res.status(409).json({ message: 'This tenant website cannot be published for hosting yet.' });
+    if (website.purchase?.status === 'pending') return res.status(409).json({ message: 'Finish or cancel the current website checkout before starting free hosting.' });
+
+    const moduleSlug = websiteModuleSlugFor(module);
+    const freePlan = (store.websiteSubscriptionPlans || [])
+      .filter(plan => plan.status !== false && plan.priceMode === 'free'
+        && (!plan.moduleSlug || normalizeWebsiteModuleSlug(plan.moduleSlug) === moduleSlug))
+      .sort((a, b) => Number(b.isDefault === true) - Number(a.isDefault === true))[0];
+    const now = new Date();
+    const activatedAt = now.toISOString();
+    if (website.purchase?.status !== 'paid' && freePlan) {
+      const durationValue = Number(freePlan.durationValue) || 30;
+      const durationUnit = ['day', 'month', 'year'].includes(freePlan.durationUnit) ? freePlan.durationUnit : 'month';
+      website.purchase = {
+        _id: uuidv4(),
+        type: 'subscription',
+        status: 'paid',
+        amount: 0,
+        subscriptionAmount: 0,
+        domainAmount: 0,
+        totalAmount: 0,
+        priceMode: 'free',
+        planId: freePlan._id,
+        planName: freePlan.name || 'Free website plan',
+        subscriptionDurationValue: durationValue,
+        subscriptionDurationUnit: durationUnit,
+        paidAt: activatedAt,
+        createdAt: activatedAt,
+        expiresAt: websiteSubscriptionExpiry(now, durationValue, durationUnit),
+        payments: website.purchase?.payments || [],
+      };
+    } else if (website.purchase?.status !== 'paid' && module.fullPurchasePriceMode === 'free') {
+      website.purchase = {
+        _id: uuidv4(),
+        type: 'full',
+        status: 'paid',
+        amount: 0,
+        totalAmount: 0,
+        priceMode: 'free',
+        planName: 'Free full purchase',
+        paidAt: activatedAt,
+        createdAt: activatedAt,
+        payments: website.purchase?.payments || [],
+      };
+    } else if (website.purchase?.status !== 'paid') {
+      return res.status(402).json({ message: 'An active free website plan is not configured for this module.' });
+    }
+    website.status = 'published';
+    website.publishedAt = activatedAt;
+    delete website.serviceStoppedAt;
+  }
+  if (website.status !== 'published') return res.status(409).json({ message: 'Publish your tenant website before hosting its domain.' });
+  if (website.hosting?.status === 'active') {
+    if (normalizeWebsiteDomain(website.hosting.domain) !== availability.fullDomain) return res.status(409).json({ message: `This tenant is already hosted at ${website.hosting.domain}.` });
+    return res.json({ free: true, websiteId: String(website._id), domainName: availability.fullDomain, hosting: website.hosting });
+  }
+
+  website.domain = { ...(website.domain || {}), websiteId: String(website._id), type: 'custom', name: domainName, fullDomain: availability.fullDomain, price: 0, status: 'pending' };
+  website.hosting = { ...(website.hosting || {}), status: 'deploying', billingMode: 'free', domain: availability.fullDomain, message: '' };
+  schedulePersist();
+  try {
+    await runVpsWebsiteDeployment('deploy', website);
+    website.hosting = { ...website.hosting, status: 'active', provider: 'wepzo-vps', sslStatus: 'active', url: `https://${availability.fullDomain}`, deployedAt: new Date().toISOString(), message: '' };
+    website.domain.status = 'active';
+  } catch (error) {
+    const message = error.code === 'ENOENT'
+      ? 'VPS deployment command is unavailable. Configure hosting on the Ubuntu VPS first.'
+      : String(error.stderr || error.message || 'Website hosting failed.').trim();
+    website.hosting = { ...website.hosting, status: 'failed', message, failedAt: new Date().toISOString() };
+    schedulePersist();
+    return res.json({ free: true, websiteId: String(website._id), domainName: availability.fullDomain, hosting: website.hosting });
+  }
+  schedulePersist();
+  return res.json({ free: true, websiteId: String(website._id), domainName: availability.fullDomain, hosting: website.hosting });
+});
+
+router.post('/on-domain/subscription-checkout', auth, async (req, res) => {
+  if (req.user.role !== 'website_user') return res.status(403).json({ message: 'Website account zaroori hai' });
+  const module = onDomainModule(req);
+  if (!module || !onDomainPageEnabled(module)) return res.status(404).json({ message: 'On Domain is not enabled for this module.' });
+  if (!onDomainSubscriptionMode(module) || onDomainFreeMode(module)) return res.status(403).json({ message: 'On Domain subscriptions are not enabled for this module.' });
+  const website = onDomainWebsiteForUser(req, module);
+  if (!website) return res.status(404).json({ message: 'Tenant website not found for this module.' });
+  if (website.status !== 'published') return res.status(409).json({ message: 'Publish your tenant website before subscribing to hosting.' });
+  if (website.serviceStoppedAt || websiteSubscriptionExpired(website)) return res.status(402).json({ message: 'Renew or reactivate the tenant website service before hosting it.' });
+  const plan = (module.onDomainPlans || []).find(item => String(item.id) === String(req.body?.planId || ''));
+  if (!plan || !plan.name || !Number.isFinite(Number(plan.price)) || Number(plan.price) <= 0
+    || !Number.isInteger(Number(plan.durationValue)) || Number(plan.durationValue) < 1
+    || !['day', 'month', 'year'].includes(plan.durationUnit)) {
+    return res.status(400).json({ message: 'Choose a valid active On Domain subscription plan.' });
+  }
+  const domainName = normalizeWebsiteDomain(req.body?.domainName);
+  const availability = websiteDomainAvailability(domainName, 'custom', website._id);
+  if (!availability.available) return res.status(domainName ? 409 : 400).json({ message: availability.message });
+  if (website.hosting?.status === 'active' && normalizeWebsiteDomain(website.hosting.domain) !== availability.fullDomain) {
+    return res.status(409).json({ message: `This tenant is already hosted at ${website.hosting.domain}.` });
+  }
+  const alreadyPaid = (store.ownDomainOrders || []).find(order => String(order.userId) === String(req.user._id)
+    && String(order.moduleId) === String(module._id) && String(order.websiteId || '') === String(website._id)
+    && order.purpose === 'subscription' && order.status === 'paid' && order.hostingStatus !== 'active'
+    && normalizeWebsiteDomain(order.domainName) === availability.fullDomain);
+  if (alreadyPaid) return res.status(409).json({ message: 'Payment is already verified for this domain. Retry hosting from the On Domain page.' });
+  const pending = (store.ownDomainOrders || []).some(order => ['hosting', 'package+hosting', 'subscription'].includes(order.purpose)
+    && order.status === 'pending' && Number.isFinite(Date.parse(order.createdAt || ''))
+    && Date.now() - Date.parse(order.createdAt || '') < 30 * 60 * 1000
+    && normalizeWebsiteDomain(order.domainName) === availability.fullDomain);
+  if (pending) return res.status(409).json({ message: 'This domain already has a pending hosting payment.' });
+
+  const amount = Number(plan.price);
+  const amountPaise = Math.round(amount * 100);
+  if (!Number.isFinite(amount) || amountPaise <= 0) return res.status(400).json({ message: 'The selected subscription plan price is invalid.' });
+  if (!Array.isArray(store.ownDomainOrders)) store.ownDomainOrders = [];
+  try {
+    const purchase = {
+      _id: uuidv4(), userId: String(req.user._id), moduleId: String(module._id),
+      moduleSlug: normalizeWebsiteModuleSlug(module.slug || module.type || ''),
+      websiteId: String(website._id), domainName: availability.fullDomain,
+      purpose: 'subscription', planId: String(plan.id), planName: String(plan.name),
+      durationValue: Number(plan.durationValue), durationUnit: plan.durationUnit,
+      amount, status: 'pending', createdAt: new Date().toISOString(),
+    };
+    const checkout = await createConfiguredGatewayCheckout({
+      req, purchase, amount, currency: 'INR', name: module.name || 'WEPZO',
+      description: `${plan.name} · ${availability.fullDomain}`,
+      customer: { id: req.user._id, name: req.user.name, email: req.user.email, phone: req.user.phone },
+      notes: { product: 'on-domain-subscription', userId: String(req.user._id), moduleId: String(module._id), websiteId: String(website._id), planId: String(plan.id), domainName: availability.fullDomain },
+    });
+    store.ownDomainOrders.push(purchase);
+    schedulePersist();
+    return res.json({ ...checkout, websiteId: String(website._id), domainName: availability.fullDomain, planName: plan.name, durationValue: Number(plan.durationValue), durationUnit: plan.durationUnit });
+  } catch (error) {
+    return res.status(error.status || 502).json({ message: error.message || 'Subscription checkout could not be created.' });
+  }
+});
+
+router.post('/on-domain/subscription-checkout/verify', auth, async (req, res) => {
+  if (req.user.role !== 'website_user') return res.status(403).json({ message: 'Website account zaroori hai' });
+  const module = onDomainModule(req);
+  if (!module) return res.status(404).json({ message: 'Website module not found' });
+  const orderId = String(req.body?.orderId || req.body?.razorpay_order_id || '');
+  const purchase = (store.ownDomainOrders || []).find(order => String(order.userId) === String(req.user._id)
+    && String(order.moduleId) === String(module._id) && order.purpose === 'subscription'
+    && (String(order._id) === String(req.body?.purchaseId || '') || order.orderId === orderId));
+  if (!purchase) return res.status(404).json({ message: 'Matching On Domain subscription payment was not found.' });
+  const website = (store.websites || []).find(item => String(item._id) === String(purchase.websiteId)
+    && (String(item.userId || '') === String(req.user._id) || String(item._id) === String(req.user.websiteId || ''))
+    && ((item.websiteModuleId && String(item.websiteModuleId) === String(module._id)) || websiteModuleSlugFor(item) === websiteModuleSlugFor(module)));
+  if (!website) return res.status(404).json({ message: 'Tenant website for this subscription was not found.' });
+  if (purchase.status === 'paid') {
+    return res.json({ purchased: !!onDomainPurchaseForUser(req, module), domainName: purchase.domainName, websiteId: String(website._id), hosting: { status: purchase.hostingStatus || website.hosting?.status || 'failed', domain: website.hosting?.domain || purchase.domainName, url: website.hosting?.url || '', sslStatus: website.hosting?.sslStatus || '', message: purchase.hostingMessage || website.hosting?.message || '', subscriptionExpiresAt: purchase.expiresAt || website.hosting?.subscriptionExpiresAt || '' } });
+  }
+  if (purchase.status !== 'pending') return res.status(409).json({ message: 'This subscription payment is not pending.' });
+  let paymentId;
+  try {
+    paymentId = purchase.paymentGateway
+      ? await verifyConfiguredGatewayPayment({ purchase, body: req.body || {} })
+      : (() => {
+        const legacyPaymentId = String(req.body?.razorpay_payment_id || '');
+        const signature = String(req.body?.razorpay_signature || '');
+        if (!verifyRazorpaySignature(orderId, legacyPaymentId, signature)) throw Object.assign(new Error('Subscription payment verification failed.'), { status: 400 });
+        return legacyPaymentId;
+      })();
+  } catch (error) {
+    return res.status(error.status || 502).json({ message: error.message || 'Subscription payment verification failed.' });
   }
   purchase.status = 'paid';
   purchase.paymentId = paymentId;
   purchase.paidAt = new Date().toISOString();
+  const domainName = normalizeWebsiteDomain(purchase.domainName);
+  const availability = websiteDomainAvailability(domainName, 'custom', website._id);
+  if (website.status !== 'published' || website.serviceStoppedAt || websiteSubscriptionExpired(website) || !availability.available) {
+    purchase.hostingStatus = 'failed';
+    purchase.hostingMessage = website.status !== 'published' || website.serviceStoppedAt || websiteSubscriptionExpired(website)
+      ? 'Payment verified, but the tenant website must be published and active before hosting.'
+      : (availability.message || 'This domain is no longer available.');
+    schedulePersist();
+    return res.json({ purchased: false, domainName, websiteId: String(website._id), hosting: { status: 'failed', message: purchase.hostingMessage } });
+  }
+  const extendingSameDomain = normalizeWebsiteDomain(website.hosting?.domain) === availability.fullDomain;
+  const previousExpiry = extendingSameDomain ? new Date(website.hosting?.subscriptionExpiresAt || 0) : null;
+  const expiryStart = previousExpiry && Number.isFinite(previousExpiry.getTime()) && previousExpiry.getTime() > Date.now() ? previousExpiry : new Date();
+  const expiresAt = websiteSubscriptionExpiry(expiryStart, purchase.durationValue, purchase.durationUnit);
+  purchase.expiresAt = expiresAt;
+  const wasHostedOnDomain = website.hosting?.status === 'active' && extendingSameDomain;
+  website.domain = { ...(website.domain || {}), websiteId: String(website._id), type: 'custom', name: domainName, fullDomain: availability.fullDomain, price: Number(website.domain?.price) || 0, status: 'pending', hostingOrderId: purchase.orderId };
+  website.hosting = { ...(website.hosting || {}), status: wasHostedOnDomain ? 'active' : 'deploying', billingMode: 'subscription', subscriptionPlanId: purchase.planId, subscriptionPlanName: purchase.planName, subscriptionPrice: purchase.amount, subscriptionExpiresAt: expiresAt, domain: availability.fullDomain, message: '' };
+  purchase.hostingStatus = 'deploying';
   schedulePersist();
-  res.json({ purchased: true });
+  try {
+    if (!wasHostedOnDomain) await runVpsWebsiteDeployment('deploy', website);
+    website.hosting = { ...website.hosting, status: 'active', provider: 'wepzo-vps', domain: availability.fullDomain, sslStatus: 'active', url: `https://${availability.fullDomain}`, deployedAt: new Date().toISOString(), message: '' };
+    website.domain.status = 'active';
+    purchase.hostingStatus = 'active';
+    purchase.hostingMessage = '';
+  } catch (error) {
+    const message = error.code === 'ENOENT' ? 'VPS deployment command is unavailable. Configure hosting on the Ubuntu VPS first.' : String(error.stderr || error.message || 'Subscription hosting failed.').trim();
+    website.hosting = { ...website.hosting, status: 'failed', domain: availability.fullDomain, message, failedAt: new Date().toISOString() };
+    purchase.hostingStatus = 'failed';
+    purchase.hostingMessage = message;
+    console.error('On Domain subscription deployment failed:', message);
+  }
+  schedulePersist();
+  return res.json({ purchased: !!onDomainPurchaseForUser(req, module), domainName: availability.fullDomain, websiteId: String(website._id), hosting: { status: website.hosting.status, domain: website.hosting.domain, url: website.hosting.url || '', sslStatus: website.hosting.sslStatus || '', message: website.hosting.message || '', subscriptionExpiresAt: website.hosting.subscriptionExpiresAt || '' } });
+});
+
+router.post('/on-domain/hosting-checkout', auth, async (req, res) => {
+  if (req.user.role !== 'website_user') return res.status(403).json({ message: 'Website account zaroori hai' });
+  const module = onDomainModule(req);
+  if (!module) return res.status(404).json({ message: 'Website module not found' });
+  if (!onDomainPageEnabled(module)) return res.status(404).json({ message: 'On Domain hosting is not enabled for this module.' });
+  if (onDomainFreeMode(module) || !onDomainPaymentMode(module)) return res.status(403).json({ message: 'One-time hosting payment is not enabled for this module.' });
+  const website = onDomainWebsiteForUser(req, module);
+  if (!website) return res.status(404).json({ message: 'Tenant website not found for this module.' });
+  if (website.status !== 'published') return res.status(409).json({ message: 'Publish your tenant website before connecting its domain.' });
+  if (website.serviceStoppedAt || websiteSubscriptionExpired(website)) {
+    return res.status(402).json({ message: 'Renew or reactivate the tenant website service before hosting it.' });
+  }
+
+  const domainName = normalizeWebsiteDomain(req.body?.domainName);
+  const availability = websiteDomainAvailability(domainName, 'custom', website._id);
+  if (!availability.available) return res.status(domainName ? 409 : 400).json({ message: availability.message });
+  const hostingDomain = normalizeWebsiteDomain(website.hosting?.domain || '');
+  const currentDomain = normalizeWebsiteDomain(website.domain?.fullDomain || '');
+  if (website.hosting?.status === 'active' && hostingDomain && hostingDomain !== availability.fullDomain) {
+    return res.status(409).json({ message: `This tenant is already hosted at ${hostingDomain}. Contact support to change its domain.` });
+  }
+  if (website.hosting?.status === 'active' && currentDomain === availability.fullDomain) {
+    return res.status(409).json({ message: 'This domain is already hosted for this tenant.' });
+  }
+  const previousPaidHostingOrder = (store.ownDomainOrders || []).find(order =>
+    String(order.userId) === String(req.user._id)
+    && String(order.moduleId) === String(module._id)
+    && String(order.websiteId || '') === String(website._id)
+    && ['hosting', 'package+hosting', 'subscription'].includes(order.purpose)
+    && order.status === 'paid'
+    && order.hostingStatus !== 'active'
+    && normalizeWebsiteDomain(order.domainName) === availability.fullDomain
+  );
+  if (previousPaidHostingOrder) return res.status(409).json({ message: 'Payment is already verified for this domain. Retry hosting from the On Domain page.' });
+  const domainReservedByPendingOrder = (store.ownDomainOrders || []).some(order =>
+    ['hosting', 'package+hosting', 'subscription'].includes(order.purpose)
+    && order.status === 'pending'
+    && normalizeWebsiteDomain(order.domainName) === availability.fullDomain
+    && Number.isFinite(Date.parse(order.createdAt || ''))
+    && Date.now() - Date.parse(order.createdAt || '') < 30 * 60 * 1000
+  );
+  if (domainReservedByPendingOrder) return res.status(409).json({ message: 'This domain already has a pending hosting payment.' });
+
+  const amount = Number(module.onDomainPrice);
+  const amountPaise = Math.round(amount * 100);
+  if (!Number.isFinite(amount) || amountPaise <= 0) return res.status(400).json({ message: 'The On Domain hosting price is not configured.' });
+  if (!Array.isArray(store.ownDomainOrders)) store.ownDomainOrders = [];
+  const purpose = 'hosting';
+  try {
+    const purchase = {
+      _id: uuidv4(),
+      userId: String(req.user._id),
+      moduleId: String(module._id),
+      moduleSlug: normalizeWebsiteModuleSlug(module.slug || module.type || ''),
+      websiteId: String(website._id),
+      domainName: availability.fullDomain,
+      purpose,
+      amount,
+      status: 'pending',
+      createdAt: new Date().toISOString(),
+    };
+    const checkout = await createConfiguredGatewayCheckout({
+      req, purchase, amount, currency: 'INR', name: module.name || 'WEPZO',
+      description: `Connect and host ${availability.fullDomain}`,
+      customer: { id: req.user._id, name: req.user.name, email: req.user.email, phone: req.user.phone },
+      notes: { product: 'on-domain-hosting', userId: String(req.user._id), moduleId: String(module._id), websiteId: String(website._id), domainName: availability.fullDomain },
+    });
+    store.ownDomainOrders.push(purchase);
+    schedulePersist();
+    res.json({
+      ...checkout,
+      domainName: availability.fullDomain,
+      websiteId: String(website._id),
+    });
+  } catch (error) {
+    res.status(error.status || 502).json({ message: error.message || 'Domain hosting payment could not be created.' });
+  }
+});
+
+router.post('/on-domain/hosting-checkout/verify', auth, async (req, res) => {
+  if (req.user.role !== 'website_user') return res.status(403).json({ message: 'Website account zaroori hai' });
+  const module = onDomainModule(req);
+  if (!module) return res.status(404).json({ message: 'Website module not found' });
+  const orderId = String(req.body?.orderId || req.body?.razorpay_order_id || '');
+  const purchase = (store.ownDomainOrders || []).find(order =>
+    String(order.userId) === String(req.user._id)
+    && String(order.moduleId) === String(module._id)
+    && ['hosting', 'package+hosting'].includes(order.purpose)
+    && (String(order._id) === String(req.body?.purchaseId || '') || order.orderId === orderId)
+  );
+  if (!purchase) return res.status(404).json({ message: 'Matching domain hosting payment was not found.' });
+  const website = (store.websites || []).find(item =>
+    String(item._id) === String(purchase.websiteId)
+    && (String(item.userId || '') === String(req.user._id) || String(item._id) === String(req.user.websiteId || ''))
+    && ((item.websiteModuleId && String(item.websiteModuleId) === String(module._id))
+      || websiteModuleSlugFor(item) === websiteModuleSlugFor(module))
+  );
+  if (!website) return res.status(404).json({ message: 'Tenant website for this payment was not found.' });
+  let paymentId = purchase.paymentId || '';
+  if (purchase.status !== 'paid') {
+    try {
+      paymentId = purchase.paymentGateway
+        ? await verifyConfiguredGatewayPayment({ purchase, body: req.body || {} })
+        : (() => {
+          const legacyPaymentId = String(req.body?.razorpay_payment_id || '');
+          const signature = String(req.body?.razorpay_signature || '');
+          if (!verifyRazorpaySignature(orderId, legacyPaymentId, signature)) throw Object.assign(new Error('Payment verification failed.'), { status: 400 });
+          return legacyPaymentId;
+        })();
+    } catch (error) {
+      return res.status(error.status || 502).json({ message: error.message || 'Payment verification failed.' });
+    }
+  }
+  if (purchase.status !== 'paid') {
+    purchase.status = 'paid';
+    purchase.paymentId = paymentId;
+    purchase.paidAt = new Date().toISOString();
+  }
+
+  const domainName = normalizeWebsiteDomain(purchase.domainName);
+  if (purchase.hostingStatus === 'active' && website.hosting?.status === 'active'
+    && normalizeWebsiteDomain(website.hosting.domain) === domainName) {
+    return res.json({ purchased: !!onDomainPurchaseForUser(req, module), domainName, websiteId: String(website._id), hosting: { status: 'active', domain: website.hosting.domain, url: website.hosting.url || `https://${domainName}`, sslStatus: website.hosting.sslStatus || 'active', message: '' } });
+  }
+  const availability = websiteDomainAvailability(domainName, 'custom', website._id);
+  if (website.status !== 'published' || website.serviceStoppedAt || websiteSubscriptionExpired(website)) {
+    purchase.hostingStatus = 'failed';
+    purchase.hostingMessage = 'Payment was verified, but this tenant website must be published and active before hosting.';
+    schedulePersist();
+    return res.json({ purchased: !!onDomainPurchaseForUser(req, module), domainName, websiteId: String(website._id), hosting: { status: 'failed', message: purchase.hostingMessage } });
+  }
+  if (!availability.available) {
+    purchase.hostingStatus = 'failed';
+    purchase.hostingMessage = availability.message || 'The domain is no longer available.';
+    schedulePersist();
+    return res.json({ purchased: !!onDomainPurchaseForUser(req, module), domainName, websiteId: String(website._id), hosting: { status: 'failed', message: purchase.hostingMessage } });
+  }
+
+  website.domain = {
+    ...(website.domain || {}),
+    websiteId: String(website._id),
+    type: 'custom',
+    name: domainName,
+    fullDomain: availability.fullDomain,
+    price: Number(website.domain?.price) || 0,
+    status: 'pending',
+    hostingOrderId: purchase.orderId,
+  };
+  website.hosting = { ...(website.hosting || {}), status: 'deploying', billingMode: 'one-time', subscriptionPlanId: '', subscriptionPlanName: '', subscriptionPrice: 0, subscriptionExpiresAt: '', domain: availability.fullDomain, message: '' };
+  purchase.hostingStatus = 'deploying';
+  schedulePersist();
+  try {
+    await runVpsWebsiteDeployment('deploy', website);
+    website.hosting = {
+      ...(website.hosting || {}),
+      status: 'active',
+      provider: 'wepzo-vps',
+      domain: availability.fullDomain,
+      sslStatus: 'active',
+      url: `https://${availability.fullDomain}`,
+      deployedAt: new Date().toISOString(),
+      message: '',
+    };
+    website.domain.status = 'active';
+    purchase.hostingStatus = 'active';
+    purchase.hostingMessage = '';
+  } catch (error) {
+    const message = error.code === 'ENOENT'
+      ? 'VPS deployment command is unavailable. Configure hosting on the Ubuntu VPS first.'
+      : String(error.stderr || error.message || 'Website hosting failed.').trim();
+    website.hosting = { ...(website.hosting || {}), status: 'failed', domain: availability.fullDomain, message, failedAt: new Date().toISOString() };
+    purchase.hostingStatus = 'failed';
+    purchase.hostingMessage = message;
+    console.error('On Domain VPS deployment failed:', message);
+  }
+  schedulePersist();
+  res.json({
+    purchased: !!onDomainPurchaseForUser(req, module),
+    domainName: availability.fullDomain,
+    websiteId: String(website._id),
+    hosting: { status: website.hosting.status, domain: website.hosting.domain, url: website.hosting.url || '', sslStatus: website.hosting.sslStatus || '', message: website.hosting.message || '' },
+  });
 });
 
 router.get('/on-domain/download', auth, (req, res) => {
   if (req.user.role !== 'website_user') return res.status(403).json({ message: 'Website account zaroori hai' });
   const module = onDomainModule(req);
   if (!module) return res.status(404).json({ message: 'Website module not found' });
-  if (!onDomainPurchaseForUser(req, module)) return res.status(403).json({ message: 'Complete payment before downloading this package.' });
+  if (!onDomainFreeMode(module) && !onDomainPurchaseForUser(req, module)) return res.status(403).json({ message: 'Choose Free or complete payment before downloading this package.' });
   const packagePath = onDomainPackagePath(module);
   if (!packagePath || !fs.existsSync(packagePath)) return res.status(404).json({ message: 'The package file is unavailable. Please contact support.' });
   const safeName = String(module.onDomainPackageOriginalName || `${module.slug || 'website'}-website.zip`).replace(/[\\/:*?"<>|]/g, '_');
@@ -5176,6 +5914,29 @@ router.post('/website-modules', auth, (req, res) => {
   res.status(201).json(item);
 });
 
+router.patch('/website-modules/:id/domain-options', auth, (req, res) => {
+  if (req.user.role !== 'main_admin') return res.status(403).json({ message: 'Only Main Admin can manage Website Modules' });
+  const module = (store.websiteModules || []).find(item => String(item._id) === String(req.params.id));
+  if (!module) return res.status(404).json({ message: 'Website Module not found' });
+  const body = req.body || {};
+  const keys = ['showSubdomainOption', 'showOwnDomainOption'];
+  if (!Object.keys(body).length || Object.keys(body).some(key => !keys.includes(key))) {
+    return res.status(400).json({ message: 'Update only the domain visibility options.' });
+  }
+  if (keys.some(key => body[key] !== undefined && typeof body[key] !== 'boolean')) {
+    return res.status(400).json({ message: 'Domain option visibility must be true or false.' });
+  }
+  keys.forEach(key => {
+    if (body[key] !== undefined) module[key] = body[key];
+  });
+  schedulePersist();
+  res.json({
+    _id: module._id,
+    showSubdomainOption: module.showSubdomainOption !== false,
+    showOwnDomainOption: module.showOwnDomainOption !== false,
+  });
+});
+
 router.put('/website-modules/:id', auth, (req, res) => {
   if (req.user.role !== 'main_admin') return res.status(403).json({ message: 'Only Main Admin can manage Website Modules' });
   const modules = store.websiteModules || [];
@@ -5183,6 +5944,35 @@ router.put('/website-modules/:id', auth, (req, res) => {
   if (index === -1) return res.status(404).json({ message: 'Website Module not found' });
   const current = modules[index];
   const body = req.body || {};
+  const visibilityKeys = ['showSubdomainOption', 'showOwnDomainOption'];
+  const isVisibilityOnlyUpdate = Object.keys(body).length > 0
+    && Object.keys(body).every(key => visibilityKeys.includes(key));
+  if (isVisibilityOnlyUpdate) {
+    if (visibilityKeys.some(key => body[key] !== undefined && typeof body[key] !== 'boolean')) {
+      return res.status(400).json({ message: 'Domain option visibility must be true or false.' });
+    }
+    if (body.showSubdomainOption !== undefined) current.showSubdomainOption = body.showSubdomainOption;
+    if (body.showOwnDomainOption !== undefined) current.showOwnDomainOption = body.showOwnDomainOption;
+    return res.json(current);
+  }
+  const fullPurchasePriceMode = body.fullPurchasePriceMode === undefined
+    ? (current.fullPurchasePriceMode || 'components')
+    : String(body.fullPurchasePriceMode);
+  const fullPurchaseAmount = body.fullPurchaseAmount === undefined
+    ? Number(current.fullPurchaseAmount) || 0
+    : Number(body.fullPurchaseAmount);
+  const subdomainPriceMode = body.subdomainPriceMode === undefined
+    ? (current.subdomainPriceMode || (Number(current.subdomainPrice) === 0 ? 'free' : 'fixed'))
+    : String(body.subdomainPriceMode);
+  const subdomainPrice = body.subdomainPrice === undefined
+    ? Number(current.subdomainPrice ?? 500)
+    : Number(body.subdomainPrice);
+  if (!['components', 'free', 'fixed'].includes(fullPurchasePriceMode)) return res.status(400).json({ message: 'Choose component pricing, a free full purchase, or a fixed full purchase amount.' });
+  if (!Number.isFinite(fullPurchaseAmount) || fullPurchaseAmount < 0 || fullPurchaseAmount > 10000000) return res.status(400).json({ message: 'Full purchase amount must be between 0 and 10000000.' });
+  if (!['free', 'fixed'].includes(subdomainPriceMode)) return res.status(400).json({ message: 'Choose a free or fixed subdomain price.' });
+  if (!Number.isFinite(subdomainPrice) || subdomainPrice < 0 || subdomainPrice > 10000000) return res.status(400).json({ message: 'Subdomain price must be between 0 and 10000000.' });
+  if (fullPurchasePriceMode === 'fixed' && fullPurchaseAmount <= 0) return res.status(400).json({ message: 'Set a full purchase amount greater than zero, or choose Free.' });
+  if (subdomainPriceMode === 'fixed' && subdomainPrice <= 0) return res.status(400).json({ message: 'Set a subdomain price greater than zero, or choose Free.' });
   const name = body.name === undefined ? current.name : String(body.name || '').trim();
   if (!name) return res.status(400).json({ message: 'Module name zaroori hai' });
   const slug = body.slug === undefined
@@ -5193,6 +5983,36 @@ router.put('/website-modules/:id', auth, (req, res) => {
     return res.status(409).json({ message: 'Is slug ka Website Module pehle se hai' });
   }
   if (body.access !== undefined && req.user.role !== 'main_admin') return res.status(403).json({ message: 'Only Main Admin can change Website Module access' });
+  const onDomainPrice = body.onDomainPrice === undefined ? Number(current.onDomainPrice) || 0 : Math.max(0, Math.min(10000000, Number(body.onDomainPrice) || 0));
+  const onDomainFreeEnabled = body.onDomainFreeEnabled === undefined ? onDomainFreeMode(current) : body.onDomainFreeEnabled === true;
+  const onDomainPaymentEnabled = body.onDomainPaymentEnabled === undefined ? onDomainPaymentMode(current) : body.onDomainPaymentEnabled === true;
+  const onDomainSubscriptionEnabled = body.onDomainSubscriptionEnabled === undefined ? current.onDomainSubscriptionEnabled === true : body.onDomainSubscriptionEnabled === true;
+  const onDomainEnabled = (body.onDomainEnabled === undefined ? current.onDomainEnabled === true : body.onDomainEnabled === true)
+    || onDomainFreeEnabled || onDomainPaymentEnabled || onDomainSubscriptionEnabled;
+  const rawOnDomainPlans = body.onDomainPlans === undefined ? (current.onDomainPlans || []) : body.onDomainPlans;
+  if (!Array.isArray(rawOnDomainPlans) || rawOnDomainPlans.length > 20) return res.status(400).json({ message: 'Add no more than 20 On Domain subscription plans.' });
+  const onDomainPlans = rawOnDomainPlans.map(plan => ({
+    id: String(plan?.id || uuidv4()).slice(0, 100),
+    name: String(plan?.name || '').trim().slice(0, 80),
+    description: String(plan?.description || '').trim().slice(0, 240),
+    price: Number(plan?.price),
+    durationValue: Number(plan?.durationValue),
+    durationUnit: String(plan?.durationUnit || 'day'),
+  }));
+  if (onDomainFreeEnabled && (onDomainPaymentEnabled || onDomainSubscriptionEnabled)) {
+    return res.status(400).json({ message: 'Free mode is exclusive. Disable one-time payment and subscriptions.' });
+  }
+  if (onDomainEnabled && !onDomainFreeEnabled && !onDomainPaymentEnabled && !onDomainSubscriptionEnabled) {
+    return res.status(400).json({ message: 'Enable one-time payment, subscription plans, or choose Free.' });
+  }
+  if (onDomainEnabled && onDomainPaymentEnabled && onDomainPrice <= 0) return res.status(400).json({ message: 'One-time On Domain price must be greater than zero.' });
+  if (onDomainEnabled && onDomainSubscriptionEnabled && !onDomainPlans.length) return res.status(400).json({ message: 'Add a subscription plan before enabling subscriptions.' });
+  if (onDomainSubscriptionEnabled && onDomainPlans.some(plan => !plan.name || !Number.isFinite(plan.price) || plan.price <= 0
+    || !Number.isInteger(plan.durationValue) || plan.durationValue < 1 || plan.durationValue > 3650
+    || !['day', 'month', 'year'].includes(plan.durationUnit))) {
+    return res.status(400).json({ message: 'Each subscription plan needs a name, positive price, and valid day/month/year duration.' });
+  }
+  if (new Set(onDomainPlans.map(plan => plan.id)).size !== onDomainPlans.length) return res.status(400).json({ message: 'On Domain subscription plan IDs must be unique.' });
   const access = body.access && typeof body.access === 'object' ? {
     header: Array.isArray(body.access.header) ? [...new Set(body.access.header.filter(value => typeof value === 'string'))] : (current.access?.header || []),
     sidebar: Array.isArray(body.access.sidebar) ? [...new Set(body.access.sidebar.filter(value => typeof value === 'string'))] : (current.access?.sidebar || []),
@@ -5202,6 +6022,10 @@ router.put('/website-modules/:id', auth, (req, res) => {
     name,
     slug,
     access,
+    fullPurchasePriceMode,
+    fullPurchaseAmount,
+    subdomainPriceMode,
+    subdomainPrice,
     images: body.images === undefined ? (Array.isArray(current.images) ? current.images : (current.image ? [current.image] : [])) : (Array.isArray(body.images) ? body.images.filter(image => typeof image === 'string') : []),
     image: body.images === undefined && body.image === undefined ? current.image || '' : (Array.isArray(body.images) ? (body.images[0] || '') : (typeof body.image === 'string' ? body.image : '')),
     videoUrl: body.videoUrl === undefined ? current.videoUrl || '' : (typeof body.videoUrl === 'string' ? body.videoUrl.trim() : ''),
@@ -5212,6 +6036,8 @@ router.put('/website-modules/:id', auth, (req, res) => {
     builderTip: body.builderTip === undefined ? current.builderTip || '' : String(body.builderTip || '').trim(),
     addressTitle: body.addressTitle === undefined ? current.addressTitle || '' : String(body.addressTitle || '').trim(),
     addressDescription: body.addressDescription === undefined ? current.addressDescription || '' : String(body.addressDescription || '').trim(),
+    showSubdomainOption: body.showSubdomainOption === undefined ? current.showSubdomainOption !== false : body.showSubdomainOption === true,
+    showOwnDomainOption: body.showOwnDomainOption === undefined ? current.showOwnDomainOption !== false : body.showOwnDomainOption === true,
     subdomainTitle: body.subdomainTitle === undefined ? current.subdomainTitle || '' : String(body.subdomainTitle || '').trim(),
     subdomainDescription: body.subdomainDescription === undefined ? current.subdomainDescription || '' : String(body.subdomainDescription || '').trim(),
     subdomainBadge: body.subdomainBadge === undefined ? current.subdomainBadge || '' : String(body.subdomainBadge || '').trim(),
@@ -5233,10 +6059,14 @@ router.put('/website-modules/:id', auth, (req, res) => {
     supportWhatsappLabel: body.supportWhatsappLabel === undefined ? current.supportWhatsappLabel || '' : String(body.supportWhatsappLabel || '').trim(),
     supportEmailLabel: body.supportEmailLabel === undefined ? current.supportEmailLabel || '' : String(body.supportEmailLabel || '').trim(),
     helpCenterLabel: body.helpCenterLabel === undefined ? current.helpCenterLabel || '' : String(body.helpCenterLabel || '').trim(),
-    onDomainEnabled: body.onDomainEnabled === undefined ? current.onDomainEnabled === true : body.onDomainEnabled === true,
+    onDomainEnabled,
     onDomainTitle: body.onDomainTitle === undefined ? current.onDomainTitle || '' : String(body.onDomainTitle || '').trim(),
     onDomainDescription: body.onDomainDescription === undefined ? current.onDomainDescription || '' : String(body.onDomainDescription || '').trim(),
-    onDomainPrice: body.onDomainPrice === undefined ? Number(current.onDomainPrice) || 0 : Math.max(0, Math.min(10000000, Number(body.onDomainPrice) || 0)),
+    onDomainPrice,
+    onDomainFreeEnabled,
+    onDomainPaymentEnabled,
+    onDomainSubscriptionEnabled,
+    onDomainPlans,
     onDomainSteps: body.onDomainSteps === undefined ? current.onDomainSteps || [] : (Array.isArray(body.onDomainSteps) ? body.onDomainSteps.filter(step => typeof step === 'string' && step.trim()).map(step => step.trim()).slice(0, 12) : []),
     status: body.status === undefined ? current.status !== false : body.status !== false,
     _id: current._id,
@@ -5550,6 +6380,165 @@ async function phonePeAccessToken(settings, sandbox) {
   return token.access_token;
 }
 
+function decryptedGlobalPaymentGatewaySettings() {
+  const settings = globalPaymentGatewaySettings();
+  BUSINESS_PAYMENT_SECRETS.forEach(key => {
+    if (GLOBAL_PAYMENT_GATEWAY_KEYS.includes(key)) settings[key] = decryptPaymentSecret(settings[key]);
+  });
+  return settings;
+}
+
+function platformPaymentReturnUrl(req, purchase, gateway, requestedUrl) {
+  const settings = globalPaymentGatewaySettings();
+  const candidate = String(requestedUrl || settings.paymentReturnUrl || '').trim();
+  let url;
+  try { url = new URL(candidate); } catch {
+    throw Object.assign(new Error('Set a valid payment return URL in Main Admin Payment Gateway settings.'), { status: 400 });
+  }
+  if (!['http:', 'https:'].includes(url.protocol)) {
+    throw Object.assign(new Error('Payment return URL must use HTTP or HTTPS.'), { status: 400 });
+  }
+  const requestOrigin = String(req.get('origin') || '').trim();
+  if (requestedUrl && requestOrigin) {
+    let allowedOrigin = '';
+    try { allowedOrigin = new URL(requestOrigin).origin; } catch { /* Ignore malformed browser origin. */ }
+    if (!allowedOrigin || url.origin !== allowedOrigin) {
+      throw Object.assign(new Error('Payment return URL must use the same website as the checkout.'), { status: 400 });
+    }
+  }
+  url.searchParams.set('wepzoOrderId', String(purchase._id));
+  url.searchParams.set('paymentGateway', gateway);
+  url.searchParams.set('paymentFlow', String(purchase.purpose || purchase.type || 'website-payment'));
+  return url.toString();
+}
+
+async function createConfiguredGatewayCheckout({ req, purchase, amount, currency, name = 'WEPZO', description = '', customer = {}, notes = {} }) {
+  const settings = decryptedGlobalPaymentGatewaySettings();
+  if (String(process.env.PAYMENT_CREDENTIALS_ENCRYPTION_KEY || '').length < 32) {
+    throw Object.assign(new Error('Payment gateway encryption is not configured on the server.'), { status: 503 });
+  }
+  const gateway = String(settings.paymentGateway || '').toLowerCase();
+  const enabled = gateway && settings[`${gateway}Enabled`] === true;
+  if (!enabled) throw Object.assign(new Error('Main Admin has not enabled a payment gateway.'), { status: 503 });
+  const paymentCurrency = String(currency || settings.paymentCurrency || 'INR').toUpperCase();
+  const amountPaise = Math.round(Number(amount) * 100);
+  if (!Number.isFinite(amountPaise) || amountPaise <= 0) throw Object.assign(new Error('Payment amount must be greater than zero.'), { status: 400 });
+  const merchantOrderId = `WZ${String(purchase._id || uuidv4()).replace(/[^a-zA-Z0-9]/g, '').slice(0, 30)}`;
+  const returnUrl = gateway === 'razorpay' ? '' : platformPaymentReturnUrl(req, purchase, gateway, req.body?.returnUrl);
+  let response;
+
+  if (gateway === 'razorpay') {
+    if (!settings.razorpayKey || !settings.razorpayKeySecret) throw Object.assign(new Error('Razorpay Key ID and Key Secret are required.'), { status: 503 });
+    const authorization = Buffer.from(`${settings.razorpayKey}:${settings.razorpayKeySecret}`).toString('base64');
+    const providerOrder = await paymentGatewayRequest('api.razorpay.com', '/v1/orders', 'POST', { Authorization: `Basic ${authorization}` }, {
+      amount: amountPaise,
+      currency: paymentCurrency,
+      receipt: merchantOrderId.slice(0, 40),
+      notes: { ...notes, wepzoPurchaseId: String(purchase._id) },
+    });
+    response = { provider: gateway, keyId: settings.razorpayKey, orderId: providerOrder.id, amount: providerOrder.amount, currency: providerOrder.currency };
+  } else if (gateway === 'phonepe') {
+    if (!settings.phonepeClientId || !settings.phonepeClientSecret) throw Object.assign(new Error('PhonePe Client ID and Client Secret are required.'), { status: 503 });
+    const sandbox = String(settings.phonepeEnvironment || 'sandbox') !== 'production';
+    const host = sandbox ? 'api-preprod.phonepe.com' : 'api.phonepe.com';
+    const token = await phonePeAccessToken(settings, sandbox);
+    const providerOrder = await paymentGatewayRequest(host, sandbox ? '/apis/pg-sandbox/checkout/v2/pay' : '/apis/pg/checkout/v2/pay', 'POST', {
+      Authorization: `O-Bearer ${token}`,
+    }, {
+      merchantOrderId,
+      amount: amountPaise,
+      expireAfter: 1200,
+      paymentFlow: {
+        type: 'PG_CHECKOUT',
+        message: description || `Payment for ${merchantOrderId}`,
+        merchantUrls: { redirectUrl: returnUrl },
+      },
+    });
+    if (!providerOrder.redirectUrl) throw Object.assign(new Error('PhonePe did not return a checkout URL.'), { status: 502 });
+    response = { provider: gateway, orderId: merchantOrderId, redirectUrl: providerOrder.redirectUrl };
+  } else if (gateway === 'cashfree') {
+    if (!settings.cashfreeAppId || !settings.cashfreeSecretKey) throw Object.assign(new Error('Cashfree App ID and Secret Key are required.'), { status: 503 });
+    const phone = String(customer.phone || '').replace(/\D/g, '').slice(-10);
+    if (phone.length !== 10) throw Object.assign(new Error('Add a valid 10-digit phone number to the account before using Cashfree.'), { status: 400 });
+    const sandbox = String(settings.cashfreeEnvironment || 'sandbox') !== 'production';
+    const host = sandbox ? 'sandbox.cashfree.com' : 'api.cashfree.com';
+    const providerOrder = await paymentGatewayRequest(host, '/pg/orders', 'POST', {
+      'x-client-id': settings.cashfreeAppId,
+      'x-client-secret': settings.cashfreeSecretKey,
+      'x-api-version': '2025-01-01',
+    }, {
+      order_id: merchantOrderId,
+      order_amount: Number((amountPaise / 100).toFixed(2)),
+      order_currency: paymentCurrency,
+      customer_details: {
+        customer_id: String(customer.id || purchase.userId || purchase.websiteId || purchase._id),
+        customer_name: String(customer.name || name || 'Customer').slice(0, 100),
+        customer_email: String(customer.email || 'customer@wepzo.com').slice(0, 100),
+        customer_phone: phone,
+      },
+      order_meta: { return_url: returnUrl },
+    });
+    if (!providerOrder.payment_session_id) throw Object.assign(new Error('Cashfree did not return a payment session.'), { status: 502 });
+    response = { provider: gateway, orderId: merchantOrderId, paymentSessionId: providerOrder.payment_session_id, environment: sandbox ? 'sandbox' : 'production' };
+  } else {
+    throw Object.assign(new Error('Select and enable Razorpay, PhonePe, or Cashfree in Main Admin Payment Gateway settings.'), { status: 400 });
+  }
+
+  purchase.paymentGateway = gateway;
+  purchase.orderId = response.orderId;
+  purchase.gatewayOrderId = response.orderId;
+  if (response.redirectUrl) purchase.gatewayRedirectUrl = response.redirectUrl;
+  if (response.paymentSessionId) purchase.gatewayPaymentSessionId = response.paymentSessionId;
+  if (response.environment) purchase.gatewayEnvironment = response.environment;
+  return { ...response, purchaseId: String(purchase._id), amount: amountPaise, currency: paymentCurrency, name, description };
+}
+
+async function verifyConfiguredGatewayPayment({ purchase, body = {} }) {
+  const settings = decryptedGlobalPaymentGatewaySettings();
+  const gateway = String(purchase.paymentGateway || '').toLowerCase();
+  const orderId = String(purchase.gatewayOrderId || purchase.orderId || '');
+  if (!gateway || !orderId) throw Object.assign(new Error('Gateway payment order is missing.'), { status: 409 });
+  if (gateway === 'razorpay') {
+    const callbackOrderId = String(body.razorpay_order_id || body.orderId || '');
+    const paymentId = String(body.razorpay_payment_id || body.paymentId || '');
+    const signature = String(body.razorpay_signature || body.signature || '');
+    if (callbackOrderId !== orderId || !verifyRazorpaySignature(callbackOrderId, paymentId, signature, settings.razorpayKeySecret)) {
+      throw Object.assign(new Error('Razorpay payment signature verification failed.'), { status: 400 });
+    }
+    return paymentId;
+  }
+  if (gateway === 'cashfree') {
+    const sandbox = String(settings.cashfreeEnvironment || 'sandbox') !== 'production';
+    const host = sandbox ? 'sandbox.cashfree.com' : 'api.cashfree.com';
+    const result = await paymentGatewayRequest(host, `/pg/orders/${encodeURIComponent(orderId)}`, 'GET', {
+      'x-client-id': settings.cashfreeAppId,
+      'x-client-secret': settings.cashfreeSecretKey,
+      'x-api-version': '2025-01-01',
+    });
+    if (String(result.order_status || '').toUpperCase() !== 'PAID'
+      || Math.round(Number(result.order_amount) * 100) !== Math.round(Number(purchase.amount || purchase.totalAmount || 0) * 100)
+      || String(result.order_currency || '').toUpperCase() !== String(settings.paymentCurrency || 'INR').toUpperCase()) {
+      throw Object.assign(new Error('Cashfree has not confirmed this payment yet.'), { status: 402 });
+    }
+    return String(result.cf_order_id || orderId);
+  }
+  if (gateway === 'phonepe') {
+    const sandbox = String(settings.phonepeEnvironment || 'sandbox') !== 'production';
+    const host = sandbox ? 'api-preprod.phonepe.com' : 'api.phonepe.com';
+    const token = await phonePeAccessToken(settings, sandbox);
+    const path = sandbox
+      ? `/apis/pg-sandbox/checkout/v2/order/${encodeURIComponent(orderId)}/status`
+      : `/apis/pg/checkout/v2/order/${encodeURIComponent(orderId)}/status`;
+    const result = await paymentGatewayRequest(host, path, 'GET', { Authorization: `O-Bearer ${token}` });
+    if (String(result.state || '').toUpperCase() !== 'COMPLETED'
+      || (result.amount != null && Math.round(Number(result.amount)) !== Math.round(Number(purchase.amount || purchase.totalAmount || 0) * 100))) {
+      throw Object.assign(new Error('PhonePe has not confirmed this payment yet.'), { status: 402 });
+    }
+    return String(result.orderId || orderId);
+  }
+  throw Object.assign(new Error('The gateway used for this payment is not supported.'), { status: 400 });
+}
+
 function finalizeShopPayment(order, paymentId) {
   const wasPaid = String(order.paymentStatus || '').toLowerCase() === 'paid';
   order.paymentStatus = 'Paid';
@@ -5573,13 +6562,21 @@ function finalizeShopPayment(order, paymentId) {
   }
 }
 
-function shopPaymentReturnUrl(configuredUrl, order, gateway) {
+function shopPaymentReturnUrl(configuredUrl, order, gateway, requestedUrl, req) {
   let url;
-  try { url = new URL(String(configuredUrl)); } catch {
+  try { url = new URL(String(requestedUrl || configuredUrl)); } catch {
     throw Object.assign(new Error('Set a valid Payment Return URL in Business Settings.'), { status: 400 });
   }
   if (!['http:', 'https:'].includes(url.protocol)) {
     throw Object.assign(new Error('Payment Return URL must use HTTP or HTTPS.'), { status: 400 });
+  }
+  const requestOrigin = String(req?.get?.('origin') || '').trim();
+  if (requestedUrl && requestOrigin) {
+    let allowedOrigin = '';
+    try { allowedOrigin = new URL(requestOrigin).origin; } catch { /* Ignore malformed browser origin. */ }
+    if (!allowedOrigin || url.origin !== allowedOrigin) {
+      throw Object.assign(new Error('Payment return URL must use the same website as the checkout.'), { status: 400 });
+    }
   }
   url.searchParams.set('wepzoOrderId', String(order._id));
   url.searchParams.set('paymentGateway', gateway);
@@ -5729,6 +6726,67 @@ router.get('/public/published-websites/:websiteId', (req, res) => {
   res.json(publicWebsite);
 });
 
+router.get('/public/main-admin-website-preview', (req, res) => {
+  const requestedModuleId = String(req.query.moduleId || '').trim();
+  const requestedModuleSlug = normalizeWebsiteModuleSlug(req.query.moduleSlug || '');
+  if (!requestedModuleId && !requestedModuleSlug) {
+    return res.status(400).json({ message: 'A website module is required for the preview.' });
+  }
+  const mainAdminIds = new Set((store.users || [])
+    .filter(user => user.role === 'main_admin')
+    .map(user => String(user._id)));
+  const publishedMainAdminWebsites = (store.websites || []).filter(item =>
+    mainAdminIds.has(String(item.userId)) && item.status === 'published'
+  );
+  const matchingWebsites = publishedMainAdminWebsites.filter(item => {
+    const websiteModule = websiteModuleForWebsite(item);
+    const websiteModuleSlug = websiteModule
+      ? websiteModuleSlugFor(websiteModule)
+      : websiteModuleSlugFor(item);
+    return !!requestedModuleSlug && websiteModuleSlug === requestedModuleSlug;
+  });
+  const newestFirst = websites => websites.sort((a, b) =>
+    new Date(b.publishedAt || b.updatedAt || 0) - new Date(a.publishedAt || a.updatedAt || 0)
+  );
+  const exactModuleWebsites = requestedModuleId
+    ? publishedMainAdminWebsites.filter(item => String(item.websiteModuleId || '') === requestedModuleId)
+    : [];
+  const website = newestFirst(exactModuleWebsites)[0]
+    || newestFirst(matchingWebsites)[0];
+  if (!website) {
+    const module = (store.websiteModules || []).find(item =>
+      requestedModuleId && String(item._id) === requestedModuleId
+    ) || (store.websiteModules || []).find(item =>
+      requestedModuleSlug && websiteModuleSlugFor(item) === requestedModuleSlug
+    );
+    const moduleSlug = module ? websiteModuleSlugFor(module) : requestedModuleSlug;
+    if (module && ['quick-commerce', 'e-commerce'].includes(moduleSlug)) {
+      return res.json({
+        websiteId: '',
+        websiteModuleId: String(module._id || requestedModuleId),
+        websiteModuleSlug: moduleSlug,
+        moduleName: module.name || (moduleSlug === 'quick-commerce' ? 'Quick Commerce' : 'E-Commerce'),
+        modulePreview: true,
+      });
+    }
+    return res.status(404).json({ message: 'The Main Admin website for this module is not published yet.' });
+  }
+  if (websiteSubscriptionExpired(website)) {
+    return res.status(402).json({ message: 'The Main Admin website subscription has expired.' });
+  }
+  const websiteModule = (store.websiteModules || []).find(module =>
+    String(module._id) === String(website.websiteModuleId || '')
+  );
+  res.json({
+    websiteId: website._id,
+    websiteModuleId: website.websiteModuleId || websiteModule?._id || '',
+    websiteModuleSlug: websiteModule
+      ? websiteModuleSlugFor(websiteModule)
+      : websiteModuleSlugFor(website),
+    moduleName: websiteModule?.name || '',
+  });
+});
+
 router.get('/websites', auth, requireWebsiteBuilderAccess, (req, res) => {
   const moduleInfo = adminWebsiteModuleInfo(req);
   const moduleSlug = normalizeWebsiteModuleSlug(moduleInfo.slug);
@@ -5815,7 +6873,7 @@ router.post('/websites/:id/components', auth, requireWebsiteBuilderAccess, (req,
   if (!(w.components || []).some(entry => String(entry.componentId?._id || entry.componentId) === String(comp._id))) {
     w.components.push({ componentId: comp._id, config: {}, order: w.components.length, price: Number(comp.price) || 0 });
   }
-  w.totalAmount = w.components.reduce((s, c) => s + c.price, 0) + (w.domain?.price || 0);
+  w.totalAmount = websiteTotalAmount(w);
   syncData(store);
   res.json(populateWebsite(w));
 });
@@ -5824,7 +6882,7 @@ router.delete('/websites/:id/components/:idx', auth, requireWebsiteBuilderAccess
   const w = findAccessibleWebsite(req, req.params.id);
   if (!w) return res.status(404).json({ message: 'Website not found' });
   w.components.splice(parseInt(req.params.idx), 1);
-  w.totalAmount = w.components.reduce((s, c) => s + c.price, 0) + (w.domain?.price || 0);
+  w.totalAmount = websiteTotalAmount(w);
   syncData(store);
   res.json(populateWebsite(w));
 });
@@ -5843,14 +6901,23 @@ function websiteDomainAvailability(domainName, type, websiteId = '') {
   const normalizedName = normalizeWebsiteDomain(cleanName);
   const valid = type === 'subdomain'
     ? /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(normalizedName)
-    : /^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/.test(normalizedName) && normalizedName.includes('.');
+    : normalizedName.length <= 253 && normalizedName.split('.').length >= 2
+      && normalizedName.split('.').every(label => label.length <= 63 && /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/.test(label));
   if (!valid) return { available: false, fullDomain: '', baseDomain, message: 'Enter a valid domain name.' };
   const fullDomain = type === 'subdomain' ? `${normalizedName}.${baseDomain}` : normalizedName;
   const requestedWebsite = (store.websites || []).find(website => String(website._id) === String(websiteId || ''));
   const requestedOwner = (store.users || []).find(user => String(user._id) === String(requestedWebsite?.userId || ''));
   const reservedMainDomain = fullDomain === normalizeWebsiteHost(process.env.MAIN_WEBSITE_DOMAIN || 'wepzo.in')
     && requestedOwner?.role !== 'main_admin';
-  const inUse = reservedMainDomain || (store.websites || []).some(website => String(website._id) !== String(websiteId || '')
+  const reservedByPendingHostingPayment = type === 'custom' && (store.ownDomainOrders || []).some(order =>
+    ['hosting', 'package+hosting', 'subscription'].includes(order.purpose)
+    && order.status === 'pending'
+    && Number.isFinite(Date.parse(order.createdAt || ''))
+    && Date.now() - Date.parse(order.createdAt || '') < 30 * 60 * 1000
+    && normalizeWebsiteDomain(order.domainName) === fullDomain
+    && String(order.websiteId || '') !== String(websiteId || '')
+  );
+  const inUse = reservedMainDomain || reservedByPendingHostingPayment || (store.websites || []).some(website => String(website._id) !== String(websiteId || '')
     && normalizeWebsiteDomain(website.domain?.fullDomain || website.domain?.name) === fullDomain);
   return {
     available: !inUse,
@@ -5876,9 +6943,11 @@ router.post('/websites/:id/domain', auth, requireWebsiteBuilderAccess, (req, res
   if (!availability.available) return res.status(domainName ? 409 : 400).json({ message: availability.message });
   const cleanName = domainType === 'none' ? '' : normalizeWebsiteDomain(domainName);
   const fullDomain = availability.fullDomain;
-  const price = domainType === 'subdomain' ? 500 : domainType === 'custom' ? 2000 : 0;
+  const price = domainType === 'subdomain'
+    ? websiteDomainAmount({ ...w, domain: { type: 'subdomain' } })
+    : domainType === 'custom' ? 2000 : 0;
   w.domain = { websiteId: w._id, type: domainType, name: cleanName, fullDomain, price, status: domainType === 'none' ? 'active' : 'pending' };
-  w.totalAmount = w.components.reduce((sum, component) => sum + component.price, 0) + price;
+  w.totalAmount = websiteTotalAmount(w);
   res.json(populateWebsite(w));
 });
 
@@ -5903,7 +6972,6 @@ router.post('/websites/:id/checkout', auth, requireWebsiteBuilderAccess, async (
   const purchaseType = String(req.body?.purchaseType || '');
   if (!['full', 'subscription'].includes(purchaseType)) return res.status(400).json({ message: 'Choose full purchase or subscription.' });
 
-  const totalAmount = Math.max(0, Number(website.totalAmount) || 0);
   let plan = null;
   if (purchaseType === 'subscription') {
     const websiteModuleSlug = normalizeWebsiteModuleSlug(website.websiteModuleSlug || website.moduleType || '');
@@ -5912,41 +6980,51 @@ router.post('/websites/:id/checkout', auth, requireWebsiteBuilderAccess, async (
     if (!['fixed', 'free'].includes(plan.priceMode)) return res.status(400).json({ message: 'This subscription plan needs an admin-set fixed price. Ask your administrator to update it.' });
   }
   const subscriptionAmount = purchaseType === 'subscription' && plan.priceMode === 'fixed' ? Number(plan.fixedAmount) || 0 : 0;
-  const domainAmount = purchaseType === 'subscription' && !renewal ? Math.max(0, Number(website.domain?.price) || 0) : 0;
-  const amount = purchaseType === 'full' ? totalAmount : subscriptionAmount + domainAmount;
+  const domainAmount = !renewal ? websiteDomainAmount(website) : 0;
+  const amount = purchaseType === 'full'
+    ? websiteComponentAmount(website) + domainAmount
+    : subscriptionAmount + domainAmount;
+  const totalAmount = amount;
   const now = new Date();
   const previousPurchase = website.purchase;
   const paymentHistory = [...(previousPurchase?.payments || [])];
   if (previousPurchase?.paymentId && !paymentHistory.some(payment => payment.paymentId === previousPurchase.paymentId)) {
     paymentHistory.push({ paymentId: previousPurchase.paymentId, orderId: previousPurchase.orderId || '', type: previousPurchase.type || '', amount: Number(previousPurchase.amount || 0), totalAmount: Number(previousPurchase.totalAmount || previousPurchase.amount || 0), planName: previousPurchase.planName || '', status: 'paid', paidAt: previousPurchase.paidAt || '', createdAt: previousPurchase.createdAt || '' });
   }
-  if (purchaseType === 'subscription' && plan.priceMode === 'free' && amount === 0) {
+  if (amount === 0) {
     const priorExpiry = renewal && website.purchase?.expiresAt ? new Date(website.purchase.expiresAt) : null;
     const startAt = priorExpiry && Number.isFinite(priorExpiry.getTime()) && priorExpiry.getTime() > now.getTime() ? priorExpiry : now;
-    if (!renewal) {
+    if (!renewal && purchaseType === 'subscription') {
+      website.status = 'published';
+      website.publishedAt = now.toISOString();
+      if (website.domain) website.domain.status = 'active';
+    } else if (purchaseType === 'full') {
       website.status = 'published';
       website.publishedAt = now.toISOString();
       if (website.domain) website.domain.status = 'active';
     }
     website.purchase = {
-      type: 'subscription',
+      _id: uuidv4(),
+      type: purchaseType,
       status: 'paid',
       renewal,
       amount: 0,
-      subscriptionAmount: 0,
-      domainAmount: 0,
+      subscriptionAmount,
+      domainAmount,
       totalAmount,
       balanceDue: 0,
       percent: 0,
       priceMode: 'free',
-      subscriptionDurationValue: Number(plan.durationValue) || 30,
-      subscriptionDurationUnit: plan.durationUnit || 'day',
-      planId: plan._id,
-      planName: plan.name,
+      ...(purchaseType === 'subscription' ? {
+        subscriptionDurationValue: Number(plan.durationValue) || 30,
+        subscriptionDurationUnit: plan.durationUnit || 'day',
+        planId: plan._id,
+        planName: plan.name,
+      } : { planId: '', planName: 'Full purchase' }),
       orderId: '',
       paymentId: '',
       paidAt: now.toISOString(),
-      expiresAt: websiteSubscriptionExpiry(startAt, plan.durationValue, plan.durationUnit),
+      ...(purchaseType === 'subscription' ? { expiresAt: websiteSubscriptionExpiry(startAt, plan.durationValue, plan.durationUnit) } : {}),
       createdAt: now.toISOString(),
       payments: paymentHistory,
     };
@@ -5957,12 +7035,6 @@ router.post('/websites/:id/checkout', auth, requireWebsiteBuilderAccess, async (
   if (!Number.isFinite(amount) || amountPaise <= 0) return res.status(400).json({ message: purchaseType === 'full' ? 'Website total must be greater than zero.' : 'Subscription and domain total must be greater than zero. Ask your administrator to update the plan or domain.' });
 
   try {
-    const order = await razorpayRequest('/v1/orders', {
-      amount: amountPaise,
-      currency: 'INR',
-      receipt: `wz-${String(website._id).replace(/-/g, '').slice(0, 28)}`,
-      notes: { websiteId: String(website._id), purchaseType, planId: String(plan?._id || ''), renewal: String(renewal) },
-    });
     website.purchase = {
       type: purchaseType,
       status: 'pending',
@@ -5971,7 +7043,7 @@ router.post('/websites/:id/checkout', auth, requireWebsiteBuilderAccess, async (
       previousPaymentId: renewal ? website.purchase.paymentId || '' : '',
       amount,
       subscriptionAmount: purchaseType === 'subscription' ? subscriptionAmount : 0,
-      domainAmount: purchaseType === 'subscription' ? domainAmount : 0,
+      domainAmount,
       totalAmount,
       balanceDue: 0,
       percent: 0,
@@ -5980,21 +7052,23 @@ router.post('/websites/:id/checkout', auth, requireWebsiteBuilderAccess, async (
       subscriptionDurationUnit: purchaseType === 'subscription' ? (plan.durationUnit || 'day') : '',
       planId: plan?._id || '',
       planName: plan?.name || 'Full purchase',
-      orderId: order.id,
+      orderId: '',
       createdAt: new Date().toISOString(),
       payments: paymentHistory,
     };
-    res.json({
-      keyId: process.env.RAZORPAY_KEY_ID,
-      orderId: order.id,
-      amount: amountPaise,
-      currency: 'INR',
-      name: website.name,
+    const checkout = await createConfiguredGatewayCheckout({
+      req, purchase: website.purchase, amount, currency: 'INR', name: website.name,
       description: purchaseType === 'full' ? 'Full website purchase' : `${plan.name} subscription`,
+      customer: { id: req.user._id, name: req.user.name, email: req.user.email, phone: req.user.phone },
+      notes: { websiteId: String(website._id), purchaseType, planId: String(plan?._id || ''), renewal: String(renewal) },
+    });
+    schedulePersist();
+    res.json({
+      ...checkout,
       totalAmount,
       payableAmount: amount,
       subscriptionAmount: purchaseType === 'subscription' ? subscriptionAmount : 0,
-      domainAmount: purchaseType === 'subscription' ? domainAmount : 0,
+      domainAmount,
       purchaseType,
       planName: website.purchase.planName,
     });
@@ -6003,18 +7077,26 @@ router.post('/websites/:id/checkout', auth, requireWebsiteBuilderAccess, async (
   }
 });
 
-router.post('/websites/:id/checkout/verify', auth, requireWebsiteBuilderAccess, (req, res) => {
+router.post('/websites/:id/checkout/verify', auth, requireWebsiteBuilderAccess, async (req, res) => {
   const website = findAccessibleWebsite(req, req.params.id);
   if (!website) return res.status(404).json({ message: 'Website not found' });
   const purchase = website.purchase;
-  const orderId = String(req.body?.razorpay_order_id || '');
-  const paymentId = String(req.body?.razorpay_payment_id || '');
-  const signature = String(req.body?.razorpay_signature || '');
-  if (!purchase || purchase.status !== 'pending' || purchase.orderId !== orderId) {
+  const orderId = String(req.body?.orderId || req.body?.razorpay_order_id || '');
+  if (!purchase || purchase.status !== 'pending' || (purchase.orderId !== orderId && String(purchase._id) !== String(req.body?.purchaseId || ''))) {
     return res.status(409).json({ message: 'No matching pending payment was found.' });
   }
-  if (!verifyRazorpaySignature(orderId, paymentId, signature)) {
-    return res.status(400).json({ message: 'Payment verification failed.' });
+  let paymentId;
+  try {
+    paymentId = purchase.paymentGateway
+      ? await verifyConfiguredGatewayPayment({ purchase, body: req.body || {} })
+      : (() => {
+        const legacyPaymentId = String(req.body?.razorpay_payment_id || '');
+        const signature = String(req.body?.razorpay_signature || '');
+        if (!verifyRazorpaySignature(orderId, legacyPaymentId, signature)) throw Object.assign(new Error('Payment verification failed.'), { status: 400 });
+        return legacyPaymentId;
+      })();
+  } catch (error) {
+    return res.status(error.status || 502).json({ message: error.message || 'Payment verification failed.' });
   }
   purchase.status = 'paid';
   purchase.paymentId = paymentId;
@@ -6041,16 +7123,128 @@ router.post('/websites/:id/publish', auth, requireWebsiteBuilderAccess, (req, re
   }
   w.status = 'published';
   w.publishedAt = new Date().toISOString();
+  delete w.serviceStoppedAt;
   if (w.domain) w.domain.status = 'active';
   res.json(populateWebsite(w));
 });
 
-router.post('/websites/:id/stop-service', auth, requireWebsiteBuilderAccess, (req, res) => {
+async function runVpsWebsiteDeployment(action, website) {
+  const domain = normalizeWebsiteDomain(website?.domain?.fullDomain || '');
+  const module = websiteModuleForWebsite(website || {});
+  const moduleSlug = module ? websiteModuleSlugFor(module) : websiteModuleSlugFor(website || {});
+  if (!/^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/.test(domain) || !domain.includes('.')) {
+    throw new Error('Save a valid website domain before hosting this website.');
+  }
+  const result = await execFileAsync('sudo', [
+    '-n',
+    VPS_DEPLOY_HELPER,
+    action,
+    String(website._id),
+    domain,
+    moduleSlug,
+  ], {
+    timeout: 300000,
+    maxBuffer: 1024 * 1024,
+    windowsHide: true,
+  });
+  return String(result.stdout || '').trim();
+}
+
+let onDomainExpirySweepRunning = false;
+const sweepExpiredOnDomainSubscriptions = async () => {
+  if (onDomainExpirySweepRunning) return;
+  onDomainExpirySweepRunning = true;
+  try {
+    for (const website of store.websites || []) {
+      if (!onDomainHostingExpired(website) || website.hosting?.status !== 'active') continue;
+      website.hosting.status = 'disabling';
+      schedulePersist();
+      try {
+        await runVpsWebsiteDeployment('disable', website);
+        website.hosting.status = 'expired';
+        website.hosting.expiredAt = new Date().toISOString();
+        if (website.domain) website.domain.status = 'expired';
+        website.hosting.message = 'On Domain subscription expired. Renew a plan to restore hosting.';
+        schedulePersist();
+      } catch (error) {
+        website.hosting.status = 'active';
+        website.hosting.message = String(error.stderr || error.message || 'Expired hosting could not be disabled.').trim();
+        schedulePersist();
+        console.error('Expired On Domain subscription could not be disabled:', website._id, website.hosting.message);
+      }
+    }
+  } finally {
+    onDomainExpirySweepRunning = false;
+  }
+};
+const onDomainExpiryWorker = setInterval(sweepExpiredOnDomainSubscriptions, 60 * 1000);
+onDomainExpiryWorker.unref?.();
+setTimeout(sweepExpiredOnDomainSubscriptions, 5000).unref?.();
+
+router.post('/websites/:id/deploy', auth, requireWebsiteBuilderAccess, async (req, res) => {
+  const website = findAccessibleWebsite(req, req.params.id);
+  if (!website) return res.status(404).json({ message: 'Website not found' });
+  if (website.status !== 'published') return res.status(409).json({ message: 'Publish the website before hosting it.' });
+  if (websiteSubscriptionExpired(website) || website.serviceStoppedAt) {
+    return res.status(402).json({ message: 'Renew or reactivate the website service before hosting it.' });
+  }
+  if (!website.domain?.fullDomain || !['subdomain', 'custom'].includes(website.domain.type)) {
+    return res.status(400).json({ message: 'Choose and save a subdomain or custom domain before hosting this website.' });
+  }
+
+  website.hosting = { ...(website.hosting || {}), status: 'deploying', domain: website.domain.fullDomain };
+  schedulePersist();
+  try {
+    await runVpsWebsiteDeployment('deploy', website);
+    website.hosting = {
+      ...(website.hosting || {}),
+      status: 'active',
+      provider: 'wepzo-vps',
+      domain: website.domain.fullDomain,
+      sslStatus: 'active',
+      url: `https://${website.domain.fullDomain}`,
+      deployedAt: new Date().toISOString(),
+      message: '',
+    };
+    website.domain.status = 'active';
+    schedulePersist();
+    return res.json(populateWebsite(website));
+  } catch (error) {
+    const stderr = String(error.stderr || '').trim();
+    const message = stderr || error.message || 'Website hosting failed.';
+    website.hosting = {
+      ...(website.hosting || {}),
+      status: 'failed',
+      domain: website.domain.fullDomain,
+      message,
+      failedAt: new Date().toISOString(),
+    };
+    schedulePersist();
+    console.error('VPS website deployment failed:', message);
+    return res.status(error.code === 'ENOENT' ? 503 : 502).json({
+      message: error.code === 'ENOENT'
+        ? 'VPS deployment command is unavailable. Configure hosting on the Ubuntu VPS first.'
+        : message,
+    });
+  }
+});
+
+router.post('/websites/:id/stop-service', auth, requireWebsiteBuilderAccess, async (req, res) => {
   if (req.user.role !== 'website_user') return res.status(403).json({ message: 'Website account required' });
   const website = findAccessibleWebsite(req, req.params.id);
   if (!website) return res.status(404).json({ message: 'Website not found' });
+  if (website.hosting?.status === 'active') {
+    try {
+      await runVpsWebsiteDeployment('disable', website);
+    } catch (error) {
+      const message = String(error.stderr || error.message || 'Could not disable website hosting.');
+      console.error('VPS website shutdown failed:', message);
+      return res.status(502).json({ message });
+    }
+  }
   website.status = 'draft';
   website.serviceStoppedAt = new Date().toISOString();
+  if (website.hosting) website.hosting.status = 'stopped';
   res.json(populateWebsite(website));
 });
 
@@ -6298,12 +7492,43 @@ router.get('/bulk/history/export', auth, (req, res) => {
   res.json(list);
 });
 
+function websiteModuleForWebsite(w) {
+  const modules = store.websiteModules || [];
+  const byId = w.websiteModuleId
+    ? modules.find(module => String(module._id) === String(w.websiteModuleId))
+    : null;
+  if (byId) return byId;
+  const websiteModuleSlug = websiteModuleSlugFor(w);
+  return modules.find(module => websiteModuleSlugFor(module) === websiteModuleSlug);
+}
+
+function websiteComponentAmount(w) {
+  const components = Array.isArray(w.components) ? w.components : [];
+  if (!components.length) return 0;
+  const module = websiteModuleForWebsite(w);
+  const priceMode = module?.fullPurchasePriceMode || 'components';
+  if (priceMode === 'free') return 0;
+  if (priceMode === 'fixed') return Math.max(0, Number(module.fullPurchaseAmount) || 0);
+  return components.reduce((sum, component) => sum + (Number(component.price) || 0), 0);
+}
+
+function websiteDomainAmount(w) {
+  if (!w.domain || w.domain.type === 'none') return 0;
+  if (w.domain.type !== 'subdomain') return Math.max(0, Number(w.domain.price) || 0);
+  const module = websiteModuleForWebsite(w);
+  if (module?.subdomainPriceMode === 'free') return 0;
+  return Math.max(0, Number(module?.subdomainPrice ?? 500) || 0);
+}
+
+function websiteTotalAmount(w) {
+  return websiteComponentAmount(w) + websiteDomainAmount(w);
+}
+
 function populateWebsite(w) {
-  const websiteModuleSlug = normalizeWebsiteModuleSlug(w.websiteModuleSlug || w.moduleType || '');
-  const websiteModule = (store.websiteModules || []).find(module =>
-    (w.websiteModuleId && String(module._id) === String(w.websiteModuleId))
-    || normalizeWebsiteModuleSlug(module.slug || module.type || '') === websiteModuleSlug
-  );
+  const websiteModule = websiteModuleForWebsite(w);
+  const websiteModuleSlug = websiteModule
+    ? websiteModuleSlugFor(websiteModule)
+    : websiteModuleSlugFor(w);
   const moduleName = String(websiteModule?.name || '').toLowerCase();
   const quickCommerce = ['quick-commerce', 'quick_commerce', 'qcommerce'].includes(websiteModuleSlug)
     || moduleName.includes('quick commerce')
@@ -6330,6 +7555,11 @@ function populateWebsite(w) {
   };
   return {
     ...w,
+    websiteModuleId: w.websiteModuleId || websiteModule?._id || '',
+    websiteModuleSlug,
+    moduleName: websiteModule?.name || w.moduleName || '',
+    totalAmount: websiteTotalAmount(w),
+    domain: w.domain ? { ...w.domain, price: websiteDomainAmount(w) } : w.domain,
     components: w.components.map(c => ({
       ...c,
       componentId: store.components.find(x => x._id === c.componentId
@@ -6599,23 +7829,32 @@ function shopBusinessSettings(websiteContext, moduleSlug) {
       ? `main-module:${moduleSlug}`
       : `website-user:${websiteId}:${moduleSlug}`
     : `main-module:${moduleSlug}`;
-  return {
+  const settings = {
     ...(store.businessSettingsByModule?.[moduleSlug] || store.businessSettingsByModule?.[moduleSlug.replace(/-/g, '')] || store.businessSettings || {}),
     ...(store.businessSettingsByModule?.[settingsScope] || {}),
   };
+  if (!websiteId || websiteContext?.isMainWebsite) return settings;
+
+  const tenantSettings = store.businessSettingsByModule?.[settingsScope] || {};
+  const tenantGatewayKeys = [
+    'onlinePaymentEnabled', 'paymentGateway', 'paymentCurrency', 'paymentReturnUrl',
+    'razorpayEnabled', 'razorpayKey', 'razorpayKeySecret',
+    'phonepeEnabled', 'phonepeClientId', 'phonepeClientSecret', 'phonepeClientVersion', 'phonepeEnvironment',
+    'cashfreeEnabled', 'cashfreeAppId', 'cashfreeSecretKey', 'cashfreeEnvironment',
+  ];
+  tenantGatewayKeys.forEach(key => { delete settings[key]; });
+  tenantGatewayKeys.forEach(key => {
+    if (Object.prototype.hasOwnProperty.call(tenantSettings, key)) settings[key] = tenantSettings[key];
+  });
+  return settings;
 }
 
 function shopPaymentGatewayReady(settings = {}) {
   if (String(process.env.PAYMENT_CREDENTIALS_ENCRYPTION_KEY || '').length < 32) return false;
   const gateway = String(settings.paymentGateway || '').toLowerCase();
   if (gateway === 'razorpay') return !!(settings.razorpayEnabled && settings.razorpayKey && settings.razorpayKeySecret);
-  let returnUrlIsValid = false;
-  try {
-    const protocol = new URL(String(settings.paymentReturnUrl || '')).protocol;
-    returnUrlIsValid = protocol === 'http:' || protocol === 'https:';
-  } catch { /* A missing or malformed redirect URL disables redirect-based gateways. */ }
-  if (gateway === 'phonepe') return !!(settings.phonepeEnabled && settings.phonepeClientId && settings.phonepeClientSecret && returnUrlIsValid);
-  if (gateway === 'cashfree') return !!(settings.cashfreeEnabled && settings.cashfreeAppId && settings.cashfreeSecretKey && returnUrlIsValid);
+  if (gateway === 'phonepe') return !!(settings.phonepeEnabled && settings.phonepeClientId && settings.phonepeClientSecret);
+  if (gateway === 'cashfree') return !!(settings.cashfreeEnabled && settings.cashfreeAppId && settings.cashfreeSecretKey);
   return false;
 }
 
@@ -6647,12 +7886,12 @@ function shopQuoteFor(body, websiteId = '', contextOverride = null, customer = n
     website,
     websiteId,
     moduleId: String(website?.websiteModuleId || ''),
-    moduleSlug: normalizeWebsiteModuleSlug(website?.websiteModuleSlug || website?.moduleType || ''),
+    module: websiteModuleForWebsite(website || {}),
+    moduleSlug: websiteModuleSlugFor(websiteModuleForWebsite(website || {}) || website || {}),
   };
-  const websiteModuleSlug = normalizeWebsiteModuleSlug(
-    websiteContext.website?.websiteModuleSlug || websiteContext.website?.moduleType || websiteContext.moduleSlug || ''
-  );
-  const ecommerceStorefront = ['ecommerce', 'e-commerce'].includes(websiteModuleSlug);
+  const websiteModuleSlug = websiteContext.moduleSlug
+    || websiteModuleSlugFor(websiteContext.module || websiteModuleForWebsite(websiteContext.website) || websiteContext.website || {});
+  const ecommerceStorefront = websiteModuleSlug === 'e-commerce';
   const quickCommerceStorefront = isQuickCommerceStorefront(websiteContext);
   const websiteStore = {
     ...store,
@@ -6920,8 +8159,9 @@ router.get('/shop/home', (req, res) => {
   });
   if (linkedLegacyCategory) schedulePersist();
 
-  const websiteModuleSlug = normalizeWebsiteModuleSlug(websiteContext.website?.websiteModuleSlug || websiteContext.website?.moduleType || websiteContext.moduleSlug || '');
-  const ecommerceStorefront = ['ecommerce', 'e-commerce'].includes(websiteModuleSlug);
+  const websiteModuleSlug = websiteContext.moduleSlug
+    || websiteModuleSlugFor(websiteContext.module || websiteModuleForWebsite(websiteContext.website) || websiteContext.website || {});
+  const ecommerceStorefront = websiteModuleSlug === 'e-commerce';
   const quickCommerceStorefront = isQuickCommerceStorefront(websiteContext);
   const catalog = ecommerceStorefront
     ? { stores: (store.stores || []).filter(item => belongsToWebsite(item, websiteId) && isShopWebsiteRecord(item, websiteContext) && item.status === 'active') }
@@ -6939,7 +8179,7 @@ router.get('/shop/home', (req, res) => {
     .filter(module => belongsToWebsite(module, websiteId) && module.status !== false && module.status !== 'false' && module.status !== 'inactive' && isShopWebsiteRecord(module, websiteContext))
     .map(({ _id, name, slug, image }) => ({ _id, name, slug, image: image || '' }))
     .filter(module => moduleSlugsWithProducts.has(String(module.slug || '').trim().toLowerCase()));
-  const activeBrands = (store.brands || []).filter(b => belongsToWebsite(b, websiteId) && isShopWebsiteRecord(b, websiteContext) && b.status !== false);
+  const activeBrands = (store.brands || []).filter(b => belongsToWebsite(b, websiteId) && isShopWebsiteRecord(b, websiteContext) && b.status !== false && !['inactive', 'false', 'disabled'].includes(String(b.status || '').trim().toLowerCase()));
   const homeBanners = (store.banners || [])
     .filter(banner => belongsToWebsite(banner, websiteId)
       && isShopWebsiteRecord(banner, websiteContext)
@@ -6993,15 +8233,12 @@ router.get('/shop/home', (req, res) => {
   const settingsModuleSlug = normalizeWebsiteModuleSlug(
     websiteContext.website?.websiteModuleSlug || websiteContext.website?.moduleType || websiteContext.moduleSlug || ''
   );
-  const settingsScope = websiteContext.websiteId
+  const settingsScope = websiteId
     ? websiteContext.isMainWebsite
       ? `main-module:${settingsModuleSlug}`
-      : `website-user:${websiteContext.websiteId}:${settingsModuleSlug}`
+      : `website-user:${websiteId}:${settingsModuleSlug}`
     : `main-module:${settingsModuleSlug}`;
-  const settings = {
-    ...(store.businessSettingsByModule?.[settingsModuleSlug] || store.businessSettingsByModule?.[settingsModuleSlug.replace(/-/g, '')] || store.businessSettings || {}),
-    ...(settingsScope ? (store.businessSettingsByModule?.[settingsScope] || {}) : {}),
-  };
+  const settings = shopBusinessSettings(websiteContext, settingsModuleSlug);
   const selectedGateway = String(settings.paymentGateway || 'razorpay').toLowerCase();
   const gatewayReady = shopPaymentGatewayReady(settings);
   res.json({
@@ -7249,7 +8486,11 @@ router.post('/shop/orders', shopAuth, (req, res) => {
     instruction: body.instruction || '',
     orderDate: formatNow(),
     date: formatNow(),
-    source: ['ecommerce', 'e-commerce'].includes(normalizeWebsiteModuleSlug(req.customer.websiteModuleSlug)) ? 'e_commerce' : 'quick_commerce',
+    source: ['ecommerce', 'e-commerce'].includes(normalizeWebsiteModuleSlug(req.customer.websiteModuleSlug))
+      ? 'e_commerce'
+      : normalizeWebsiteModuleSlug(req.customer.websiteModuleSlug) === 'store-single'
+        ? 'store_single'
+        : 'quick_commerce',
     websiteId: req.customer.websiteId || '',
     websiteModuleId: req.customer.websiteModuleId || '',
     websiteModuleSlug: req.customer.websiteModuleSlug || quickCommerceWebsiteModuleSlug(),
@@ -7296,7 +8537,7 @@ router.post('/shop/payments/initiate', shopAuth, async (req, res) => {
   if (order.paymentGateway && order.paymentGateway !== gateway) {
     return res.status(409).json({ message: 'The payment gateway changed for this pending order. Contact support to continue.' });
   }
-  const returnUrl = String(settings.paymentReturnUrl || '').trim();
+  const returnUrl = String(req.body?.returnUrl || settings.paymentReturnUrl || '').trim();
   const gatewayOrderId = `${String(order.orderNo || 'WZP').replace(/[^a-zA-Z0-9_-]/g, '')}-${uuidv4().slice(0, 8)}`;
   const amount = Math.round(Number(order.total || order.amount || 0) * 100);
   if (!(amount > 0)) return res.status(400).json({ message: 'Order amount must be greater than zero.' });
@@ -7341,7 +8582,7 @@ router.post('/shop/payments/initiate', shopAuth, async (req, res) => {
         paymentFlow: {
           type: 'PG_CHECKOUT',
           message: `Payment for ${order.orderNo}`,
-          merchantUrls: { redirectUrl: shopPaymentReturnUrl(returnUrl, order, gateway) },
+          merchantUrls: { redirectUrl: shopPaymentReturnUrl(returnUrl, order, gateway, req.body?.returnUrl, req) },
         },
       });
       if (!providerOrder.redirectUrl) throw Object.assign(new Error('PhonePe did not return a checkout URL.'), { status: 502 });
@@ -7363,7 +8604,7 @@ router.post('/shop/payments/initiate', shopAuth, async (req, res) => {
       const providerOrder = await paymentGatewayRequest(host, '/pg/orders', 'POST', {
         'x-client-id': settings.cashfreeAppId,
         'x-client-secret': settings.cashfreeSecretKey,
-        'x-api-version': '2023-08-01',
+        'x-api-version': '2025-01-01',
       }, {
         order_id: gatewayOrderId,
         order_amount: Number((amount / 100).toFixed(2)),
@@ -7374,7 +8615,7 @@ router.post('/shop/payments/initiate', shopAuth, async (req, res) => {
           customer_email: order.customerEmail || 'customer@example.com',
           customer_phone: String(order.phone || '').replace(/\D/g, '').slice(-10),
         },
-        order_meta: { return_url: shopPaymentReturnUrl(returnUrl, order, gateway) },
+        order_meta: { return_url: shopPaymentReturnUrl(returnUrl, order, gateway, req.body?.returnUrl, req) },
       });
       if (!providerOrder.payment_session_id) throw Object.assign(new Error('Cashfree did not return a payment session.'), { status: 502 });
       order.paymentGateway = gateway;
@@ -7422,7 +8663,7 @@ router.post('/shop/payments/verify', shopAuth, async (req, res) => {
       const result = await paymentGatewayRequest(host, `/pg/orders/${encodeURIComponent(order.gatewayOrderId)}`, 'GET', {
         'x-client-id': settings.cashfreeAppId,
         'x-client-secret': settings.cashfreeSecretKey,
-        'x-api-version': '2023-08-01',
+        'x-api-version': '2025-01-01',
       });
       if (String(result.order_status || '').toUpperCase() !== 'PAID'
         || Math.round(Number(result.order_amount) * 100) !== Math.round(Number(order.total || order.amount || 0) * 100)
@@ -7435,8 +8676,8 @@ router.post('/shop/payments/verify', shopAuth, async (req, res) => {
       const host = sandbox ? 'api-preprod.phonepe.com' : 'api.phonepe.com';
       const token = await phonePeAccessToken(settings, sandbox);
       const path = sandbox
-        ? `/apis/pg-sandbox/checkout/v2/order/${encodeURIComponent(order.gatewayOrderId)}`
-        : `/apis/pg/checkout/v2/order/${encodeURIComponent(order.gatewayOrderId)}`;
+        ? `/apis/pg-sandbox/checkout/v2/order/${encodeURIComponent(order.gatewayOrderId)}/status`
+        : `/apis/pg/checkout/v2/order/${encodeURIComponent(order.gatewayOrderId)}/status`;
       const result = await paymentGatewayRequest(host, path, 'GET', { Authorization: `O-Bearer ${token}` });
       if (String(result.state || '').toUpperCase() !== 'COMPLETED'
         || (result.amount != null && Math.round(Number(result.amount)) !== Math.round(Number(order.total || order.amount || 0) * 100))) {

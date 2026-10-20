@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Plus, Edit, Trash2, Layers, Save, X } from 'lucide-react';
 import api from '../api/axios';
+import { numericInputValue } from '../utils/numericInput';
 import { useModuleStore } from '../store/useStore';
 import { getAdminModuleLabel } from '../constants/adminModules';
 
@@ -150,7 +151,7 @@ export default function ComponentsPage() {
               min="0"
               step="1"
               placeholder="Price (₹)"
-              value={form.price}
+              value={numericInputValue(form.price)}
               onChange={e => setForm({ ...form, price: Number(e.target.value || 0) })}
               className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-100"
               required

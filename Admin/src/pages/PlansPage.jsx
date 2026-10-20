@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Plus, CreditCard, Check } from 'lucide-react';
 import api from '../api/axios';
+import { numericInputValue } from '../utils/numericInput';
 
 export default function PlansPage() {
   const [plans, setPlans] = useState([]);
@@ -42,9 +43,9 @@ export default function PlansPage() {
         <div className="bg-white rounded-xl border p-6 shadow-sm">
           <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <input placeholder="Plan Name" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} className="px-3 py-2 border rounded-lg text-sm" required />
-            <input type="number" placeholder="Price (₹)" value={form.price} onChange={e => setForm({ ...form, price: Number(e.target.value) })} className="px-3 py-2 border rounded-lg text-sm" />
-            <input type="number" placeholder="Max Components" value={form.maxComponents} onChange={e => setForm({ ...form, maxComponents: Number(e.target.value) })} className="px-3 py-2 border rounded-lg text-sm" />
-            <input type="number" placeholder="Max Websites" value={form.maxWebsites} onChange={e => setForm({ ...form, maxWebsites: Number(e.target.value) })} className="px-3 py-2 border rounded-lg text-sm" />
+            <input type="number" placeholder="Price (₹)" value={numericInputValue(form.price)} onChange={e => setForm({ ...form, price: Number(e.target.value) })} className="px-3 py-2 border rounded-lg text-sm" />
+            <input type="number" placeholder="Max Components" value={numericInputValue(form.maxComponents)} onChange={e => setForm({ ...form, maxComponents: Number(e.target.value) })} className="px-3 py-2 border rounded-lg text-sm" />
+            <input type="number" placeholder="Max Websites" value={numericInputValue(form.maxWebsites)} onChange={e => setForm({ ...form, maxWebsites: Number(e.target.value) })} className="px-3 py-2 border rounded-lg text-sm" />
             <input placeholder="Features (comma separated)" value={form.features} onChange={e => setForm({ ...form, features: e.target.value })} className="px-3 py-2 border rounded-lg text-sm md:col-span-2" />
             <button type="submit" className="bg-primary-600 text-white px-6 py-2 rounded-lg text-sm font-medium">Save Plan</button>
           </form>

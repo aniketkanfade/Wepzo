@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { X, Loader2 } from 'lucide-react';
 import api from '../../../api/axios';
+import { numericInputValue } from '../../../utils/numericInput';
 
 function variantLabel(v) {
   if (!v?.attributes) return 'Variant';
@@ -91,7 +92,7 @@ export default function ProductStockUpdateModal({ product, onClose, onSaved }) {
                     <input
                       type="number"
                       min="0"
-                      value={v.stock}
+                      value={numericInputValue(v.stock)}
                       onChange={e => updateVariant(v.id, 'stock', e.target.value)}
                       placeholder="Stock"
                       className="px-2 py-1.5 border border-gray-200 rounded text-xs outline-none focus:ring-1 focus:ring-primary-500/30"
@@ -99,7 +100,7 @@ export default function ProductStockUpdateModal({ product, onClose, onSaved }) {
                     <input
                       type="number"
                       min="0"
-                      value={v.price}
+                      value={numericInputValue(v.price)}
                       onChange={e => updateVariant(v.id, 'price', e.target.value)}
                       placeholder="₹ Price"
                       className="px-2 py-1.5 border border-gray-200 rounded text-xs outline-none focus:ring-1 focus:ring-primary-500/30"
@@ -119,7 +120,7 @@ export default function ProductStockUpdateModal({ product, onClose, onSaved }) {
                   <input
                     type="number"
                     min="0"
-                    value={stock}
+                    value={numericInputValue(stock)}
                     onChange={e => setStock(e.target.value)}
                     className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-primary-500/25"
                   />
@@ -129,7 +130,7 @@ export default function ProductStockUpdateModal({ product, onClose, onSaved }) {
                   <input
                     type="number"
                     min="0"
-                    value={price}
+                    value={numericInputValue(price)}
                     onChange={e => setPrice(e.target.value)}
                     className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-primary-500/25"
                   />

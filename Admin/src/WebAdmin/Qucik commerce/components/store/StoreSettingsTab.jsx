@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Info, Plus, X, RotateCcw, Save, Clock } from 'lucide-react';
 import api from '../../../../api/axios';
 import NavyToggle from '../NavyToggle';
+import { numericInputValue } from '../../../../utils/numericInput';
 import {
   LIST_NAVY as NAVY, LIST_CARD_BORDER as CARD_BORDER,
   listBtnNavy, listBtnOutline,
@@ -145,7 +146,7 @@ export default function StoreSettingsTab({ store, onStorePatch, isEcommerce = fa
             <label className="text-sm font-medium text-gray-700 flex items-center gap-1.5 mb-1.5">
               Minimum Order Amount <span className="text-red-500">*</span> <Hint text="Is amount se kam ka order accept nahi hoga" />
             </label>
-            <input type="number" min={0} value={form.minimumOrderAmount ?? 1}
+            <input type="number" min={0} value={numericInputValue(form.minimumOrderAmount ?? 1)}
               onChange={e => set('minimumOrderAmount', Number(e.target.value))}
               className={inputCls} style={{ borderColor: CARD_BORDER }} />
           </div>
@@ -154,10 +155,10 @@ export default function StoreSettingsTab({ store, onStorePatch, isEcommerce = fa
               Approx Delivery Time <span className="text-red-500">*</span> <Hint text="Customer ko dikhne wala estimated time" />
             </label>
             <div className="grid grid-cols-3 gap-2">
-              <input type="number" min={0} value={form.deliveryMin ?? 10}
+              <input type="number" min={0} value={numericInputValue(form.deliveryMin ?? 10)}
                 onChange={e => set('deliveryMin', Number(e.target.value))}
                 className={inputCls} style={{ borderColor: CARD_BORDER }} />
-              <input type="number" min={0} value={form.deliveryMax ?? 20}
+              <input type="number" min={0} value={numericInputValue(form.deliveryMax ?? 20)}
                 onChange={e => set('deliveryMax', Number(e.target.value))}
                 className={inputCls} style={{ borderColor: CARD_BORDER }} />
               <select value={form.deliveryUnit || 'Minutes'} onChange={e => set('deliveryUnit', e.target.value)}

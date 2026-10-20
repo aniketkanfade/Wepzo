@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { CalendarClock, Check, ExternalLink, Globe2, Layers3, LogOut, Pencil, RefreshCw, ShieldCheck } from 'lucide-react';
+import { CalendarClock, Check, ExternalLink, Globe2, Layers3, LogOut, Pencil, RefreshCw, ShieldCheck, UploadCloud } from 'lucide-react';
 import api from '../api/axios';
 import { useAuthStore, useBuilderStore } from '../store/useStore';
 import { getAdminModuleKey } from '../constants/adminModules';
 import OnDomainDownloadCard from '../components/OnDomainDownloadCard';
+import { hasWebsiteServiceEnded } from '../utils/websiteService';
 
 const daysUntil = value => {
   if (!value) return null;
@@ -23,6 +24,9 @@ export default function WebsiteDashboardPage() {
   const [plans, setPlans] = useState([]);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
+  const [hostingLoading, setHostingLoading] = useState(false);
+  const [hostingError, setHostingError] = useState('');
+  const [hostingNotice, setHostingNotice] = useState('');
 
   useEffect(() => {
     let active = true;
@@ -53,8 +57,10 @@ export default function WebsiteDashboardPage() {
     return Number(purchase.amount || purchase.totalAmount || website?.totalAmount || 0);
   }, [purchase.amount, purchase.totalAmount, purchase.type, website?.totalAmount]);
   const websiteModuleKey = getAdminModuleKey({ slug: website?.websiteModuleSlug || website?.moduleType, name: website?.moduleName });
-  const viewUrl = website?.domain?.fullDomain
-    ? `${/^https?:\/\//i.test(website.domain.fullDomain) ? '' : 'https://'}${website.domain.fullDomain}`
+  const viewUrl = website?.hosting?.status === 'active' && website.hosting.url
+    ? website.hosting.url
+    : website?.domain?.fullDomain
+      ? `${/^https?:\/\//i.test(website.domain.fullDomain) ? '' : 'https://'}${website.domain.fullDomain}`
     : websiteModuleKey === 'e-commerce'
       ? (() => {
           const url = new URL(import.meta.env.VITE_ECOMMERCE_PREVIEW_URL || 'http://localhost:5173/', window.location.origin);
@@ -63,6 +69,14 @@ export default function WebsiteDashboardPage() {
           if (website?.websiteModuleId) url.searchParams.set('moduleId', website.websiteModuleId);
           return url.href;
         })()
+      : websiteModuleKey === 'store-single'
+        ? (() => {
+            const url = new URL(import.meta.env.VITE_STORE_SINGLE_PREVIEW_URL || 'http://localhost:5175/', window.location.origin);
+            url.searchParams.set('published', '1');
+            url.searchParams.set('websiteId', website?._id || '');
+            if (website?.websiteModuleId) url.searchParams.set('websiteModuleId', website.websiteModuleId);
+            return url.href;
+          })()
       : `/published-websites/${website?._id}`;
   const marketingWorkspaceUrl = useMemo(() => {
     if (websiteModuleKey !== 'marketing') return '';
@@ -73,6 +87,21 @@ export default function WebsiteDashboardPage() {
     return url.href;
   }, [website, websiteModuleKey]);
   const logoutUser = () => { resetBuilder(); logout(); navigate('/login', { replace: true }); };
+  const hostWebsite = async () => {
+    if (!website?._id) return;
+    setHostingLoading(true);
+    setHostingError('');
+    setHostingNotice('');
+    try {
+      const { data } = await api.post(`/websites/${website._id}/deploy`);
+      setWebsite(data);
+      setHostingNotice(data.hosting?.message || 'Website hosted successfully.');
+    } catch (requestError) {
+      setHostingError(requestError.response?.data?.message || 'Website could not be hosted. Please retry.');
+    } finally {
+      setHostingLoading(false);
+    }
+  };
 
   if (loading) return <main className="grid min-h-screen place-items-center bg-[#090f1b] text-sm text-slate-300">Loading your website...</main>;
   if (error) return <main className="grid min-h-screen place-items-center bg-[#090f1b] px-5"><div role="alert" className="max-w-md rounded-xl border border-rose-400/30 bg-rose-950/50 p-5 text-sm text-rose-200">{error}<button onClick={() => window.location.reload()} className="ml-3 underline">Retry</button></div></main>;
@@ -82,18 +111,28 @@ export default function WebsiteDashboardPage() {
   const renewalLabel = remaining === null ? 'Subscription term not set' : remaining <= 0 ? 'Expired' : `${remaining} Days`;
   const domainLabel = domainRemaining === null ? 'No expiry date' : domainRemaining <= 0 ? 'Expired' : `${domainRemaining} Days`;
   const subscriptionExpired = subscription && remaining !== null && remaining <= 0;
-  const published = website.status === 'published' && !subscriptionExpired;
+  const serviceEnded = hasWebsiteServiceEnded(website);
+  const published = website.status === 'published' && !serviceEnded;
 
   return <main className="min-h-screen bg-[#090f1b] px-4 py-8 text-white sm:px-6">
     <div className="mx-auto max-w-3xl space-y-3">
       <header className="flex items-center justify-between px-1 pb-2"><div className="flex items-center gap-2 font-bold tracking-wide"><span className="grid h-8 w-8 place-items-center rounded-lg bg-orange-500"><Globe2 size={17}/></span>WEPZO</div><button type="button" onClick={logoutUser} className="inline-flex items-center gap-2 rounded-lg border border-slate-700 px-3 py-2 text-xs text-slate-300 hover:bg-slate-800"><LogOut size={14}/> Sign out</button></header>
 
       <section className="rounded-xl bg-[#111a2a] p-3 shadow-xl shadow-black/20 sm:p-4">
-        <div className="mb-3 flex items-start justify-between"><div><h1 className="font-semibold">{website.name || 'My Website'}</h1><p className="mt-1 text-xs text-slate-400">Manage your website, domain and plan</p></div><span className={`rounded-full px-2 py-1 text-[10px] font-bold ${subscriptionExpired ? 'bg-rose-900/70 text-rose-300' : published ? 'bg-emerald-900/70 text-emerald-300' : 'bg-amber-900/70 text-amber-300'}`}>{subscriptionExpired ? 'Subscription expired' : published ? 'Live' : 'Setup in progress'}</span></div>
+        <div className="mb-3 flex items-start justify-between"><div><h1 className="font-semibold">{website.name || 'My Website'}</h1><p className="mt-1 text-xs text-slate-400">Manage your website, domain and plan</p></div><span className={`rounded-full px-2 py-1 text-[10px] font-bold ${serviceEnded ? 'bg-rose-900/70 text-rose-300' : published ? 'bg-emerald-900/70 text-emerald-300' : 'bg-amber-900/70 text-amber-300'}`}>{serviceEnded ? (website.serviceStoppedAt ? 'Service stopped' : 'Subscription expired') : published ? 'Live' : 'Setup in progress'}</span></div>
         <div className="rounded-lg bg-[#1d293b] p-2.5">
           <div className="flex items-start justify-between gap-3"><div className="flex min-w-0 items-start gap-2"><Globe2 size={14} className="mt-0.5 shrink-0 text-slate-400"/><div className="min-w-0"><p className="truncate text-xs font-semibold">{website.domain?.fullDomain || website.domain?.name || 'Domain not connected'}</p><p className="mt-1 text-[10px] text-slate-400">{website.domain?.type === 'custom' ? 'Custom domain' : website.domain?.type === 'subdomain' ? 'Wepzo subdomain' : 'Connect a domain in the designer'}</p></div></div>{published && <a aria-label="Open website in new tab" href={viewUrl} target="_blank" rel="noreferrer" className="rounded p-1 text-slate-300 hover:bg-slate-700"><ExternalLink size={14}/></a>}</div>
-          <div className="mt-2 grid grid-cols-2 gap-2"><button type="button" onClick={() => navigate('/website-builder')} className="inline-flex items-center justify-center gap-1.5 rounded-full border border-slate-600 px-3 py-1.5 text-[11px] font-medium text-slate-100 hover:bg-slate-700"><Pencil size={12}/> Edit Website</button><a href={published ? viewUrl : undefined} target={published ? '_blank' : undefined} rel="noreferrer" aria-disabled={!published} onClick={event => { if (!published) event.preventDefault(); }} className={`inline-flex items-center justify-center gap-1.5 rounded-full px-3 py-1.5 text-[11px] font-semibold ${published ? 'bg-slate-100 text-slate-900 hover:bg-white' : 'cursor-not-allowed bg-slate-700 text-slate-400'}`}><ExternalLink size={12}/> View Website</a></div>
-          {marketingWorkspaceUrl && <a href={marketingWorkspaceUrl} target="_blank" rel="noreferrer" className="mt-2 inline-flex w-full items-center justify-center gap-2 rounded-full bg-orange-500 py-2 text-[11px] font-semibold text-white hover:bg-orange-400"><ExternalLink size={13}/> Open Marketing Workspace</a>}
+          <div className={`mt-2 grid ${serviceEnded ? 'grid-cols-1' : 'grid-cols-2'} gap-2`}>{!serviceEnded && <button type="button" onClick={() => navigate('/website-builder')} className="inline-flex items-center justify-center gap-1.5 rounded-full border border-slate-600 px-3 py-1.5 text-[11px] font-medium text-slate-100 hover:bg-slate-700"><Pencil size={12}/> Edit Website</button>}<a href={published ? viewUrl : undefined} target={published ? '_blank' : undefined} rel="noreferrer" aria-disabled={!published} onClick={event => { if (!published) event.preventDefault(); }} className={`inline-flex items-center justify-center gap-1.5 rounded-full px-3 py-1.5 text-[11px] font-semibold ${published ? 'bg-slate-100 text-slate-900 hover:bg-white' : 'cursor-not-allowed bg-slate-700 text-slate-400'}`}><ExternalLink size={12}/> View Website</a></div>
+          {published && website.domain?.fullDomain && <div className="mt-3 border-t border-slate-700 pt-3">
+            <button type="button" onClick={hostWebsite} disabled={hostingLoading || serviceEnded} className="inline-flex w-full items-center justify-center gap-2 rounded-full bg-orange-500 py-2 text-[11px] font-semibold text-white hover:bg-orange-400 disabled:cursor-wait disabled:opacity-60">
+              <UploadCloud size={13}/>{hostingLoading ? 'Hosting website…' : website.hosting?.status === 'active' ? 'Update VPS hosting' : 'Host website on WEPZO VPS'}
+            </button>
+            {website.domain.type === 'custom' && website.hosting?.status !== 'active' && <p className="mt-2 text-[9px] leading-4 text-slate-400">Point this domain’s A record to your WEPZO VPS IP before hosting; HTTPS is configured automatically after DNS resolves.</p>}
+            {website.hosting?.status === 'active' && <p className="mt-2 text-[9px] text-emerald-300">Hosted on WEPZO VPS · HTTPS {website.hosting.sslStatus === 'active' ? 'active' : 'pending'}</p>}
+            {hostingNotice && <p role="status" className="mt-2 text-[9px] leading-4 text-emerald-300">{hostingNotice}</p>}
+            {(hostingError || website.hosting?.status === 'failed') && <p role="alert" className="mt-2 text-[9px] leading-4 text-rose-300">{hostingError || website.hosting.message}</p>}
+          </div>}
+          {marketingWorkspaceUrl && !serviceEnded && <a href={marketingWorkspaceUrl} target="_blank" rel="noreferrer" className="mt-2 inline-flex w-full items-center justify-center gap-2 rounded-full bg-orange-500 py-2 text-[11px] font-semibold text-white hover:bg-orange-400"><ExternalLink size={13}/>Open marketing workspace</a>}
         </div>
 
         <div className="mt-2 grid grid-cols-2 gap-2">

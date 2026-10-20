@@ -70,6 +70,7 @@ export const SETTINGS_SIDEBARS = {
       { label: 'Welcome Page', path: '/settings/welcome-page', icon: BookOpen },
       { label: 'On Domain Page', path: '/settings/on-domain', icon: Globe },
       { label: 'Website Subscription Plans', path: '/settings/website-subscriptions', icon: CreditCard },
+      { label: 'Payment Gateway', path: '/settings/payment-gateway', icon: CreditCard },
       { label: 'Components', path: '/components', icon: Layers },
       { label: 'Plans', path: '/plans', icon: CreditCard },
       { label: 'Users', path: '/users', icon: Users },

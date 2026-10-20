@@ -4,6 +4,8 @@ import api from '../../api/axios';
 import NavyToggle from '../../WebAdmin/Qucik commerce/components/NavyToggle';
 import { LIST_CARD_BORDER as CARD_BORDER, listBtnNavy } from '../../constants/listTheme';
 import SettingsGenericPage from './SettingsGenericPage';
+import { numericInputValue } from '../../utils/numericInput';
+import { useAuthStore } from '../../store/useStore';
 
 const smsTemplates = [
   { id: 'customer_registration_otp', topic: 'Customer Registration OTP', templateKey: 'smsTemplateCustomerRegistrationOtp', messageKey: 'smsMessageCustomerRegistrationOtp', message: 'Welcome to Somoo! Your registration OTP is #OTP#. Enter this code to complete your account registration. Do not share this OTP with anyone. Valid for 10 minutes.' },
@@ -149,7 +151,8 @@ const sections = [
 ];
 
 export default function ThirdPartySettingsPage() {
-  const [activeId, setActiveId] = useState('sms');
+  const user = useAuthStore(state => state.user);
+  const [activeId, setActiveId] = useState(() => user?.role === 'main_admin' ? 'sms' : 'payments');
   const [activeTab, setActiveTab] = useState('Configuration');
   const [form, setForm] = useState({});
   const [loading, setLoading] = useState(true);
@@ -160,6 +163,7 @@ export default function ThirdPartySettingsPage() {
   const [testSending, setTestSending] = useState(false);
   const [testResult, setTestResult] = useState('');
   const [testTemplateId, setTestTemplateId] = useState(smsTemplates[0].id);
+  const visibleSections = user?.role === 'main_admin' ? sections : sections.filter(item => item.id === 'payments');
   const section = useMemo(() => sections.find(item => item.id === activeId) || sections[0], [activeId]);
   const activeFields = section.fieldsByTab?.[activeTab] || section.fields;
 
@@ -179,6 +183,10 @@ export default function ThirdPartySettingsPage() {
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, []);
+
+  useEffect(() => {
+    setActiveId(user?.role === 'main_admin' ? 'sms' : 'payments');
+  }, [user?.role]);
 
   const updateField = (key, value) => setForm(current => ({ ...current, [key]: value }));
   const save = async () => {
@@ -244,7 +252,7 @@ export default function ThirdPartySettingsPage() {
         {section.title}
       </h1>
       <nav aria-label="Third party integrations" className="mt-5 flex gap-1 overflow-x-auto border-b border-slate-200 pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-        {sections.map(item => <button key={item.id} type="button" onClick={() => setActiveSection(item.id)}
+        {visibleSections.map(item => <button key={item.id} type="button" onClick={() => setActiveSection(item.id)}
           aria-pressed={activeId === item.id}
           className={`shrink-0 rounded-full px-4 py-2.5 text-[13px] transition ${activeId === item.id ? 'bg-[#304ca3] font-medium text-white' : 'text-slate-600 hover:bg-slate-100'}`}>
           {item.label}
@@ -253,7 +261,7 @@ export default function ThirdPartySettingsPage() {
       {configurationOnlyNotice[activeId] && <p role="note" className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">{configurationOnlyNotice[activeId]}</p>}
     </header>
 
-    {activeId === 'payments' ? <SettingsGenericPage pageKey="paymentGateway" /> : <section className="overflow-hidden rounded-xl border bg-white shadow-sm" style={{ borderColor: CARD_BORDER }}>
+    {activeId === 'payments' ? <SettingsGenericPage pageKey="paymentGateway" globalGateway={user?.role === 'main_admin'} /> : <section className="overflow-hidden rounded-xl border bg-white shadow-sm" style={{ borderColor: CARD_BORDER }}>
       <nav aria-label={`${section.label} settings`} className="flex gap-1 border-b border-slate-200 bg-slate-50 px-4">
         {section.tabs.map(tab => <button key={tab} type="button" onClick={() => { setActiveTab(tab); setError(''); setTestResult(''); }}
           aria-current={activeTab === tab ? 'page' : undefined}
@@ -326,7 +334,7 @@ function Field({ field, value, configured, onChange }) {
     <textarea rows={4} value={value || ''} readOnly={field.readOnly} onChange={event => onChange(field.key, event.target.value)} className={`mt-2 w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500 ${field.readOnly ? 'bg-slate-50' : ''}`} />
   </label>;
   const inputProps = {
-    value: field.type === 'secret' && configured && !value ? '' : value || '',
+    value: field.type === 'number' ? numericInputValue(value) : field.type === 'secret' && configured && !value ? '' : value || '',
     onChange: event => onChange(field.key, event.target.value),
     placeholder: field.type === 'secret' && configured && !value ? 'Configured — enter a new value to replace' : '',
     readOnly: field.readOnly,

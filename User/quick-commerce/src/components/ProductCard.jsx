@@ -31,13 +31,13 @@ export default function ProductCard({ product, compact, showWishlistRemove = fal
     <button type="button" aria-label={`Decrease ${name} quantity`} onClick={() => setQty(cartKey, cartItem.qty - 1)}>-</button>
     <span>{cartItem.qty}</span>
     <button type="button" aria-label={`Increase ${name} quantity`} onClick={() => setQty(cartKey, cartItem.qty + 1)}>+</button>
-  </div> : <button type="button" aria-label={'Add ' + name + ' to cart'} title="Add to cart" onClick={() => { add(product); setShowAdded(true); }} className="qc-add-button shrink-0 text-white bg-brand-500 hover:bg-brand-600">+</button>;
+  </div> : <button type="button" aria-label={'Add ' + name + ' to cart'} title="Add to cart" onClick={() => { if (add(product)) setShowAdded(true); }} className="qc-add-button shrink-0"><span aria-hidden="true">+</span><span className="qc-add-button-label">Add</span></button>;
 
   return (
-    <div className={`qc-product-card bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden flex flex-col hover:shadow-lg transition-shadow duration-200 ${compact ? 'min-w-[160px] w-[160px]' : ''}`}>
+    <div className={`qc-product-card bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden flex flex-col ${compact ? 'min-w-[160px] w-[160px]' : ''}`}>
       <div className="qc-product-image-wrap relative">
         <Link to={`/p/${product.id}`} className="relative aspect-square bg-white p-3 block overflow-hidden">
-          {product.discount > 0 && <span className="qc-product-discount-badge absolute top-2 right-2 z-10 text-[9px] font-bold bg-orange-500 text-white px-1.5 py-0.5 rounded-md">{product.discount}%</span>}
+          {product.discount > 0 && <span className="qc-product-discount-badge absolute z-10">{product.discount}% <span className="qc-product-discount-off">OFF</span></span>}
           {Number.isFinite(Number(product.visualSimilarity)) && <span className="absolute bottom-2 left-2 z-10 rounded-md bg-emerald-700/90 px-1.5 py-1 text-[9px] font-bold text-white">{Math.round(product.visualSimilarity * 100)}% image match</span>}
           <img src={product.image} alt={name} className="w-full h-full object-contain" />
         </Link>
@@ -47,18 +47,17 @@ export default function ProductCard({ product, compact, showWishlistRemove = fal
         <div className="qc-card-control qc-image-control">{cardControl}</div>
       </div>
       <div className="px-3 pb-3 flex-1 flex flex-col">
-        <Link to={`/p/${product.id}`} className="qc-product-name text-[13px] font-medium text-slate-800 line-clamp-2 leading-snug min-h-[2.2em]">{name}</Link>
-        <p className="qc-product-unit text-[11px] text-slate-400 mt-0.5">{unit}</p>
-        <div className="mt-auto pt-2 flex items-center justify-between gap-1">
+        {product.store && <span className="qc-product-store text-[10px] font-semibold text-slate-500 line-clamp-1">{product.store}</span>}
+        <Link to={`/p/${product.id}`} title={name} className="qc-product-name text-[13px] font-medium text-slate-800 leading-snug">{name}</Link>
+        <p className="qc-product-unit qc-product-unit-mobile text-[11px] text-slate-400 mt-0.5">{unit}</p>
+        <div className="qc-product-card-footer mt-auto pt-2 flex items-center justify-between gap-1">
           <div className="qc-product-card-prices flex min-w-0 flex-col items-start gap-0.5">
-            {product.mrp > product.price && <span className="text-[11px] text-slate-400 line-through">{formatMoney(product.mrp, business)}</span>}
-            <span className="font-bold text-slate-900 text-sm">{formatMoney(product.price, business)}</span>
+            <span className="qc-product-unit qc-product-unit-desktop">{unit}</span>
+            <div className="qc-product-card-price-line">
+              {product.mrp > product.price && <span className="text-[11px] text-slate-400 line-through">{formatMoney(product.mrp, business)}</span>}
+              <span className="qc-product-price font-bold text-slate-900 text-sm">{formatMoney(product.price, business)}</span>
+            </div>
           </div>
-          {cartItem ? <div className="qc-card-quantity" aria-label={`${cartItem.qty} ${name} in cart`}>
-            <button type="button" aria-label={`Decrease ${name} quantity`} onClick={() => setQty(cartKey, cartItem.qty - 1)}>−</button>
-            <span>{cartItem.qty}</span>
-            <button type="button" aria-label={`Increase ${name} quantity`} onClick={() => setQty(cartKey, cartItem.qty + 1)}>+</button>
-          </div> : <button type="button" aria-label={'Add ' + name + ' to cart'} title="Add to cart" onClick={() => { add(product); setShowAdded(true); }} className="qc-add-button shrink-0 text-white bg-brand-500 hover:bg-brand-600">+</button>}
         </div>
       </div>
       {showAdded && <div className="qc-card-added-toast" role="status" aria-live="polite">✓ Added to cart</div>}

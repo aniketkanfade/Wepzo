@@ -45,6 +45,7 @@ import ECommerceDashboardPage from './WebAdmin/E-Commerce/ECommerceDashboardPage
 import MarketingDashboardPage from './WebAdmin/Marketing/MarketingDashboardPage';
 import MarketingContentPage from './WebAdmin/Marketing/MarketingContentPage';
 import MarketingWebsiteContentPage from './WebAdmin/Marketing/MarketingWebsiteContentPage';
+import MarketingInquiriesPage from './WebAdmin/Marketing/MarketingInquiriesPage';
 import MarketingUsersPage from './WebAdmin/Marketing/MarketingUsersPage';
 import MarketingSubscriptionsPage from './WebAdmin/Marketing/MarketingSubscriptionsPage';
 import MarketingUserAccountsPage from './WebAdmin/Marketing/MarketingUserAccountsPage';
@@ -129,7 +130,9 @@ function PaidWebsiteRoute({ children }) {
 
   if (user?.role !== 'website_user') return children;
   if (status === 'loading') return <div className="flex min-h-screen items-center justify-center bg-slate-50 text-sm text-slate-500">Checking website payment...</div>;
-  if (status === 'unpaid') return <Navigate to="/website-builder" replace />;
+  const hasGatewayReturn = window.location.pathname === '/website-renewal'
+    && new URLSearchParams(window.location.search).has('wepzoOrderId');
+  if (status === 'unpaid' && !hasGatewayReturn) return <Navigate to="/website-builder" replace />;
   if (status === 'error') return <main className="mx-auto mt-16 max-w-lg rounded-xl border border-amber-200 bg-amber-50 p-6 text-sm text-amber-900">We could not verify your website payment status. <Link className="font-semibold underline" to="/website-builder">Open the website builder</Link> to continue or try again.</main>;
   return children;
 }
@@ -152,6 +155,7 @@ export default function App() {
         <Route path="e-commerce" element={<ECommerceDashboardPage />} />
         <Route path="marketing" element={<MarketingDashboardPage />} />
         <Route path="marketing/website-content" element={<MarketingWebsiteContentPage />} />
+        <Route path="marketing/inquiries" element={<MarketingInquiriesPage />} />
         <Route path="marketing/content-add" element={<MarketingContentPage />} />
         <Route path="marketing/users" element={<MarketingUsersPage />} />
         <Route path="marketing/users/:userId/accounts" element={<MarketingUserAccountsPage />} />
@@ -224,6 +228,7 @@ export default function App() {
         <Route path="settings/app" element={<BusinessSettingsLayout><SettingsGenericPage pageKey="app" /></BusinessSettingsLayout>} />
         <Route path="settings/payment" element={<Navigate to="/settings/business/payment" replace />} />
         <Route path="settings/third-party" element={<ThirdPartySettingsPage />} />
+        <Route path="settings/payment-gateway" element={<MainAdminRoute><SettingsGenericPage pageKey="paymentGateway" globalGateway /></MainAdminRoute>} />
         <Route path="settings/notifications" element={<SettingsGenericPage pageKey="notifications" />} />
         <Route path="settings/email-sms" element={<BusinessSettingsLayout><SettingsGenericPage pageKey="emailSms" /></BusinessSettingsLayout>} />
         <Route path="settings/security" element={<SettingsGenericPage pageKey="security" />} />

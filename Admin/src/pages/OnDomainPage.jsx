@@ -1,37 +1,19 @@
-import { useEffect, useState } from 'react';
+﻿import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Archive, ArrowRight, Check, Download, ExternalLink, Globe2, Headphones, LoaderCircle, LockKeyhole, LogOut, Monitor, ShieldCheck, UserCircle2 } from 'lucide-react';
+import { ArrowRight, Check, ChevronDown, Globe2, Headphones, LoaderCircle, LogOut, Maximize2, Monitor, ShieldCheck, UserCircle2, X } from 'lucide-react';
 import api from '../api/axios';
 import { useAuthStore, useBuilderStore } from '../store/useStore';
 import { getAdminModuleKey } from '../constants/adminModules';
+import { clearPaymentReturnDetails, launchPaymentCheckout, paymentReturnDetails, paymentReturnUrl } from '../utils/paymentCheckout';
 
-function loadRazorpayCheckout() {
-  if (window.Razorpay) return Promise.resolve(true);
-  return new Promise(resolve => {
-    const existing = document.querySelector('script[data-wepzo-razorpay]');
-    if (existing) {
-      existing.addEventListener('load', () => resolve(!!window.Razorpay), { once: true });
-      existing.addEventListener('error', () => resolve(false), { once: true });
-      return;
-    }
-    const script = document.createElement('script');
-    script.src = 'https://checkout.razorpay.com/v1/checkout.js';
-    script.async = true;
-    script.dataset.wepzoRazorpay = 'true';
-    script.onload = () => resolve(!!window.Razorpay);
-    script.onerror = () => resolve(false);
-    document.body.appendChild(script);
-  });
-}
-
-const amountText = value => `₹${Number(value || 0).toLocaleString('en-IN')}`;
+const amountText = value => `\u20B9${Number(value || 0).toLocaleString('en-IN')}`;
 
 function OnDomainHeader({ user, onSignOut }) {
   return <header className="sticky top-0 z-30 flex h-16 shrink-0 items-center justify-between border-b border-slate-100 bg-white/95 px-5 shadow-sm backdrop-blur sm:px-8">
-    <div className="text-[22px] font-black tracking-[-1.3px] text-[#111827]">◢<span className="text-blue-900">WEP</span><span className="text-orange-500">ZO</span></div>
+    <div className="text-[22px] font-black tracking-[-1.3px] text-[#111827]">{"\u25E2"}<span className="text-blue-900">WEP</span><span className="text-orange-500">ZO</span></div>
     <div className="flex items-center gap-3 text-slate-700 sm:gap-6">
       <span className="hidden items-center gap-1.5 text-[11px] font-medium sm:inline-flex"><Headphones size={14}/>Need Help?</span>
-      <span className="flex items-center gap-1.5 text-xs font-medium"><UserCircle2 size={20} className="text-blue-600"/>{user?.name?.split(' ')[0] || 'ADK'}<span className="text-[10px]">⌄</span></span>
+      <span className="flex items-center gap-1.5 text-xs font-medium"><UserCircle2 size={20} className="text-blue-600"/>{user?.name?.split(' ')[0] || 'ADK'}<ChevronDown size={12} className="text-slate-500" aria-hidden="true"/></span>
       <button type="button" onClick={onSignOut} className="rounded-md p-1.5 text-slate-500 hover:bg-slate-100" aria-label="Sign out" title="Sign out"><LogOut size={16}/></button>
     </div>
   </header>;
@@ -42,22 +24,45 @@ export default function OnDomainPage() {
   const logout = useAuthStore(state => state.logout);
   const resetBuilder = useBuilderStore(state => state.reset);
   const navigate = useNavigate();
-  const isQuickCommerce = getAdminModuleKey({
-    slug: user?.selectedModuleSlug || user?.websiteModuleSlug,
-    type: user?.selectedModuleType,
-    name: user?.selectedModuleName,
-  }) === 'quick-commerce';
-  const quickCommercePreviewUrl = new URL(
-    import.meta.env.VITE_QC_PREVIEW_URL || 'http://localhost:3001/',
-    window.location.origin
-  );
-  quickCommercePreviewUrl.searchParams.set('templatePreview', '1');
   const [packageInfo, setPackageInfo] = useState(null);
+  const [mainWebsite, setMainWebsite] = useState(null);
+  const [tenantWebsite, setTenantWebsite] = useState(null);
+  const [previewError, setPreviewError] = useState('');
+  const [previewLoading, setPreviewLoading] = useState(true);
   const [loading, setLoading] = useState(true);
-  const [paying, setPaying] = useState(false);
-  const [downloading, setDownloading] = useState(false);
+  const [domainName, setDomainName] = useState('');
+  const [domainAvailability, setDomainAvailability] = useState(null);
+  const [subscriptionPlanId, setSubscriptionPlanId] = useState('');
+  const [checkingDomain, setCheckingDomain] = useState(false);
+  const [hostingPaying, setHostingPaying] = useState(false);
+  const [hostingRetrying, setHostingRetrying] = useState(false);
+  const [freeHostingStarting, setFreeHostingStarting] = useState(false);
+  const [previewExpanded, setPreviewExpanded] = useState(false);
+  const [desktopPreviewScale, setDesktopPreviewScale] = useState(1);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+
+  useEffect(() => {
+    if (!previewExpanded) return undefined;
+    const previousOverflow = document.body.style.overflow;
+    const updateScale = () => setDesktopPreviewScale(Math.max(0.1, Math.min(
+      1,
+      (window.innerWidth - 40) / 1366,
+      (window.innerHeight - 56) / 812,
+    )));
+    const closeOnEscape = event => {
+      if (event.key === 'Escape') setPreviewExpanded(false);
+    };
+    document.body.style.overflow = 'hidden';
+    updateScale();
+    window.addEventListener('resize', updateScale);
+    window.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener('resize', updateScale);
+      window.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [previewExpanded]);
 
   const loadPackage = async () => {
     setLoading(true);
@@ -65,91 +70,260 @@ export default function OnDomainPage() {
     try {
       const { data } = await api.get('/on-domain/package');
       setPackageInfo(data);
+      setSubscriptionPlanId(current => data.subscriptionPlans?.some(plan => String(plan.id) === String(current))
+        ? current
+        : data.subscriptionPlans?.[0]?.id || '');
+      const tenant = data.tenantWebsite;
+      if (tenant?.status === 'published' && !data.websiteServiceEnded) {
+        setTenantWebsite(tenant);
+        if (tenant.domain?.type === 'custom' && tenant.domain.fullDomain) setDomainName(current => current || tenant.domain.fullDomain);
+      } else {
+        setTenantWebsite(null);
+      }
+      return data;
     } catch (requestError) {
       setError(requestError.response?.data?.message
         || (requestError.response
           ? `On Domain package details could not be loaded (server returned ${requestError.response.status}).`
           : 'Could not reach the website server. Check your connection and try again.'));
+      return null;
     } finally {
       setLoading(false);
     }
   };
 
-  useEffect(() => { loadPackage(); }, []);
+  useEffect(() => {
+    let active = true;
+    const loadPage = async () => {
+      const packageDetails = await loadPackage();
+      if (!active) return;
+      if (!packageDetails?.moduleId) {
+        setPreviewError('Website module could not be identified for this preview.');
+        setPreviewLoading(false);
+        return;
+      }
+      const tenant = packageDetails.tenantWebsite;
+      if (tenant?.status === 'published' && !packageDetails.websiteServiceEnded) {
+        if (active) { setTenantWebsite(tenant); setPreviewLoading(false); }
+        return;
+      }
+      try {
+        const { data } = await api.get('/public/main-admin-website-preview', {
+          params: { moduleId: packageDetails.moduleId, moduleSlug: packageDetails.moduleSlug },
+        });
+        if (active) setMainWebsite(data);
+      } catch (requestError) {
+        if (active) setPreviewError(requestError.response?.data?.message || 'Website preview could not be loaded.');
+      } finally {
+        if (active) setPreviewLoading(false);
+      }
+    };
+    loadPage();
+    return () => { active = false; };
+  }, []);
 
+  useEffect(() => {
+    const { purchaseId, gateway, flow } = paymentReturnDetails();
+    if (!purchaseId || !gateway || !['hosting', 'subscription', 'package'].includes(flow)) return;
+    const endpoint = flow === 'subscription'
+      ? '/on-domain/subscription-checkout/verify'
+      : flow === 'hosting'
+        ? '/on-domain/hosting-checkout/verify'
+        : '/on-domain/checkout/verify';
+    setHostingPaying(true);
+    setError('');
+    api.post(endpoint, { purchaseId })
+      .then(async ({ data }) => {
+        const { data: refreshed } = await api.get('/on-domain/package');
+        setPackageInfo(refreshed);
+        setTenantWebsite(refreshed.tenantWebsite || null);
+        if (data.domainName) setDomainName(data.domainName);
+        if (data.hosting?.status === 'active') setNotice(`Payment verified. ${data.domainName || 'Your domain'} is hosted successfully.`);
+        else if (data.purchased) setNotice('Payment verified successfully.');
+        else setError(data.hosting?.message || 'Payment was verified, but hosting setup needs attention.');
+      })
+      .catch(requestError => setError(requestError.response?.data?.message || requestError.message || 'Payment status could not be verified.'))
+      .finally(() => {
+        clearPaymentReturnDetails();
+        setHostingPaying(false);
+      });
+  }, []);
+
+  const previewWebsite = tenantWebsite || mainWebsite;
+  const previewIsTenant = Boolean(tenantWebsite);
+  const normalizedDomainInput = domainName.trim().toLowerCase().replace(/^https?:\/\//, '').split(/[/?#]/)[0].replace(/\.$/, '');
+  const hostedDomain = String(tenantWebsite?.hosting?.domain || tenantWebsite?.domain?.fullDomain || '').toLowerCase();
+  const hostingPaymentAlreadyVerified = Boolean(packageInfo?.domainHostingPurchased && tenantWebsite?.hosting?.billingMode !== 'free' && hostedDomain && hostedDomain === normalizedDomainInput);
+  const freeHostingAlreadyRequested = Boolean(tenantWebsite?.hosting?.billingMode === 'free' && hostedDomain && hostedDomain === normalizedDomainInput);
+  const domainCheckPassed = Boolean(domainName.trim() && domainAvailability?.name === domainName.trim() && domainAvailability.available);
+  const selectedSubscriptionPlan = packageInfo?.subscriptionPlans?.find(plan => String(plan.id) === String(subscriptionPlanId)) || packageInfo?.subscriptionPlans?.[0];
+  const websitePreviewUrl = (() => {
+    if (!previewWebsite) return '';
+    const moduleKey = getAdminModuleKey({ slug: previewWebsite.websiteModuleSlug, name: previewWebsite.moduleName });
+    const previewId = previewIsTenant ? previewWebsite.id : previewWebsite.websiteId;
+    const configurePreview = (url, moduleParam = 'websiteModuleId') => {
+      if (previewId) url.searchParams.set('websiteId', previewId);
+      if (previewWebsite.websiteModuleId) {
+        url.searchParams.set(moduleParam, previewWebsite.websiteModuleId);
+        if (moduleParam !== 'websiteModuleId') url.searchParams.set('websiteModuleId', previewWebsite.websiteModuleId);
+      }
+      if (previewIsTenant) {
+        url.searchParams.set('published', '1');
+        url.searchParams.set('components', (previewWebsite.components || []).join(','));
+      } else {
+        url.searchParams.set('adminPreview', '1');
+      }
+      return url.href;
+    };
+    if (moduleKey === 'e-commerce') {
+      return configurePreview(new URL(import.meta.env.VITE_ECOMMERCE_PREVIEW_URL || 'http://localhost:5173/', window.location.origin), 'moduleId');
+    }
+    if (moduleKey === 'store-single') {
+      return configurePreview(new URL(import.meta.env.VITE_STORE_SINGLE_PREVIEW_URL || 'http://localhost:5175/', window.location.origin));
+    }
+    if (moduleKey === 'quick-commerce') {
+      return configurePreview(new URL(import.meta.env.VITE_QC_PREVIEW_URL || 'http://localhost:3001/', window.location.origin));
+    }
+    if (!previewId) return '';
+    return new URL(`/published-websites/${encodeURIComponent(previewId)}`, window.location.origin).href;
+  })();
   const signOut = () => {
     resetBuilder();
     logout();
     navigate('/login', { replace: true });
   };
 
-  const startCheckout = async () => {
-    setPaying(true);
+  const checkDomainAvailability = async () => {
+    const name = domainName.trim();
+    const websiteId = packageInfo?.tenantWebsite?.id || tenantWebsite?.id;
+    if (!name || !websiteId) {
+      setDomainAvailability(null);
+      return;
+    }
+    setCheckingDomain(true);
+    try {
+      const { data } = await api.get('/domains/availability', {
+        params: { name, type: 'custom', websiteId },
+      });
+      if (domainName.trim() === name) setDomainAvailability({ ...data, name });
+    } catch (requestError) {
+      if (domainName.trim() === name) setDomainAvailability({ available: false, message: requestError.response?.data?.message || 'Domain availability could not be checked.', name });
+    } finally {
+      setCheckingDomain(false);
+    }
+  };
+
+  const refreshTenantWebsite = async () => {
+    const { data } = await api.get('/on-domain/package');
+    setPackageInfo(data);
+    setTenantWebsite(data.tenantWebsite || null);
+    return data;
+  };
+
+  const startHostingCheckout = async () => {
+    setHostingPaying(true);
     setError('');
     setNotice('');
     try {
-      const { data: order } = await api.post('/on-domain/checkout');
-      const loaded = await loadRazorpayCheckout();
-      if (!loaded || !window.Razorpay) throw new Error('Secure checkout could not be loaded. Please retry.');
-      const checkout = new window.Razorpay({
-        key: order.keyId,
-        amount: order.amount,
-        currency: order.currency,
-        name: order.name,
-        description: order.description,
-        order_id: order.orderId,
-        prefill: { name: user?.name || '', email: user?.email || '' },
-        theme: { color: '#1d4ed8' },
-        modal: { ondismiss: () => setPaying(false) },
-        handler: async response => {
-          try {
-            await api.post('/on-domain/checkout/verify', response);
-            setPackageInfo(current => current ? { ...current, purchased: true } : current);
-            setNotice('Payment verified. Your website package is now ready to download.');
-            setPaying(false);
-          } catch (verifyError) {
-            setError(verifyError.response?.data?.message || 'Payment was received but could not be verified. Contact support before retrying.');
-            setPaying(false);
-          }
+      const { data: order } = await api.post('/on-domain/hosting-checkout', { domainName: domainName.trim(), returnUrl: paymentReturnUrl() });
+      await launchPaymentCheckout(order, {
+        prefill: { name: user?.name || '', email: user?.email || '', contact: user?.phone || '' },
+        onDismiss: () => setHostingPaying(false),
+        onFailure: paymentError => { setError(paymentError.message || 'Payment failed. You can retry.'); setHostingPaying(false); },
+        onVerified: async response => {
+          const { data: result } = await api.post('/on-domain/hosting-checkout/verify', response);
+          await refreshTenantWebsite();
+          setDomainName(result.domainName || order.domainName || domainName.trim());
+          setDomainAvailability(null);
+          if (result.hosting?.status === 'active') setNotice(`Payment verified. ${result.domainName} is now hosted for tenant ${result.websiteId}.`);
+          else setError(`Payment verified, but hosting setup needs attention: ${result.hosting?.message || 'Please check DNS settings and retry hosting.'}`);
+          setHostingPaying(false);
+          return result;
         },
       });
-      checkout.on('payment.failed', event => {
-        setError(event.error?.description || 'Payment failed. You can retry.');
-        setPaying(false);
-      });
-      checkout.open();
     } catch (requestError) {
-      setError(requestError.response?.data?.message || requestError.message || 'Checkout could not be started.');
-      setPaying(false);
+      setError(requestError.response?.data?.message || requestError.message || 'Domain hosting checkout could not be started.');
+      setHostingPaying(false);
     }
   };
 
-  const downloadPackage = async () => {
-    setDownloading(true);
+  const startFreeHosting = async () => {
+    if (!domainAvailability?.available || domainAvailability.name !== domainName.trim()) return;
+    setFreeHostingStarting(true);
     setError('');
+    setNotice('');
     try {
-      const response = await api.get('/on-domain/download', { responseType: 'blob' });
-      const blobUrl = URL.createObjectURL(response.data);
-      const link = document.createElement('a');
-      link.href = blobUrl;
-      link.download = packageInfo?.packageName || 'website-package.zip';
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      URL.revokeObjectURL(blobUrl);
+      const { data } = await api.post('/on-domain/free-hosting', { domainName: domainName.trim() });
+      await refreshTenantWebsite();
+      setDomainName(data.domainName || domainName.trim());
+      setDomainAvailability(null);
+      if (data.hosting?.status === 'active') setNotice(`Free hosting is active at ${data.domainName} for tenant ${data.websiteId}.`);
+      else setError(data.hosting?.message || 'Free hosting setup needs attention. Check DNS and retry.');
     } catch (requestError) {
-      setError(requestError.response?.data?.message || 'The package download failed. Please try again.');
+      setError(requestError.response?.data?.message || 'Free hosting could not be started.');
     } finally {
-      setDownloading(false);
+      setFreeHostingStarting(false);
     }
   };
 
-  if (loading) return <main className="min-h-screen w-full bg-white text-[#101828]"><div className="flex min-h-screen w-full flex-col bg-white"><OnDomainHeader user={user} onSignOut={signOut}/><div className="grid flex-1 place-items-center text-sm text-slate-500"><span className="inline-flex items-center gap-2"><LoaderCircle size={17} className="animate-spin"/>Loading On Domain package…</span></div></div></main>;
+  const startSubscriptionCheckout = async () => {
+    if (!subscriptionPlanId) return;
+    setHostingPaying(true);
+    setError('');
+    setNotice('');
+    try {
+      const { data: order } = await api.post('/on-domain/subscription-checkout', {
+        planId: subscriptionPlanId,
+        domainName: domainName.trim(),
+        returnUrl: paymentReturnUrl(),
+      });
+      await launchPaymentCheckout(order, {
+        prefill: { name: user?.name || '', email: user?.email || '', contact: user?.phone || '' },
+        onDismiss: () => setHostingPaying(false),
+        onFailure: paymentError => { setError(paymentError.message || 'Payment failed. You can retry.'); setHostingPaying(false); },
+        onVerified: async response => {
+          const { data: result } = await api.post('/on-domain/subscription-checkout/verify', response);
+          await refreshTenantWebsite();
+          setDomainName(result.domainName || order.domainName || domainName.trim());
+          setDomainAvailability(null);
+          if (result.hosting?.status === 'active') {
+            const expiryText = result.hosting.subscriptionExpiresAt ? new Date(result.hosting.subscriptionExpiresAt).toLocaleDateString() : '';
+            setNotice(`${order.planName} subscription activated for ${result.domainName}${expiryText ? ` through ${expiryText}` : ''}.`);
+          } else setError(`Payment verified, but hosting setup needs attention: ${result.hosting?.message || 'Check DNS settings and retry hosting.'}`);
+          setHostingPaying(false);
+          return result;
+        },
+      });
+    } catch (requestError) {
+      setError(requestError.response?.data?.message || requestError.message || 'Subscription checkout could not be started.');
+      setHostingPaying(false);
+    }
+  };
+
+  const retryHosting = async () => {
+    if (!tenantWebsite?.id) return;
+    setHostingRetrying(true);
+    setError('');
+    setNotice('');
+    try {
+      const { data } = await api.post(`/websites/${encodeURIComponent(tenantWebsite.id)}/deploy`);
+      setTenantWebsite(current => current ? { ...current, hosting: data.hosting, domain: data.domain } : current);
+      await refreshTenantWebsite();
+      setNotice(`Hosting is active at https://${data.domain?.fullDomain || tenantWebsite.domain?.fullDomain}.`);
+    } catch (requestError) {
+      try { await refreshTenantWebsite(); } catch { /* Keep the deployment error visible if refresh also fails. */ }
+      setError(requestError.response?.data?.message || 'Hosting could not start. Check the domain DNS and retry.');
+    } finally {
+      setHostingRetrying(false);
+    }
+  };
+
+  if (loading) return <main className="min-h-screen w-full bg-white text-[#101828]"><div className="flex min-h-screen w-full flex-col bg-white"><OnDomainHeader user={user} onSignOut={signOut}/><div className="grid flex-1 place-items-center text-sm text-slate-500"><span className="inline-flex items-center gap-2"><LoaderCircle size={17} className="animate-spin"/>Loading On Domain package...</span></div></div></main>;
   const steps = packageInfo?.steps?.length ? packageInfo.steps : [
-    'Review the sample website and package details.',
-    'Pay securely using the checkout.',
-    'Download the ZIP after payment is verified.',
-    'Host the website with your domain provider.',
+    'Enter a custom domain that you own and check that it is available.',
+    packageInfo?.freeEnabled ? 'Start free hosting to activate the free website plan and publish your tenant website.' : packageInfo?.subscriptionEnabled ? 'Choose a subscription plan or use the one-time payment option.' : 'Pay securely using the checkout.',
+    'WEPZO links the domain to your tenant website ID and starts hosting for the selected plan.',
+    'Point the domain DNS to WEPZO hosting so SSL can be activated.',
   ];
   return <main className="min-h-screen w-full bg-white text-[#101828]">
     <div className="flex min-h-screen w-full flex-col bg-white">
@@ -165,91 +339,114 @@ export default function OnDomainPage() {
     <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_350px]">
       <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 bg-slate-50 px-4 py-3">
-          <div className="flex items-center gap-2"><Globe2 size={16} className="text-blue-700"/><div><p className="text-xs font-bold text-slate-800">{isQuickCommerce ? 'Quick Commerce website preview' : 'Website preview'}</p><p className="text-[10px] text-slate-500">{isQuickCommerce ? 'Your actual Quick Commerce storefront design · sample data' : 'A visual sample storefront · preview only'}</p></div></div>
-          <span className="rounded-full bg-amber-50 px-2.5 py-1 text-[9px] font-semibold text-amber-800">Preview only</span>
+          <div className="flex items-center gap-2"><Globe2 size={16} className="text-blue-700"/><div><p className="text-xs font-bold text-slate-800">{previewIsTenant ? (tenantWebsite.domain?.fullDomain || `Tenant ${tenantWebsite.id}`) + " - tenant website" : "Main Admin website - full preview"}</p><p className="text-[10px] text-slate-500">{previewIsTenant ? "Showing your published website (ID: " + tenantWebsite.id + ")." : mainWebsite?.modulePreview ? "Showing the complete " + (mainWebsite.moduleName || mainWebsite.websiteModuleSlug) + " storefront; no separate published site was found." : "Preview the complete Main Admin website and its pages."}</p></div></div>
+          <span className="rounded-full bg-amber-50 px-2.5 py-1 text-[9px] font-semibold text-amber-800">{previewIsTenant ? "Tenant website" : "Preview only"}</span>
         </div>
         <div className="p-3 sm:p-5">
-          {isQuickCommerce && <div className="mb-3 flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-500"><span className="min-w-0 truncate">Quick Commerce storefront · home page</span><span className="ml-2 shrink-0 rounded bg-white px-2 py-1 font-medium text-slate-600">Live preview</span></div>}
-          {isQuickCommerce ? <div className="overflow-hidden rounded-xl border-[5px] border-[#202a39] bg-[#202a39] shadow-inner">
+          {previewLoading ? <div className="grid min-h-[420px] place-items-center rounded-xl bg-slate-50 text-sm text-slate-500"><span className="inline-flex items-center gap-2"><LoaderCircle size={16} className="animate-spin"/>Loading website preview...</span></div>
+          : websitePreviewUrl ? <div className="overflow-hidden rounded-xl border-[5px] border-[#202a39] bg-[#202a39] shadow-inner">
             <div className="flex h-10 items-center gap-2 bg-[#202a39] px-2.5">
               <span className="h-3 w-3 rounded-full bg-[#f45b57]"/>
               <span className="h-3 w-3 rounded-full bg-[#f5c344]"/>
               <span className="h-3 w-3 rounded-full bg-[#35c76f]"/>
               <div className="mx-1 flex h-6 min-w-0 flex-1 items-center justify-center rounded-md bg-[#354052] px-3 text-[11px] text-slate-300">
-                <span className="truncate">{user?.selectedModuleSlug || 'preview'}.wepzo.in</span>
+                <span className="truncate">{previewIsTenant ? (tenantWebsite.domain?.fullDomain || `Tenant ${tenantWebsite.id}`) : "Main Admin website full preview"}</span>
               </div>
               <Monitor size={15} className="shrink-0 text-slate-300" aria-label="Computer preview"/>
+              <button type="button" onClick={() => setPreviewExpanded(true)} className="grid h-7 w-7 shrink-0 place-items-center rounded-md text-slate-300 hover:bg-white/10 hover:text-white" aria-label="Open full desktop preview" title="Open full desktop view"><Maximize2 size={15}/></button>
             </div>
             <iframe
-              title="Quick Commerce storefront computer preview"
-              src={quickCommercePreviewUrl.href}
+              title={previewIsTenant ? `Tenant website ${tenantWebsite.id} preview` : 'Main Admin website full preview'}
+              src={websitePreviewUrl}
               sandbox="allow-scripts allow-same-origin"
               scrolling="yes"
               className="block w-full overflow-hidden border-0 bg-white"
               style={{ height: '68vh', minHeight: '420px' }}
             />
-          </div> : <>
-          <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
-            <div className="flex items-center justify-center bg-[#17211d] px-3 py-2 text-center text-[8px] font-medium tracking-wide text-white sm:text-[9px]">COMPLIMENTARY SHIPPING ON ORDERS OVER ₹1,999 <span className="mx-2 text-white/40">|</span> NEW SEASON, NEW FAVOURITES</div>
-            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-4 py-4 sm:px-7">
-              <strong className="text-base font-black tracking-[0.12em] text-[#17211d] sm:text-lg">{user?.name ? `${user.name.split(' ')[0].toUpperCase()} & CO.` : 'EVERYDAY & CO.'}</strong>
-              <nav aria-label="Sample storefront navigation" className="hidden items-center gap-5 text-[9px] font-semibold uppercase tracking-wider text-slate-600 md:flex"><span>New in</span><span>Women</span><span>Accessories</span><span>Our story</span></nav>
-              <div className="flex items-center gap-3 text-slate-600"><span className="hidden rounded-full bg-slate-100 px-3 py-1.5 text-[9px] sm:inline-block">Search products</span><span aria-hidden="true" className="text-base">⌕</span><span aria-hidden="true" className="text-sm">♡</span><span aria-hidden="true" className="text-sm">♧</span></div>
-            </div>
-            <div className="relative grid min-h-[300px] items-end overflow-hidden bg-[#e7e1d8] sm:min-h-[390px]">
-              <img src="https://images.unsplash.com/photo-1483985988355-763728e1935b?auto=format&fit=crop&w=1600&q=90" alt="Fashion collection storefront campaign" className="absolute inset-0 h-full w-full object-cover object-center" loading="lazy"/>
-              <div className="absolute inset-0 bg-gradient-to-r from-black/55 via-black/20 to-transparent"/>
-              <div className="relative z-10 max-w-lg p-6 text-white sm:p-10">
-                <span className="text-[8px] font-bold uppercase tracking-[0.24em] text-white/85 sm:text-[10px]">A little more you</span>
-                <h2 className="mt-3 text-3xl font-semibold leading-[1.05] tracking-tight sm:text-5xl">Made for your<br/>everyday moments.</h2>
-                <p className="mt-3 max-w-xs text-[10px] leading-5 text-white/85 sm:text-xs">Thoughtful pieces, timeless details, and new favourites to make your own.</p>
-                <span className="mt-5 inline-flex items-center gap-2 bg-white px-4 py-2.5 text-[8px] font-bold uppercase tracking-wider text-slate-900 sm:text-[9px]">Discover the collection <ArrowRight size={13}/></span>
-              </div>
-              <span className="absolute bottom-4 right-5 rounded-full bg-white/90 px-3 py-1.5 text-[8px] font-semibold text-slate-800">01 — SPRING / SUMMER</span>
-            </div>
-            <div className="grid grid-cols-2 border-b border-slate-100 bg-[#fbfaf8] px-4 py-3 text-center text-[8px] font-medium text-slate-600 sm:grid-cols-4 sm:px-6">
-              <span className="border-r border-slate-200 px-1">✦ Carefully selected quality</span><span className="px-1 sm:border-r sm:border-slate-200">↗ Easy, secure checkout</span><span className="border-r border-slate-200 px-1">♡ Made for everyday</span><span className="px-1">⌂ Thoughtful delivery</span>
-            </div>
-            <div className="px-4 py-6 sm:px-7 sm:py-8">
-              <div className="mb-4 flex items-end justify-between"><div><p className="text-[8px] font-bold uppercase tracking-[0.2em] text-[#9a6945] sm:text-[9px]">The edit</p><h3 className="mt-1 text-lg font-semibold tracking-tight text-[#17211d] sm:text-xl">Customer favourites</h3></div><span className="text-[9px] font-semibold text-slate-600 sm:text-[10px]">VIEW ALL&nbsp; →</span></div>
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 sm:gap-4">{previewProducts.map(product => <article key={product.name} className="group min-w-0">
-                <div className="relative aspect-[4/5] overflow-hidden bg-[#f4f1ed]"><img src={product.image} alt={product.name} className="h-full w-full object-cover transition duration-500 group-hover:scale-105" loading="lazy"/><span className="absolute left-2 top-2 bg-white/95 px-2 py-1 text-[7px] font-bold tracking-wide text-slate-700">{product.label}</span><span className="absolute bottom-2 right-2 grid h-7 w-7 place-items-center rounded-full bg-white text-sm text-slate-700 shadow-sm">♡</span></div>
-                <div className="pt-2"><p className="truncate text-[9px] font-medium text-slate-800 sm:text-[10px]">{product.name}</p><p className="mt-1 flex flex-wrap items-center gap-1.5 text-[9px] font-semibold text-slate-900 sm:text-[10px]">{product.price}<span className="font-normal text-slate-400 line-through">{product.oldPrice}</span></p><span className="mt-2 block border border-slate-300 py-1.5 text-center text-[7px] font-bold tracking-wider text-slate-700 sm:text-[8px]">QUICK ADD&nbsp; +</span></div>
-              </article>)}</div>
-            </div>
-            <div className="border-t border-slate-100 px-4 py-5 text-center sm:px-7"><p className="text-[8px] font-bold uppercase tracking-[0.2em] text-[#9a6945]">Get to know us</p><p className="mt-1 text-sm font-semibold text-[#17211d]">Good things, made for real life.</p><p className="mx-auto mt-1 max-w-md text-[9px] leading-5 text-slate-500">A sample brand story section. Replace these products, photos, colours, and words with your own when you build your website.</p></div>
-          </div>
-          <div className="mt-3 flex items-start gap-2 rounded-lg bg-slate-50 p-3 text-[10px] leading-5 text-slate-500"><ExternalLink size={13} className="mt-0.5 shrink-0"/>This is a realistic visual sample only. Navigation, search, wishlist, and add-to-cart controls are previews and do not connect to a real store or send data.</div>
-          </>}
+          </div> : <div role={previewError ? 'alert' : undefined} className="grid min-h-[420px] place-items-center rounded-xl border border-dashed border-slate-300 bg-slate-50 p-6 text-center text-sm text-slate-500">{previewError || 'The website preview is not available.'}</div>}
         </div>
       </section>
 
       <aside className="space-y-4 xl:sticky xl:top-5">
         <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <div className="flex items-start justify-between gap-3"><div><span className="text-[9px] font-bold uppercase tracking-widest text-blue-700">Website source package</span><h2 className="mt-1 text-lg font-bold text-slate-900">{packageInfo?.moduleName || 'Website'} · Own Domain</h2></div><span className="rounded-xl bg-blue-50 p-2.5 text-blue-800"><Archive size={19}/></span></div>
-          <p className="mt-3 text-xs leading-5 text-slate-600">{packageInfo?.description || 'Get the ready-to-host website source as a ZIP package. The exact package and price are configured by Main Admin for your module.'}</p>
-          <div className="mt-4 rounded-xl bg-slate-50 p-4"><p className="text-[10px] font-medium text-slate-500">One-time package price</p><p className="mt-1 text-3xl font-extrabold tracking-tight text-slate-900">{packageInfo ? amountText(packageInfo.price) : 'Set by admin'}</p><p className="mt-1 text-[9px] text-slate-500">Secure payment · ZIP unlocks only after verified payment</p></div>
-          {packageInfo?.purchased
-            ? <button type="button" onClick={downloadPackage} disabled={downloading || !packageInfo.hasPackage} className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-3.5 text-xs font-bold text-white hover:bg-emerald-700 disabled:opacity-50"><Download size={15}/>{downloading ? 'Preparing download…' : 'Download Website ZIP'}</button>
-            : <button type="button" onClick={startCheckout} disabled={!packageInfo || paying || !packageInfo.enabled || !packageInfo.hasPackage || Number(packageInfo.price) <= 0} className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-blue-800 px-4 py-3.5 text-xs font-bold text-white hover:bg-blue-900 disabled:cursor-not-allowed disabled:opacity-50">{paying ? 'Opening secure checkout…' : packageInfo ? <>Pay {amountText(packageInfo.price)} & Get ZIP <ArrowRight size={15}/></> : 'Package purchase unavailable'}</button>}
-          {!packageInfo?.enabled || !packageInfo?.hasPackage
-            ? <p className="mt-2 text-center text-[10px] text-amber-700">This package is not ready for purchase yet. Please check again later.</p>
-            : <p className="mt-2 flex items-center justify-center gap-1 text-center text-[9px] text-slate-400"><LockKeyhole size={11}/>Your download is enabled only after payment verification.</p>}
-          {packageInfo?.purchased && <p className="mt-2 flex items-center justify-center gap-1 text-[10px] font-semibold text-emerald-700"><Check size={13}/>Payment verified · {packageInfo.packageName}</p>}
-          <div className="mt-4 border-t border-slate-100 pt-4">
-            <p className="text-xs font-semibold text-slate-800">Want a website subscription instead?</p>
-            <p className="mt-1 text-[10px] leading-4 text-slate-500">Continue to the website builder to preview your store and choose an available subscription plan.</p>
-            <button type="button" onClick={() => navigate('/website-builder')} className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-xs font-bold text-blue-800 hover:bg-blue-100">View website plans <ArrowRight size={14}/></button>
+          <div className="flex items-start gap-3"><span className="rounded-xl bg-emerald-50 p-2.5 text-emerald-700"><Globe2 size={19}/></span><div><h2 className="text-sm font-bold text-slate-900">Connect &amp; host your domain</h2><p className="mt-1 text-[10px] leading-4 text-slate-500">Check your domain first. Free hosting will publish your tenant site on its free plan, then deploy it by tenant ID.</p></div></div>
+          <label className="mt-4 block text-xs font-semibold text-slate-700">Custom domain
+            <input
+              type="text"
+              value={domainName}
+              onChange={event => { setDomainName(event.target.value); setDomainAvailability(null); }}
+              placeholder="yourdomain.com"
+              autoComplete="url"
+              readOnly={tenantWebsite?.hosting?.status === 'active'}
+              className="mt-1.5 w-full rounded-lg border border-slate-200 bg-white px-3 py-3 text-sm font-normal outline-none placeholder:text-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-100 read-only:bg-slate-50"
+            />
+          </label>
+          <p className="mt-2 text-[10px] leading-4 text-slate-500">Use a domain you own. Point its DNS to WEPZO hosting before setup so the domain and SSL can go live.</p>
+          <button type="button" onClick={checkDomainAvailability} disabled={!domainName.trim() || !packageInfo?.tenantWebsite?.id || checkingDomain} className="mt-2 rounded-lg border border-blue-200 bg-white px-3 py-2 text-[10px] font-bold text-blue-800 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50">{checkingDomain ? 'Checking domain...' : 'Check domain'}</button>
+          {!packageInfo?.tenantWebsite && <p className="mt-2 text-[10px] text-amber-700">A tenant website is not linked to this account yet.</p>}
+          {checkingDomain && <p className="mt-2 text-[10px] text-slate-500">Checking domain...</p>}
+          {!checkingDomain && domainAvailability?.name === domainName.trim() && <p className={`mt-2 text-[10px] font-medium ${domainAvailability.available ? 'text-emerald-700' : 'text-rose-700'}`}>{domainAvailability.available ? `${domainAvailability.fullDomain} is available.` : domainAvailability.message}</p>}
+          <div className="mt-4 rounded-xl bg-slate-50 p-3.5">
+            <p className="text-[10px] font-semibold text-slate-600">Active On Domain options</p>
+            {!packageInfo?.enabled
+              ? <p className="mt-2 text-xs text-slate-600">Domain hosting is not enabled for this module.</p>
+              : <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                {packageInfo?.freeEnabled && <div className="rounded-lg border border-emerald-200 bg-white px-3 py-2.5"><p className="text-[10px] font-medium text-slate-500">Free hosting</p><p className="mt-1 text-sm font-bold text-emerald-700">Free</p></div>}
+                {packageInfo?.paymentEnabled && <div className="rounded-lg border border-blue-200 bg-white px-3 py-2.5"><p className="text-[10px] font-medium text-slate-500">One-time hosting</p><p className="mt-1 text-sm font-bold text-slate-900">{amountText(packageInfo.price)}</p></div>}
+                {packageInfo?.subscriptionEnabled && <div className="rounded-lg border border-violet-200 bg-white px-3 py-2.5 sm:col-span-2"><p className="text-[10px] font-medium text-slate-500">Hosting subscriptions</p><p className="mt-1 text-sm font-bold text-slate-900">{packageInfo.subscriptionPlans?.length || 0} active plan{packageInfo.subscriptionPlans?.length === 1 ? '' : 's'}</p></div>}
+                {!packageInfo?.freeEnabled && !packageInfo?.paymentEnabled && !packageInfo?.subscriptionEnabled && <p className="text-xs text-slate-600">No hosting option is active.</p>}
+              </div>}
           </div>
+          {tenantWebsite?.hosting?.status === 'active' ? <div className="mt-4 space-y-2"><p className="flex items-center gap-1.5 text-[10px] font-semibold text-emerald-700"><Check size={13}/>Hosting active · SSL {tenantWebsite.hosting.sslStatus || 'active'}</p><a href={tenantWebsite.hosting.url || `https://${tenantWebsite.hosting.domain}`} target="_blank" rel="noreferrer" className="flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-3.5 text-xs font-bold text-white hover:bg-emerald-700">Open hosted website <ArrowRight size={15}/></a></div>
+            : freeHostingAlreadyRequested ? <p className="mt-4 rounded-lg bg-blue-50 px-3 py-2.5 text-center text-[10px] leading-4 text-blue-800">Free hosting was requested for this domain. Retry below if the server setup needs attention.</p>
+            : hostingPaymentAlreadyVerified ? <p className="mt-4 rounded-lg bg-blue-50 px-3 py-2.5 text-center text-[10px] leading-4 text-blue-800">Payment is already verified for this domain. Retry hosting below after fixing DNS or server setup.</p>
+            : packageInfo?.freeEnabled ? <button type="button" onClick={startFreeHosting} disabled={!packageInfo?.enabled || !packageInfo?.tenantWebsite?.id || packageInfo?.websiteServiceEnded || !domainCheckPassed || freeHostingStarting || hostingPaying || hostingRetrying} className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-3.5 text-xs font-bold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50">{freeHostingStarting ? 'Starting free hosting...' : <>Start free hosting <ArrowRight size={15}/></>}</button>
+            : packageInfo?.paymentEnabled ? <button type="button" onClick={startHostingCheckout} disabled={!packageInfo?.enabled || !tenantWebsite || tenantWebsite.status !== 'published' || packageInfo?.websiteServiceEnded || hostingPaying || hostingRetrying || !domainCheckPassed || Number(packageInfo?.price) <= 0} className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-blue-800 px-4 py-3.5 text-xs font-bold text-white hover:bg-blue-900 disabled:cursor-not-allowed disabled:opacity-50">{hostingPaying ? 'Payment / hosting in progress...' : <>Pay {amountText(packageInfo?.price)} &amp; Host domain <ArrowRight size={15}/></>}</button>
+            : packageInfo?.subscriptionEnabled ? <p className="mt-4 rounded-lg bg-blue-50 px-3 py-2.5 text-center text-[10px] leading-4 text-blue-800">Choose a hosting subscription plan below to continue.</p>
+            : <p className="mt-4 rounded-lg bg-slate-50 px-3 py-2.5 text-center text-[10px] leading-4 text-slate-600">Custom-domain hosting is not enabled for this module.</p>}
+          {packageInfo?.freeEnabled && !tenantWebsite && <p className="mt-2 text-center text-[10px] text-amber-700">{packageInfo?.websiteServiceEnded ? 'Your website plan has ended. Renew it before connecting a domain.' : packageInfo?.tenantWebsite ? domainCheckPassed ? 'Domain is available. Start free hosting to activate the free website plan and connect your domain.' : 'Enter your domain and check availability to continue with free hosting.' : 'A tenant website is not linked to this account yet.'}</p>}
+          {tenantWebsite?.hosting?.status === 'failed' && <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3"><p className="text-[10px] leading-4 text-amber-900">{tenantWebsite.hosting.billingMode === 'free' ? 'Free website plan is active, but VPS hosting could not start.' : 'Payment is verified, but VPS hosting could not start.'} {tenantWebsite.hosting.message === 'spawn sudo ENOENT' ? 'Configure the Ubuntu VPS hosting helper, then retry.' : tenantWebsite.hosting.message || 'Check DNS settings and retry.'}</p><button type="button" onClick={retryHosting} disabled={hostingRetrying} className="mt-2 w-full rounded-lg border border-amber-300 bg-white px-3 py-2 text-[10px] font-bold text-amber-900 hover:bg-amber-100 disabled:opacity-50">{hostingRetrying ? 'Retrying hosting...' : 'Retry hosting for this tenant'}</button></div>}
+          {tenantWebsite?.hosting?.status === 'deploying' && <p className="mt-2 text-center text-[10px] text-blue-700">Hosting deployment is in progress for tenant {tenantWebsite.id}.</p>}
+
+        {packageInfo?.enabled && packageInfo?.subscriptionEnabled && packageInfo.subscriptionPlans?.length > 0 && <div className="mt-5 border-t border-slate-100 pt-4">
+          <div className="flex items-start justify-between gap-3"><div><h2 className="text-sm font-bold text-slate-900">Choose a hosting subscription</h2><p className="mt-1 text-[10px] leading-4 text-slate-500">Select a plan. Price and hosting duration are shown for each option.</p></div><span className="rounded-xl bg-blue-50 p-2.5 text-blue-800"><Check size={18}/></span></div>
+          {tenantWebsite?.hosting?.billingMode === 'subscription' && tenantWebsite.hosting.subscriptionExpiresAt && <p className="mt-3 rounded-lg bg-emerald-50 px-3 py-2 text-[10px] font-medium text-emerald-800">Current plan: {tenantWebsite.hosting.subscriptionPlanName || 'Subscription'} · expires {new Date(tenantWebsite.hosting.subscriptionExpiresAt).toLocaleDateString()}</p>}
+          <div className="mt-3 space-y-2" role="radiogroup" aria-label="On Domain subscription plan">
+            {packageInfo.subscriptionPlans.map(plan => {
+              const selected = String(plan.id) === String(subscriptionPlanId);
+              const durationLabel = `${plan.durationValue} ${plan.durationUnit}${Number(plan.durationValue) === 1 ? '' : 's'}`;
+              return <label key={plan.id} className={`flex cursor-pointer items-start gap-3 rounded-xl border p-3 ${selected ? 'border-blue-500 bg-blue-50' : 'border-slate-200 hover:border-slate-300'}`}>
+                <input type="radio" name="on-domain-subscription-plan" checked={selected} onChange={() => setSubscriptionPlanId(plan.id)} className="mt-1 accent-blue-700"/>
+                <span className="min-w-0 flex-1"><span className="flex flex-wrap items-center justify-between gap-2"><b className="text-xs text-slate-900">{plan.name}</b><b className="text-sm text-slate-900">{amountText(plan.price)}</b></span><span className="mt-1 block text-[10px] font-medium text-blue-800">{durationLabel}</span>{plan.description && <span className="mt-1 block text-[10px] leading-4 text-slate-500">{plan.description}</span>}</span>
+              </label>;
+            })}
+          </div>
+          <button type="button" onClick={startSubscriptionCheckout} disabled={!packageInfo.enabled || !tenantWebsite || tenantWebsite.status !== 'published' || packageInfo.websiteServiceEnded || !selectedSubscriptionPlan || hostingPaying || freeHostingStarting || hostingRetrying || !domainName.trim()} className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-blue-800 px-4 py-3.5 text-xs font-bold text-white hover:bg-blue-900 disabled:cursor-not-allowed disabled:opacity-50">{hostingPaying ? 'Opening secure checkout...' : <>Pay {selectedSubscriptionPlan ? amountText(selectedSubscriptionPlan.price) : ''} &amp; Host domain <ArrowRight size={15}/></>}</button>
+          {!tenantWebsite && <p className="mt-2 text-center text-[10px] text-amber-700">Publish your tenant website before subscribing to domain hosting.</p>}
+        </div>}
         </section>
 
         <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <h2 className="text-sm font-bold text-slate-900">How it works</h2>
           <ol className="mt-3 space-y-3">{steps.map((step, index) => <li key={`${step}-${index}`} className="flex gap-2.5 text-xs leading-5 text-slate-600"><span className="grid h-5 w-5 shrink-0 place-items-center rounded-full bg-blue-50 text-[9px] font-bold text-blue-800">{index + 1}</span>{step}</li>)}</ol>
-          <div className="mt-4 flex items-start gap-2 border-t border-slate-100 pt-3 text-[10px] leading-5 text-slate-500"><ShieldCheck size={13} className="mt-0.5 shrink-0 text-emerald-700"/>The ZIP is delivered privately to your account. It is never made available publicly.</div>
+          <div className="mt-4 flex items-start gap-2 border-t border-slate-100 pt-3 text-[10px] leading-5 text-slate-500"><ShieldCheck size={13} className="mt-0.5 shrink-0 text-emerald-700"/>WEPZO connects your tenant website to your domain and starts SSL after DNS is set up.</div>
         </section>
       </aside>
     </div>
+    {previewExpanded && websitePreviewUrl && <div className="fixed inset-0 z-[100] grid place-items-center overflow-auto bg-slate-950/90 p-3 sm:p-5" role="dialog" aria-modal="true" aria-label="Full desktop website preview">
+      <div className="relative overflow-hidden rounded-xl border border-slate-600 bg-[#202a39] shadow-2xl" style={{ width: 1366 * desktopPreviewScale, height: 812 * desktopPreviewScale }}>
+        <div className="absolute left-0 top-0 origin-top-left" style={{ width: 1366, height: 812, transform: `scale(${desktopPreviewScale})` }}>
+          <div className="flex h-11 items-center gap-2 bg-[#202a39] px-3">
+            <span className="h-3 w-3 rounded-full bg-[#f45b57]"/>
+            <span className="h-3 w-3 rounded-full bg-[#f5c344]"/>
+            <span className="h-3 w-3 rounded-full bg-[#35c76f]"/>
+            <div className="mx-2 flex h-7 min-w-0 flex-1 items-center justify-center rounded-md bg-[#354052] px-3 text-xs text-slate-200"><span className="truncate">{previewIsTenant ? (tenantWebsite.domain?.fullDomain || `Tenant ${tenantWebsite.id}`) : 'Main Admin website'} · Desktop view · 1366px</span></div>
+            <button type="button" onClick={() => setPreviewExpanded(false)} className="grid h-8 w-8 shrink-0 place-items-center rounded-md text-slate-200 hover:bg-white/10 hover:text-white" aria-label="Close full desktop preview" title="Close desktop view"><X size={18}/></button>
+          </div>
+          <iframe title={previewIsTenant ? `Desktop preview of ${tenantWebsite.id}` : 'Main Admin desktop website preview'} src={websitePreviewUrl} sandbox="allow-scripts allow-same-origin" scrolling="yes" className="block border-0 bg-white" style={{ width: 1366, height: 768 }}/>
+        </div>
+      </div>
+    </div>}
     </div>
   </div>
   </main>;

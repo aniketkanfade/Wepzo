@@ -26,6 +26,12 @@ function loadCheckoutScript(src, globalName) {
   })
 }
 
+function checkoutReturnUrl() {
+  const url = new URL(window.location.href)
+  ;['wepzoOrderId', 'paymentGateway', 'paymentFlow', 'order_id'].forEach(key => url.searchParams.delete(key))
+  return url.toString()
+}
+
 export default function useStorefront() {
   const currentPageFromPath = () => {
     const path = window.location.pathname.replace(/\/+$/, '') || '/'
@@ -536,7 +542,7 @@ export default function useStorefront() {
         localStorage.setItem(storageKey('wepzo-pending-payment-order'), JSON.stringify(retryOrder))
         const payment = await request('/shop/payments/initiate', {
           method: 'POST',
-          body: JSON.stringify({ orderId: order._id }),
+          body: JSON.stringify({ orderId: order._id, returnUrl: checkoutReturnUrl() }),
         })
         if (payment.provider === 'razorpay') {
           if (!await loadCheckoutScript('https://checkout.razorpay.com/v1/checkout.js', 'Razorpay')) throw new Error('Razorpay checkout could not be loaded. Please retry.')

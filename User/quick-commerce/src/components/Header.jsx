@@ -296,7 +296,8 @@ export default function Header({ componentEnabled = () => true }) {
         {componentEnabled('quick-commerce-location') && <button type="button" onClick={() => setOpen(true)}
           title={current?.line || current?.address || compactPlaceLine}
           className="qc-header-location flex flex-col items-start text-left max-w-[min(100%,24rem)] hover:bg-slate-50 rounded-lg px-1 py-0.5">
-          <span className="qc-location-delivery inline-flex items-center text-[#dc2626] font-bold text-sm leading-tight">
+          <span className="qc-location-delivery inline-flex items-center gap-1 font-bold text-sm leading-tight">
+            <Truck size={14} aria-hidden="true" />
             {etaLabel}
           </span>
           <span className="inline-flex items-start gap-1 text-sm text-slate-700 leading-snug">
@@ -322,7 +323,7 @@ export default function Header({ componentEnabled = () => true }) {
             <button type="button" disabled={imageSearching} onClick={() => imageInputRef.current?.click()} aria-label="Search using an image" title="Search using an image" className="qc-search-tool h-10 w-9 shrink-0 rounded-lg text-slate-600 hover:bg-slate-100 flex items-center justify-center disabled:opacity-50">
               <img src={googleLensIcon} alt="" className="h-6 w-6" />
             </button>
-            <button type="button" onClick={startVoiceSearch} aria-label="Search by voice" title="Search by voice" className="qc-search-tool qc-search-tool-mic h-10 w-9 shrink-0 rounded-lg text-white hover:brightness-95 flex items-center justify-center" style={{ backgroundColor: 'var(--search-button, #304ca3)' }}>
+            <button type="button" onClick={startVoiceSearch} aria-label="Search by voice" title="Search by voice" className="qc-search-tool qc-search-tool-mic h-10 w-9 shrink-0 rounded-lg text-white hover:brightness-95 flex items-center justify-center" style={{ backgroundColor: 'var(--search-button, #304ca3)', color: '#fff' }}>
               <Mic size={19} />
             </button>
           </form>
@@ -370,7 +371,7 @@ export default function Header({ componentEnabled = () => true }) {
           <Heart size={20} />
           Wishlist
           {wishCount > 0 && (
-            <span className="absolute -top-1 right-0 min-w-[16px] h-4 px-1 rounded-full bg-rose-500 text-[9px] text-white flex items-center justify-center">
+            <span className="qc-header-favorites-count absolute -top-1 right-0 min-w-[16px] h-4 px-1 rounded-full text-[9px] text-white flex items-center justify-center">
               {wishCount}
             </span>
           )}
@@ -379,7 +380,7 @@ export default function Header({ componentEnabled = () => true }) {
           <ShoppingCart size={20} />
           Cart
           {count > 0 && (
-            <span className="absolute -top-1 right-0 min-w-[16px] h-4 px-1 rounded-full bg-brand-500 text-[9px] font-bold text-white flex items-center justify-center">
+            <span className="qc-header-cart-count absolute -top-1 right-0 min-w-[16px] h-4 px-1 rounded-full text-[9px] font-bold text-white flex items-center justify-center">
               {count}
             </span>
           )}
