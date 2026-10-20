@@ -628,6 +628,10 @@ function GatewayEnvironment({ label, value, onChange }) {
   return <label className="block text-xs font-semibold text-slate-600">{label}<select value={value} onChange={event => onChange(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm font-normal text-slate-800"><option value="sandbox">Sandbox</option><option value="production">Production</option></select></label>;
 }
 
+function GatewayEnvironment({ label, value, onChange }) {
+  return <label className="block text-xs font-semibold text-slate-600">{label}<select value={value} onChange={event => onChange(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm font-normal text-slate-800"><option value="sandbox">Sandbox</option><option value="production">Production</option></select></label>;
+}
+
 function OrderChoice({ checked, onChange, title, description }) {
   return <label className="flex cursor-pointer items-start gap-2.5 rounded-md p-2.5 hover:bg-slate-50"><input type="checkbox" checked={!!checked} onChange={event => onChange(event.target.checked)} className="mt-0.5 h-4 w-4 shrink-0 accent-teal-600" /><span><span className="text-sm font-medium text-slate-800">{title}</span><span className="mt-1 block text-xs leading-5 text-slate-600">{description}</span></span></label>;
 }

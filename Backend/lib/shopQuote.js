@@ -23,6 +23,29 @@ function isEcommerceDeliveryZone(zone) {
     .some(value => ['ecommerce', 'e-commerce'].includes(String(value || '').trim().toLowerCase().replace(/_/g, '-')));
 }
 
+function normalizePincode(value) {
+  const digits = String(value ?? '').replace(/\D/g, '');
+  return /^\d{6}$/.test(digits) ? digits : '';
+}
+
+function zonePincodes(zone) {
+  const values = [
+    ...(Array.isArray(zone?.pincodes) ? zone.pincodes : []),
+    ...(Array.isArray(zone?.pinAreas) ? zone.pinAreas : []),
+  ];
+  return new Set(values.map(value => {
+    if (value && typeof value === 'object') {
+      return normalizePincode(value.pin || value.pincode || value.pin_code || value.Pincode);
+    }
+    return normalizePincode(value);
+  }).filter(Boolean));
+}
+
+function isEcommerceDeliveryZone(zone) {
+  return [zone?.commerceType, zone?.websiteModuleSlug]
+    .some(value => ['ecommerce', 'e-commerce'].includes(String(value || '').trim().toLowerCase().replace(/_/g, '-')));
+}
+
 function pad2(n) { return String(n).padStart(2, '0'); }
 
 function todayISODate(d = new Date()) {
