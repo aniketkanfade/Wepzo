@@ -66,7 +66,7 @@ export default function WelcomePage() {
     api.get('/public/website-modules').then(({ data }) => {
       if (active) setModules(Array.isArray(data) ? data : []);
     }).catch(requestError => {
-      if (active) setError(requestError.response?.data?.message || 'Some module details could not be loaded. You can still continue to the website builder.');
+      if (active) setError(requestError.response?.data?.message || 'Some module details could not be loaded. You can still set up your website address.');
     });
     return () => { active = false; };
   }, []);
@@ -79,18 +79,14 @@ export default function WelcomePage() {
     }
   }, [choice, selectedModule.showSubdomainOption, selectedModule.showOwnDomainOption]);
 
-  const startBuilding = () => {
+  const continueDomainSetup = () => {
     if (choice === 'own-domain' && selectedModule.showOwnDomainOption !== false) {
       openOwnDomainPage();
       return;
     }
     if (selectedModule.showSubdomainOption === false) return;
-    resetBuilder();
-    navigate('/website-builder', {
-      state: {
-        moduleType: selectedModule?.type || user?.selectedModuleType || moduleSlug,
-        websiteName,
-      },
+    navigate('/sub-domain', {
+      state: { storeName: websiteName, moduleName: selectedModule.name },
     });
   };
 
@@ -107,7 +103,7 @@ export default function WelcomePage() {
   const title = selectedModule.welcomeTitle?.trim() || 'Welcome to WEPZO!';
   const description = selectedModule.welcomeDescription?.trim() || 'Your account has been successfully created. Now let’s set up your online store.';
   const intro = selectedModule.welcomeIntro?.trim() || `Now let’s set up your ${selectedModule.name || 'online store'}. Choose a WEPZO subdomain or preview a store with your own domain style.`;
-  const builderTip = selectedModule.builderTip?.trim() || 'Build your professional online store in minutes. No coding required.';
+  const builderTip = 'Choose the web address for the website linked to your account.';
 
   return <main className="min-h-screen w-full bg-white text-[#101828]">
     <div className="flex min-h-screen w-full flex-col bg-white">
@@ -156,8 +152,8 @@ export default function WelcomePage() {
                 <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-blue-100 text-blue-700"><Globe size={17}/></span>
                 <span className="min-w-0 flex-1">
                   <span className="flex flex-wrap items-center gap-x-2 gap-y-1"><span className="text-sm font-bold text-slate-900">{selectedModule.subdomainTitle?.trim() || 'Use WEPZO Subdomain'}</span><span className="rounded-full bg-orange-100 px-2.5 py-1 text-xs font-semibold text-orange-800">{subdomainPriceLabel(selectedModule)}</span></span>
-                  <span className="mt-2 block text-sm leading-5 text-slate-600">{selectedModule.subdomainDescription?.trim() || 'Choose a WEPZO web address. Setup charges are shown in the builder before payment.'}</span>
-                  <span className="mt-3 flex max-w-[320px] items-center gap-1 rounded bg-slate-100 px-3 py-2 text-xs text-slate-600"><span>https://</span><span className="rounded bg-white px-2 py-1 font-semibold text-slate-800">{websiteName.toLowerCase().replace(/\s+/g, '')}</span><span>.wepzo.shop</span><Check size={14} className="ml-auto text-emerald-600"/></span>
+                  <span className="mt-2 block text-sm leading-5 text-slate-600">{selectedModule.subdomainDescription?.trim() || 'Choose a WEPZO web address. Any setup charges are shown before payment.'}</span>
+                  <span className="mt-3 flex max-w-[320px] items-center gap-1 rounded bg-slate-100 px-3 py-2 text-xs text-slate-600"><span>https://</span><span className="rounded bg-white px-2 py-1 font-semibold text-slate-800">{websiteName.toLowerCase().replace(/\s+/g, '')}</span><span>. WEPZO subdomain</span><Check size={14} className="ml-auto text-emerald-600"/></span>
                   <span className="mt-3 grid grid-cols-1 gap-2 text-xs text-slate-600 sm:grid-cols-2">{subdomainBenefits.map((benefit, index) => <span key={`${benefit}-${index}`}>✓ &nbsp;{benefit}</span>)}</span>
                 </span>
                 <span className={`mt-0.5 grid h-3.5 w-3.5 shrink-0 place-items-center rounded-full border ${choice === 'subdomain' ? 'border-blue-600' : 'border-slate-300'}`}>{choice === 'subdomain' && <span className="h-2 w-2 rounded-full bg-blue-600"/>}</span>
@@ -177,7 +173,7 @@ export default function WelcomePage() {
               </div>
             </button>}
           </div>}
-          {(selectedModule.showSubdomainOption !== false || selectedModule.showOwnDomainOption !== false) && <button type="button" onClick={startBuilding} className="mx-auto mt-4 flex min-h-11 items-center justify-center gap-2 rounded-lg bg-[#ff681c] px-7 py-3 text-sm font-bold text-white shadow-sm transition hover:bg-[#ed5910]">{selectedModule.continueLabel?.trim() || 'Continue & Build My Website'}<ArrowRight size={17}/></button>}
+          {(selectedModule.showSubdomainOption !== false || selectedModule.showOwnDomainOption !== false) && <button type="button" onClick={continueDomainSetup} className="mx-auto mt-4 flex min-h-11 items-center justify-center gap-2 rounded-lg bg-[#ff681c] px-7 py-3 text-sm font-bold text-white shadow-sm transition hover:bg-[#ed5910]">{choice === 'own-domain' ? 'Continue with Own Domain' : 'Continue with Subdomain'}<ArrowRight size={17}/></button>}
         </section>
 
         <section className="mt-5 grid gap-4 sm:grid-cols-3">

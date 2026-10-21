@@ -601,6 +601,57 @@ function findUserWebsite(user) {
     || null;
 }
 
+function ensureUserWebsite(user) {
+  const existing = findUserWebsite(user);
+  if (user?.role !== 'website_user') return existing;
+  const tenantId = String(user._id || '');
+  if (existing) {
+    const previousId = String(existing._id || '');
+    if (tenantId && previousId !== tenantId
+      && !(store.websites || []).some(item => item !== existing && String(item._id) === tenantId)) {
+      const seen = new WeakSet();
+      const replaceWebsiteIdReferences = value => {
+        if (!value || typeof value !== 'object' || seen.has(value)) return;
+        seen.add(value);
+        if (Array.isArray(value)) return value.forEach(replaceWebsiteIdReferences);
+        Object.entries(value).forEach(([key, child]) => {
+          if (key === 'websiteId' && String(child || '') === previousId) value[key] = tenantId;
+          else replaceWebsiteIdReferences(child);
+        });
+      };
+      replaceWebsiteIdReferences(store);
+      existing._id = tenantId;
+      user.websiteId = tenantId;
+      schedulePersist();
+    }
+    return existing;
+  }
+  if (!tenantId) return null;
+  const moduleId = String(user.selectedModuleId || user.websiteModuleId || '').trim();
+  const moduleSlug = normalizeWebsiteModuleSlug(user.selectedModuleSlug || user.websiteModuleSlug || user.selectedModuleType || '');
+  const module = (store.websiteModules || []).find(item => moduleId && String(item._id) === moduleId)
+    || (store.websiteModules || []).find(item => moduleSlug && websiteModuleSlugFor(item) === moduleSlug);
+  if (!module) return null;
+  const websiteModuleSlug = websiteModuleSlugFor(module);
+  const website = {
+    _id: tenantId,
+    websiteKey: buildWebsiteIdentity(user._id, module._id || websiteModuleSlug),
+    websiteModuleId: String(module._id || ''),
+    name: `${String(user.name || '').trim() || 'My'} Website`,
+    moduleType: user.selectedModuleType || websiteBuilderType(module),
+    websiteModuleSlug,
+    userId: String(user._id),
+    components: [],
+    totalAmount: 0,
+    domain: null,
+    status: 'draft',
+  };
+  store.websites.unshift(website);
+  user.websiteId = website._id;
+  schedulePersist();
+  return website;
+}
+
 const LOGIN_AGAIN = 'Login again — session expire ho gayi';
 
 const auth = (req, res, next) => {
@@ -611,7 +662,7 @@ const auth = (req, res, next) => {
     const user = store.users.find(u => u._id === decoded.id);
     if (user) {
       if (user.role === 'website_user') {
-        const website = findUserWebsite(user);
+        const website = ensureUserWebsite(user);
         const websiteId = String(website?._id || '');
         if (user.websiteId !== websiteId) {
           user.websiteId = websiteId;
@@ -1049,10 +1100,11 @@ router.post('/auth/register', async (req, res) => {
     createdAt: new Date().toISOString(),
   };
   store.users.unshift(user);
+  const website = ensureUserWebsite(user);
   res.status(201).json({
     token: token(user._id),
     user: {
-      id: user._id, name: user.name, email: user.email, role: user.role,
+      id: user._id, name: user.name, email: user.email, role: user.role, websiteId: website?._id || '',
       accessSections: user.accessSections, selectedModuleId: user.selectedModuleId, selectedModuleSlug: user.selectedModuleSlug, selectedModuleName: user.selectedModuleName, selectedModuleType: user.selectedModuleType,
     },
     module: { id: user.selectedModuleId, slug: user.selectedModuleSlug, name: user.selectedModuleName, type: user.selectedModuleType },
@@ -1064,16 +1116,15 @@ router.post('/auth/login', async (req, res) => {
   const requestModuleSlug = String(req.get('X-Website-Module') || req.headers['x-website-module'] || '').trim().toLowerCase();
   const requestModuleId = String(req.body?.moduleId || req.get('X-Website-Module-Id') || req.headers['x-website-module-id'] || '').trim();
   const canonicalRequestModuleSlug = normalizeWebsiteModuleSlug(requestModuleSlug);
-  let user = (store.users || []).find(u => {
-    const sameEmail = String(u.email || '').toLowerCase() === email;
-    if (!sameEmail) return false;
-    if (requestModuleId) return String(u.selectedModuleId || u.websiteModuleId || '').toLowerCase() === requestModuleId.toLowerCase();
-    return canonicalRequestModuleSlug
-      && normalizeWebsiteModuleSlug(String(u.selectedModuleSlug || u.websiteModuleSlug || '')) === canonicalRequestModuleSlug;
-  });
+  const matchingUsers = (store.users || []).filter(u => String(u.email || '').toLowerCase() === email);
+  let user = matchingUsers.find(u => u.role === 'main_admin');
   if (!user) {
-    const matches = (store.users || []).filter(u => String(u.email || '').toLowerCase() === email);
-    if (matches.length === 1) user = matches[0];
+    user = matchingUsers.find(u => {
+      if (requestModuleId) return String(u.selectedModuleId || u.websiteModuleId || '').toLowerCase() === requestModuleId.toLowerCase();
+      return canonicalRequestModuleSlug
+        && normalizeWebsiteModuleSlug(String(u.selectedModuleSlug || u.websiteModuleSlug || '')) === canonicalRequestModuleSlug;
+    });
+    if (!user && matchingUsers.length === 1) user = matchingUsers[0];
   }
   if (user) {
     if (!(await bcrypt.compare(password, user.password)))
@@ -1085,7 +1136,7 @@ router.post('/auth/login', async (req, res) => {
       user.selectedModuleSlug = normalizeWebsiteModuleSlug(selectedModule.slug || selectedModule.type || user.selectedModuleSlug || '');
       user.selectedModuleType = websiteBuilderType(selectedModule);
     }
-    const website = user.role === 'website_user' ? findUserWebsite(user) : null;
+    const website = user.role === 'website_user' ? ensureUserWebsite(user) : null;
     if (user.role === 'website_user') {
       const websiteId = String(website?._id || '');
       if (user.websiteId !== websiteId) {
@@ -5496,7 +5547,7 @@ router.post('/on-domain/free-hosting', auth, async (req, res) => {
         expiresAt: websiteSubscriptionExpiry(now, durationValue, durationUnit),
         payments: website.purchase?.payments || [],
       };
-    } else if (website.purchase?.status !== 'paid' && module.fullPurchasePriceMode === 'free') {
+    } else if (website.purchase?.status !== 'paid' && (module.fullPurchasePriceMode === 'free' || onDomainFreeMode(module))) {
       website.purchase = {
         _id: uuidv4(),
         type: 'full',
@@ -5504,13 +5555,11 @@ router.post('/on-domain/free-hosting', auth, async (req, res) => {
         amount: 0,
         totalAmount: 0,
         priceMode: 'free',
-        planName: 'Free full purchase',
+        planName: module.fullPurchasePriceMode === 'free' ? 'Free full purchase' : 'Free On Domain hosting',
         paidAt: activatedAt,
         createdAt: activatedAt,
         payments: website.purchase?.payments || [],
       };
-    } else if (website.purchase?.status !== 'paid') {
-      return res.status(402).json({ message: 'An active free website plan is not configured for this module.' });
     }
     website.status = 'published';
     website.publishedAt = activatedAt;

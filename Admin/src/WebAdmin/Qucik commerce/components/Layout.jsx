@@ -43,6 +43,8 @@ export default function Layout() {
   const [websiteDomainOptionsReady, setWebsiteDomainOptionsReady] = useState(false);
   const isWebsiteBuilder = location.pathname.startsWith('/website-builder');
   const isOnDomainPage = location.pathname === '/on-domain';
+  const isSubdomainPage = location.pathname === '/sub-domain';
+  const isDomainSetupPage = isOnDomainPage || isSubdomainPage;
   const isWebsiteUser = user?.role === 'website_user';
   const isSettings = location.pathname.startsWith('/settings') || ['/components', '/plans', '/users', '/roles'].includes(location.pathname);
   useEffect(() => {
@@ -103,24 +105,26 @@ export default function Layout() {
   const currentRouteAllowed = matchesAllowedRoute(location.pathname, allowedPaths, allKnownPaths);
   if (isWebsiteUser && (!websiteAccessReady || !websitePaymentReady || !websiteDomainOptionsReady)) return <div className="flex h-screen items-center justify-center bg-slate-50 text-sm text-slate-500">Loading website access...</div>;
   if (isWebsiteUser && websiteServiceEnded && isWebsiteBuilder) return <Navigate to="/website-dashboard" replace />;
+  if (isWebsiteUser && isWebsiteBuilder) return <Navigate to="/sub-domain" replace />;
+  if (isWebsiteUser && isSubdomainPage && !websiteDomainOptions.showSubdomainOption) return <Navigate to="/welcome" replace />;
   if (isWebsiteUser && isOnDomainPage && !websiteDomainOptions.showOwnDomainOption) return <Navigate to="/welcome" replace />;
   if (isWebsiteUser && websiteAccessReady && isWebsiteBuilder && !hasBuilderAccess) {
     return <WebsiteAccessDenied onSignOut={() => { resetBuilder(); logout(); }} />;
   }
-  if (isWebsiteUser && websiteAccessReady && websitePaymentReady && !hasPaidWebsite && !isWebsiteBuilder && !isOnDomainPage && !['/website-dashboard', '/website-subscription'].includes(location.pathname)) {
+  if (isWebsiteUser && websiteAccessReady && websitePaymentReady && !hasPaidWebsite && !isWebsiteBuilder && !isDomainSetupPage && !['/website-dashboard', '/website-subscription'].includes(location.pathname)) {
     if (websiteServiceEnded) return <Navigate to="/website-dashboard" replace />;
-    if (hasBuilderAccess) return <Navigate to="/website-builder" replace />;
+    if (hasBuilderAccess) return <Navigate to="/sub-domain" replace />;
     return <WebsiteAccessDenied onSignOut={() => { resetBuilder(); logout(); }} />;
   }
-  if (isWebsiteUser && websiteAccessReady && !isWebsiteBuilder && !isOnDomainPage && !currentRouteAllowed) {
-    if (hasBuilderAccess) return <Navigate to="/website-builder" replace />;
+  if (isWebsiteUser && websiteAccessReady && !isWebsiteBuilder && !isDomainSetupPage && !currentRouteAllowed) {
+    if (hasBuilderAccess) return <Navigate to="/sub-domain" replace />;
     return <WebsiteAccessDenied onSignOut={() => { resetBuilder(); logout(); }} />;
   }
 
   return (
     <ImageViewerProvider>
       <div className="flex h-screen overflow-hidden bg-[#f3f4f6]">
-        {(!isWebsiteBuilder || !isWebsiteUser) && (!isWebsiteUser || hasPaidWebsite) && (isWebsiteUser
+        {!isSubdomainPage && (!isWebsiteBuilder || !isWebsiteUser) && (!isWebsiteUser || hasPaidWebsite) && (isWebsiteUser
           ? (isSettings
             ? <SettingsSidebar mobileOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} allowedPaths={settingsAllowedPaths}/>
             : (allowedPaths.length > 0 && <Sidebar mobileOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} websiteAccess={effectiveWebsiteAccess} showOwnDomainOption={websiteDomainOptions.showOwnDomainOption}/>))
@@ -128,11 +132,11 @@ export default function Layout() {
             ? <SettingsSidebar mobileOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
             : <Sidebar mobileOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />)}
         <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-          {!isOnDomainPage && (!isWebsiteUser || hasPaidWebsite) && (!isWebsiteUser || effectiveWebsiteAccess.header.length > 0) && <Header onMenuToggle={() => setSidebarOpen(!sidebarOpen)} showMenuToggle={!isWebsiteBuilder} websiteAccess={effectiveWebsiteAccess}/>}
-          <main className={`min-h-0 flex-1 overflow-y-auto bg-[#f3f4f6] ${isOnDomainPage ? 'p-0' : 'p-4 lg:p-6'}`}>
+          {!isDomainSetupPage && (!isWebsiteUser || hasPaidWebsite) && (!isWebsiteUser || effectiveWebsiteAccess.header.length > 0) && <Header onMenuToggle={() => setSidebarOpen(!sidebarOpen)} showMenuToggle={!isWebsiteBuilder} websiteAccess={effectiveWebsiteAccess}/>}
+          <main className={`min-h-0 flex-1 overflow-y-auto bg-[#f3f4f6] ${isDomainSetupPage ? 'p-0' : 'p-4 lg:p-6'}`}>
             <PageErrorBoundary key={`${location.pathname}:${activeModule?.slug || 'ecommerce'}`}><Outlet /></PageErrorBoundary>
           </main>
-          {(!isWebsiteUser || hasPaidWebsite) && <AdminSupportDock />}
+          {!isDomainSetupPage && (!isWebsiteUser || hasPaidWebsite) && <AdminSupportDock />}
         </div>
       </div>
     </ImageViewerProvider>

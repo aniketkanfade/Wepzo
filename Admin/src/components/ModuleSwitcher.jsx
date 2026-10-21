@@ -29,13 +29,15 @@ export default function ModuleSwitcher() {
       api.get('/website-modules').then(({ data }) => {
         const available = Array.isArray(data) ? data : [];
         const active = available.filter(module => module.status !== false && module.status !== 'false' && module.status !== 'inactive');
-        const byId = new Map(active.map(module => [String(module._id || module.id || module.slug).toLowerCase(), module]));
-        DEFAULT_MODULE_OPTIONS.forEach(module => {
-          const key = getAdminModuleKey(module);
-          if (![...byId.values()].some(option => getAdminModuleKey(option) === key)) byId.set(module.slug, module);
-        });
-        const options = [...byId.values()].filter(module => !lockedSlug || String(module.slug || module.type || '').toLowerCase() === lockedSlug);
-        setModules(options.length ? options : DEFAULT_MODULE_OPTIONS.filter(module => !lockedSlug || String(module.slug).toLowerCase() === lockedSlug));
+        const options = DEFAULT_MODULE_OPTIONS.map(fallback => {
+          const key = getAdminModuleKey(fallback);
+          const matchingModules = active.filter(module => getAdminModuleKey(module) === key);
+          return matchingModules.find(module => String(module.slug || '').toLowerCase() === fallback.slug)
+            || matchingModules.find(module => String(module.name || '').trim().toLowerCase() === fallback.name.toLowerCase())
+            || matchingModules[0]
+            || fallback;
+        }).filter(module => !lockedSlug || getAdminModuleKey(module) === getAdminModuleKey({ slug: lockedSlug }));
+        setModules(options.length ? options : DEFAULT_MODULE_OPTIONS.filter(module => !lockedSlug || getAdminModuleKey(module) === getAdminModuleKey({ slug: lockedSlug })));
         const selectedKey = lockedSlug ? getAdminModuleKey({ slug: lockedSlug }) : activeModuleKey;
         const selected = options.find(module => getAdminModuleKey(module) === selectedKey);
         if (!selected) {

@@ -4,7 +4,7 @@ import api from '../../../api/axios';
 import { isWebsiteServiceActive } from '../../../utils/websiteService';
 import {
   LayoutDashboard, Package, ShoppingCart, Megaphone, Store, CalendarDays, Clock3, CircleCheck, LoaderCircle, PackageOpen, PackageCheck, Ban, CircleAlert, Banknote, ListOrdered,
-  ChevronDown, ChevronRight, Search, Settings, Users, Shield, Layers, CreditCard, Pencil,
+  ChevronDown, ChevronRight, Search, Settings, Users, Shield, Layers, CreditCard,
   ShoppingBasket, ReceiptText, Grid3X3, Image, Gift, Bell, Tag, List, PackagePlus,
   PackageSearch, Barcode, Upload, Download, RotateCcw, Zap, Smartphone, Truck, Mail, FileText,
   UserCircle, UserRoundCheck, UserRoundX, MapPin, Star, MessageSquareText, Globe2, Link2
@@ -111,6 +111,15 @@ function filterMenuByAccess(items, allowedPaths) {
     }
     return item.path && (allowedPaths.has(item.path) || (item.accessPath && allowedPaths.has(item.accessPath))) ? item : null;
   }).filter(Boolean);
+}
+
+function removeWebsiteBuilderLinks(items) {
+  return items.flatMap(item => {
+    if (item.path === '/website-builder') return [];
+    if (!item.children?.length) return [item];
+    const children = removeWebsiteBuilderLinks(item.children);
+    return children.length ? [{ ...item, children }] : [];
+  });
 }
 
 const getDashboardItem = module => ({ label: 'Dashboard', path: getAdminModulePath(module), icon: LayoutDashboard });
@@ -266,7 +275,7 @@ export default function Sidebar({ mobileOpen, onClose, websiteAccess, showOwnDom
   const moduleKey = getAdminModuleKey(activeModule);
   const allowedSidebarPaths = new Set([...(websiteAccess?.sidebar || []), ...(websiteAccess?.header || [])]);
   const visibleMenuItems = isWebsiteUser
-    ? filterMenuByAccess(getAdminSidebarMenu(activeModule), allowedSidebarPaths)
+    ? removeWebsiteBuilderLinks(filterMenuByAccess(getAdminSidebarMenu(activeModule), allowedSidebarPaths))
     : getAdminSidebarMenu(activeModule);
   const [activeOpenKey, setActiveOpenKey] = useState(null);
   const [activeOpenDepth, setActiveOpenDepth] = useState(null);
@@ -394,7 +403,7 @@ export default function Sidebar({ mobileOpen, onClose, websiteAccess, showOwnDom
         </div>
         <nav className="flex-1 overflow-y-auto px-3 pb-4 space-y-0.5">
           {isWebsiteUser && hasPaidWebsite && allowedSidebarPaths.has('/website-builder') && <div className="mb-3 border-b border-slate-100 pb-3">
-            {onDomainStatusReady && !onDomainPurchased && <NavLink to="/website-builder" className={({ isActive }) => `flex items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm font-medium ${isActive ? 'bg-[#f0f4ff] text-[#1a3a8a]' : 'text-gray-700 hover:bg-gray-50'}`}><Pencil size={16}/>Edit Website</NavLink>}
+            <NavLink to="/sub-domain" className={({ isActive }) => `flex items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm font-medium ${isActive ? 'bg-[#f0f4ff] text-[#1a3a8a]' : 'text-gray-700 hover:bg-gray-50'}`}><Globe2 size={16}/>Subdomain setup</NavLink>
             {onDomainStatusReady && !onDomainPurchased && showOwnDomainOption && <NavLink to="/on-domain" className={({ isActive }) => `flex items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm font-medium ${isActive ? 'bg-[#f0f4ff] text-[#1a3a8a]' : 'text-gray-700 hover:bg-gray-50'}`}><Globe2 size={16}/>On Domain</NavLink>}
             <NavLink to="/website-subscription" className={({ isActive }) => `flex items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm font-medium ${isActive ? 'bg-[#f0f4ff] text-[#1a3a8a]' : 'text-gray-700 hover:bg-gray-50'}`}><CreditCard size={16}/>Plan & Subscription</NavLink>
           </div>}
