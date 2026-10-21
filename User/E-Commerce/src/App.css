@@ -767,6 +767,6 @@ body { min-width: 320px; overflow-x: clip; }
 }
 
 @media (max-width: 760px) {
-  .storefront > .header { position: relative; top: auto; }
-  .storefront > .nav { position: sticky; top: 0; }
+  .storefront > .header { position: sticky; top: 0; z-index: 45; }
+  .storefront > .nav { position: sticky; top: 101px; z-index: 44; }
 }
