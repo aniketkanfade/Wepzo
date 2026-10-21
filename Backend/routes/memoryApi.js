@@ -1116,16 +1116,15 @@ router.post('/auth/login', async (req, res) => {
   const requestModuleSlug = String(req.get('X-Website-Module') || req.headers['x-website-module'] || '').trim().toLowerCase();
   const requestModuleId = String(req.body?.moduleId || req.get('X-Website-Module-Id') || req.headers['x-website-module-id'] || '').trim();
   const canonicalRequestModuleSlug = normalizeWebsiteModuleSlug(requestModuleSlug);
-  let user = (store.users || []).find(u => {
-    const sameEmail = String(u.email || '').toLowerCase() === email;
-    if (!sameEmail) return false;
-    if (requestModuleId) return String(u.selectedModuleId || u.websiteModuleId || '').toLowerCase() === requestModuleId.toLowerCase();
-    return canonicalRequestModuleSlug
-      && normalizeWebsiteModuleSlug(String(u.selectedModuleSlug || u.websiteModuleSlug || '')) === canonicalRequestModuleSlug;
-  });
+  const matchingUsers = (store.users || []).filter(u => String(u.email || '').toLowerCase() === email);
+  let user = matchingUsers.find(u => u.role === 'main_admin');
   if (!user) {
-    const matches = (store.users || []).filter(u => String(u.email || '').toLowerCase() === email);
-    if (matches.length === 1) user = matches[0];
+    user = matchingUsers.find(u => {
+      if (requestModuleId) return String(u.selectedModuleId || u.websiteModuleId || '').toLowerCase() === requestModuleId.toLowerCase();
+      return canonicalRequestModuleSlug
+        && normalizeWebsiteModuleSlug(String(u.selectedModuleSlug || u.websiteModuleSlug || '')) === canonicalRequestModuleSlug;
+    });
+    if (!user && matchingUsers.length === 1) user = matchingUsers[0];
   }
   if (user) {
     if (!(await bcrypt.compare(password, user.password)))
