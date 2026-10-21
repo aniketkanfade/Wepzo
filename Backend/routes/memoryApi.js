@@ -824,6 +824,52 @@ function buildWebsiteIdentity(userId, moduleIdentity) {
   return `${String(userId || '').trim()}:${String(moduleIdentity || '').trim().toLowerCase()}`;
 }
 
+function ensureTenantWebsite(user, module, name = '') {
+  if (!Array.isArray(store.websites)) store.websites = [];
+  const moduleId = String(module?._id || user?.selectedModuleId || user?.websiteModuleId || '');
+  const moduleSlug = websiteModuleSlugFor(module || user || {});
+  let website = store.websites.find(item => String(item.userId) === String(user?._id)
+    && (item.websiteModuleId && moduleId
+      ? String(item.websiteModuleId) === moduleId
+      : normalizeWebsiteModuleSlug(item.websiteModuleSlug || item.moduleType || '') === moduleSlug));
+  let changed = false;
+
+  if (!website) {
+    website = {
+      _id: uuidv4(),
+      websiteKey: buildWebsiteIdentity(user._id, moduleId || moduleSlug),
+      websiteModuleId: moduleId,
+      name: String(name || '').trim() || `${user.name || 'My'} Website`,
+      moduleType: websiteBuilderType(module || user),
+      websiteModuleSlug: moduleSlug,
+      userId: user._id,
+      components: [],
+      totalAmount: 0,
+      domain: null,
+      status: 'draft',
+    };
+    store.websites.push(website);
+    changed = true;
+  } else {
+    const resolvedModuleId = moduleId || String(website.websiteModuleId || '');
+    const websiteKey = buildWebsiteIdentity(user._id, resolvedModuleId || moduleSlug);
+    if (website.websiteModuleId !== resolvedModuleId
+      || website.websiteModuleSlug !== moduleSlug
+      || website.websiteKey !== websiteKey) {
+      website.websiteModuleId = resolvedModuleId;
+      website.websiteModuleSlug = moduleSlug;
+      website.websiteKey = websiteKey;
+      changed = true;
+    }
+  }
+
+  if (user.websiteId !== website._id) {
+    user.websiteId = website._id;
+    changed = true;
+  }
+  return { website, changed };
+}
+
 function normalizeWebsiteHost(value) {
   return String(value || '').split(',')[0].trim().toLowerCase()
     .replace(/^https?:\/\//, '').split(/[/?#]/)[0].replace(/:\d+$/, '').replace(/\.$/, '');
@@ -1047,13 +1093,16 @@ router.post('/auth/register', async (req, res) => {
     createdAt: new Date().toISOString(),
   };
   store.users.unshift(user);
+  const { website } = ensureTenantWebsite(user, candidateModule, req.body?.websiteName);
+  schedulePersist();
   res.status(201).json({
     token: token(user._id),
     user: {
       id: user._id, name: user.name, email: user.email, role: user.role,
-      accessSections: user.accessSections, selectedModuleId: user.selectedModuleId, selectedModuleSlug: user.selectedModuleSlug, selectedModuleName: user.selectedModuleName, selectedModuleType: user.selectedModuleType,
+      accessSections: user.accessSections, websiteId: website._id, selectedModuleId: user.selectedModuleId, selectedModuleSlug: user.selectedModuleSlug, selectedModuleName: user.selectedModuleName, selectedModuleType: user.selectedModuleType,
     },
     module: { id: user.selectedModuleId, slug: user.selectedModuleSlug, name: user.selectedModuleName, type: user.selectedModuleType },
+    websiteId: website._id,
   });
 });
 router.post('/auth/login', async (req, res) => {
@@ -1083,13 +1132,15 @@ router.post('/auth/login', async (req, res) => {
       user.selectedModuleSlug = normalizeWebsiteModuleSlug(selectedModule.slug || selectedModule.type || user.selectedModuleSlug || '');
       user.selectedModuleType = websiteBuilderType(selectedModule);
     }
-    const website = user.role === 'website_user' ? findUserWebsite(user) : null;
     if (user.role === 'website_user') {
-      const websiteId = String(website?._id || '');
-      if (user.websiteId !== websiteId) {
-        user.websiteId = websiteId;
-        schedulePersist();
-      }
+      const tenantModule = selectedModule || {
+        _id: user.selectedModuleId || user.websiteModuleId || '',
+        slug: user.selectedModuleSlug || user.websiteModuleSlug || user.selectedModuleType || '',
+        type: user.selectedModuleType || '',
+        name: user.selectedModuleName || '',
+      };
+      const ensured = ensureTenantWebsite(user, tenantModule, `${user.name || 'My'} Website`);
+      if (ensured.changed) schedulePersist();
     }
     return res.json({ token: token(user._id), user: { id: user._id, name: user.name, email: user.email, role: user.role, accessSections: user.accessSections, websiteId: user.websiteId || '', selectedModuleId: user.selectedModuleId || selectedModule?._id || '', selectedModuleSlug: user.selectedModuleSlug || selectedModule?.slug || requestModuleSlug, selectedModuleName: user.selectedModuleName || selectedModule?.name, selectedModuleType: user.selectedModuleType || (selectedModule && websiteBuilderType(selectedModule)) } });
   }
@@ -5292,6 +5343,8 @@ router.get('/on-domain/package', auth, (req, res) => {
   if (req.user.role !== 'website_user') return res.status(403).json({ message: 'Website account zaroori hai' });
   const module = onDomainModule(req);
   if (!module) return res.status(404).json({ message: 'Website module not found' });
+  const ensuredTenant = ensureTenantWebsite(req.user, module, `${req.user.name || 'My'} Website`);
+  if (ensuredTenant.changed) schedulePersist();
   const selectedWebsite = onDomainWebsiteForUser(req, module);
   const populatedTenantWebsite = selectedWebsite ? populateWebsite(selectedWebsite) : null;
   const tenantWebsite = selectedWebsite ? {
@@ -5433,59 +5486,7 @@ router.post('/on-domain/free-hosting', auth, async (req, res) => {
   const availability = websiteDomainAvailability(domainName, 'custom', website._id);
   if (!availability.available) return res.status(domainName ? 409 : 400).json({ message: availability.message });
   if (website.serviceStoppedAt || websiteSubscriptionExpired(website)) return res.status(402).json({ message: 'Renew or reactivate the tenant website service before hosting it.' });
-  if (website.status !== 'published') {
-    if (website.status !== 'draft') return res.status(409).json({ message: 'This tenant website cannot be published for hosting yet.' });
-    if (website.purchase?.status === 'pending') return res.status(409).json({ message: 'Finish or cancel the current website checkout before starting free hosting.' });
-
-    const moduleSlug = websiteModuleSlugFor(module);
-    const freePlan = (store.websiteSubscriptionPlans || [])
-      .filter(plan => plan.status !== false && plan.priceMode === 'free'
-        && (!plan.moduleSlug || normalizeWebsiteModuleSlug(plan.moduleSlug) === moduleSlug))
-      .sort((a, b) => Number(b.isDefault === true) - Number(a.isDefault === true))[0];
-    const now = new Date();
-    const activatedAt = now.toISOString();
-    if (website.purchase?.status !== 'paid' && freePlan) {
-      const durationValue = Number(freePlan.durationValue) || 30;
-      const durationUnit = ['day', 'month', 'year'].includes(freePlan.durationUnit) ? freePlan.durationUnit : 'month';
-      website.purchase = {
-        _id: uuidv4(),
-        type: 'subscription',
-        status: 'paid',
-        amount: 0,
-        subscriptionAmount: 0,
-        domainAmount: 0,
-        totalAmount: 0,
-        priceMode: 'free',
-        planId: freePlan._id,
-        planName: freePlan.name || 'Free website plan',
-        subscriptionDurationValue: durationValue,
-        subscriptionDurationUnit: durationUnit,
-        paidAt: activatedAt,
-        createdAt: activatedAt,
-        expiresAt: websiteSubscriptionExpiry(now, durationValue, durationUnit),
-        payments: website.purchase?.payments || [],
-      };
-    } else if (website.purchase?.status !== 'paid' && module.fullPurchasePriceMode === 'free') {
-      website.purchase = {
-        _id: uuidv4(),
-        type: 'full',
-        status: 'paid',
-        amount: 0,
-        totalAmount: 0,
-        priceMode: 'free',
-        planName: 'Free full purchase',
-        paidAt: activatedAt,
-        createdAt: activatedAt,
-        payments: website.purchase?.payments || [],
-      };
-    } else if (website.purchase?.status !== 'paid') {
-      return res.status(402).json({ message: 'An active free website plan is not configured for this module.' });
-    }
-    website.status = 'published';
-    website.publishedAt = activatedAt;
-    delete website.serviceStoppedAt;
-  }
-  if (website.status !== 'published') return res.status(409).json({ message: 'Publish your tenant website before hosting its domain.' });
+  if (website.status !== 'published') return res.status(409).json({ message: 'Publish or purchase your tenant website before starting free domain hosting. Free hosting covers the domain only.' });
   if (website.hosting?.status === 'active') {
     if (normalizeWebsiteDomain(website.hosting.domain) !== availability.fullDomain) return res.status(409).json({ message: `This tenant is already hosted at ${website.hosting.domain}.` });
     return res.json({ free: true, websiteId: String(website._id), domainName: availability.fullDomain, hosting: website.hosting });
