@@ -601,6 +601,34 @@ function findUserWebsite(user) {
     || null;
 }
 
+function ensureUserWebsite(user) {
+  const existing = findUserWebsite(user);
+  if (existing || user?.role !== 'website_user') return existing;
+  const moduleId = String(user.selectedModuleId || user.websiteModuleId || '').trim();
+  const moduleSlug = normalizeWebsiteModuleSlug(user.selectedModuleSlug || user.websiteModuleSlug || user.selectedModuleType || '');
+  const module = (store.websiteModules || []).find(item => moduleId && String(item._id) === moduleId)
+    || (store.websiteModules || []).find(item => moduleSlug && websiteModuleSlugFor(item) === moduleSlug);
+  if (!module) return null;
+  const websiteModuleSlug = websiteModuleSlugFor(module);
+  const website = {
+    _id: uuidv4(),
+    websiteKey: buildWebsiteIdentity(user._id, module._id || websiteModuleSlug),
+    websiteModuleId: String(module._id || ''),
+    name: `${String(user.name || '').trim() || 'My'} Website`,
+    moduleType: user.selectedModuleType || websiteBuilderType(module),
+    websiteModuleSlug,
+    userId: String(user._id),
+    components: [],
+    totalAmount: 0,
+    domain: null,
+    status: 'draft',
+  };
+  store.websites.unshift(website);
+  user.websiteId = website._id;
+  schedulePersist();
+  return website;
+}
+
 const LOGIN_AGAIN = 'Login again — session expire ho gayi';
 
 const auth = (req, res, next) => {
@@ -611,7 +639,7 @@ const auth = (req, res, next) => {
     const user = store.users.find(u => u._id === decoded.id);
     if (user) {
       if (user.role === 'website_user') {
-        const website = findUserWebsite(user);
+        const website = ensureUserWebsite(user);
         const websiteId = String(website?._id || '');
         if (user.websiteId !== websiteId) {
           user.websiteId = websiteId;
@@ -1049,10 +1077,11 @@ router.post('/auth/register', async (req, res) => {
     createdAt: new Date().toISOString(),
   };
   store.users.unshift(user);
+  const website = ensureUserWebsite(user);
   res.status(201).json({
     token: token(user._id),
     user: {
-      id: user._id, name: user.name, email: user.email, role: user.role,
+      id: user._id, name: user.name, email: user.email, role: user.role, websiteId: website?._id || '',
       accessSections: user.accessSections, selectedModuleId: user.selectedModuleId, selectedModuleSlug: user.selectedModuleSlug, selectedModuleName: user.selectedModuleName, selectedModuleType: user.selectedModuleType,
     },
     module: { id: user.selectedModuleId, slug: user.selectedModuleSlug, name: user.selectedModuleName, type: user.selectedModuleType },
@@ -1085,7 +1114,7 @@ router.post('/auth/login', async (req, res) => {
       user.selectedModuleSlug = normalizeWebsiteModuleSlug(selectedModule.slug || selectedModule.type || user.selectedModuleSlug || '');
       user.selectedModuleType = websiteBuilderType(selectedModule);
     }
-    const website = user.role === 'website_user' ? findUserWebsite(user) : null;
+    const website = user.role === 'website_user' ? ensureUserWebsite(user) : null;
     if (user.role === 'website_user') {
       const websiteId = String(website?._id || '');
       if (user.websiteId !== websiteId) {
