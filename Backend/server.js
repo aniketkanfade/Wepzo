@@ -59,17 +59,16 @@ async function startWithMemory() {
 }
 
 async function bootstrap() {
-  if (!process.env.MONGODB_URI) {
-    throw new Error('MONGODB_URI is required. Backend startup cancelled to prevent using non-persistent storage.');
-  }
-  await mongoose.connect(process.env.MONGODB_URI, { serverSelectionTimeoutMS: 10000 });
-  console.log('MongoDB connected; persistent application storage enabled.');
   await startWithMemory();
-  await startWithMongo();
+
+  mongoose.connect(process.env.MONGODB_URI, { serverSelectionTimeoutMS: 3000 })
+    .then(async () => {
+      console.log('MongoDB connected (optional extra routes)');
+      await startWithMongo();
+    })
+    .catch(() => console.log('MongoDB not available - memory mode only'));
+
   app.listen(PORT, '0.0.0.0', () => console.log(`Server listening on port ${PORT} (all network interfaces)`));
 }
 
-bootstrap().catch(error => {
-  console.error('Backend startup failed:', error.message);
-  process.exitCode = 1;
-});
+bootstrap();

@@ -44,11 +44,9 @@ Wepzo/
 ```bash
 cd Backend
 npm install
-npm run migrate:memory-to-mongodb  # One-time: merge the existing JSON state into MongoDB
+npm run seed    # Creates admin user & sample data
 npm run dev     # Starts on http://localhost:5000
 ```
-
-Set `MONGODB_URI` in `Backend/.env` before migration or startup. The backend now requires MongoDB and loads application state from the `wepzo_app_state` collection; it no longer reads or writes `Backend/data/wepzo-store.json`. The migration preserves existing MongoDB records when IDs conflict and adds local-only records. Keep the ignored JSON file as a local backup until the migration is verified.
 
 **Default Admin Login:**
 - Email: `admin@wepzo.com`
@@ -62,7 +60,7 @@ npm install
 npm run dev     # Starts on http://localhost:3000
 ```
 
-For production, the Admin uses the shared Render API URL from `Admin/.env.production`. Copy `Admin/.env.example` to `Admin/.env.local` to override it for local development. Optional module-specific variables override the shared API URL.
+To configure the Admin API, copy `Admin/.env.example` to `Admin/.env.local`. `VITE_API_URL` is the shared backend URL; optional module-specific variables override it for that module.
 
 ## API Endpoints
 
@@ -93,7 +91,16 @@ The Admin selects an API URL from the active website module. By default, all mod
 | Marketing | `VITE_MARKETING_API_URL` |
 | Information Web | `VITE_INFORMATION_WEB_API_URL` |
 
-Use `VITE_API_URL` as the shared fallback URL. Separate Backend instances can still be scoped with a unique `PORT` and matching `WEBSITE_MODULE`; every instance now requires `MONGODB_URI` and persists shared application state in MongoDB. `WEBSITE_MODULE` locks the API to its module even if the client sends another module header. Use the same MongoDB database when instances should share data, or separate database URIs to isolate them.
+Use `VITE_API_URL` as the shared fallback URL. To run separate memory-backed servers, start each Backend instance with a unique `PORT`, matching `WEBSITE_MODULE`, and unique `DATA_FILE`, for example from `Backend/`:
+
+```powershell
+$env:PORT="5101"
+$env:WEBSITE_MODULE="ecommerce"
+$env:DATA_FILE="data/quick-commerce.json"
+npm start
+```
+
+Start one instance per module using unique ports and data files; use `e-commerce`, `store-singlepage-web`, `marketing`, or `general` for the other module names. `WEBSITE_MODULE` locks the API to its module even if the client sends another module header. If independent servers use MongoDB-backed routes, give each a `MONGODB_URI` for a separate database. Leave these settings unset to keep the current single-server behavior.
 
 ## Tech Stack
 
