@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import ProductCard from '../components/ProductCard'
 import { imageOf, money, videoOf } from '../lib/storefront'
 
@@ -25,6 +25,7 @@ export default function ProductDetailPage({ product, relatedProducts, business, 
   const [openSections, setOpenSections] = useState({ details: true })
   const [quantity, setQuantity] = useState(1)
   const [selectedVariantId, setSelectedVariantId] = useState('')
+  const touchStartX = useRef(null)
   useEffect(() => {
     setActiveImage(0)
     setZoomOrigin('50% 50%')
@@ -139,7 +140,7 @@ export default function ProductDetailPage({ product, relatedProducts, business, 
   return <main className="product-detail-page mx-auto w-full max-w-[1800px] px-3 py-5 sm:px-5 md:px-8 md:py-8">
     <div className="mb-5 flex items-center justify-between gap-3 text-sm">
       <div className="text-slate-500"><a href={`/${window.location.search}`} className="hover:text-orange-600">Home</a><span className="px-2">/</span><span className="text-slate-800">{product.name}</span></div>
-      <button type="button" onClick={onClose} className="shrink-0 rounded-lg border border-slate-200 px-3 py-2 font-semibold text-slate-600 hover:bg-slate-50">Back to products</button>
+      <button type="button" onClick={onClose} className="product-detail-back-button shrink-0 rounded-lg border border-slate-200 px-3 py-2 font-semibold text-slate-600 hover:bg-slate-50">Back to products</button>
     </div>
 
     <section className="product-detail-layout grid items-start gap-6 rounded-2xl border border-slate-100 bg-white p-4 shadow-sm md:grid-cols-2 md:gap-10 md:p-7">
@@ -148,7 +149,14 @@ export default function ProductDetailPage({ product, relatedProducts, business, 
           {images.map((image, index) => <button type="button" key={`${image}-${index}`} onClick={() => setActiveImage(index)} aria-label={`View image ${index + 1}`} aria-pressed={activeImage === index} className={activeImage === index ? 'active' : ''}><img src={imageOf({ image })} alt="" /></button>)}
           {productVideo && <button type="button" onClick={() => setActiveImage(images.length)} aria-label="View product video" aria-pressed={activeImage === images.length} className={`product-detail-video-thumb ${activeImage === images.length ? 'active' : ''}`}>Video</button>}
         </div>}
-        <div className="product-detail-main-image grid place-items-center overflow-hidden rounded-xl bg-white" onMouseMove={event => {
+        <div className="product-detail-main-image grid place-items-center overflow-hidden rounded-xl bg-white" onTouchStart={event => { touchStartX.current = event.touches[0]?.clientX ?? null }} onTouchEnd={event => {
+          const startX = touchStartX.current
+          touchStartX.current = null
+          if (startX == null || images.length < 2 || (productVideo && activeImage === images.length)) return
+          const deltaX = event.changedTouches[0]?.clientX - startX
+          if (Math.abs(deltaX) < 40) return
+          setActiveImage(index => (index + (deltaX < 0 ? 1 : -1) + images.length) % images.length)
+        }} onMouseMove={event => {
           const bounds = event.currentTarget.getBoundingClientRect()
           setZoomOrigin(`${((event.clientX - bounds.left) / bounds.width) * 100}% ${((event.clientY - bounds.top) / bounds.height) * 100}%`)
         }} onMouseLeave={() => setZoomOrigin('50% 50%')}>
@@ -205,7 +213,7 @@ export default function ProductDetailPage({ product, relatedProducts, business, 
 
     {relatedProducts.length > 0 && <section className="mt-10">
       <div className="mb-4"><h2 className="text-xl font-bold text-slate-900">Related products</h2><p className="mt-1 text-sm text-slate-500">More products you may like</p></div>
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-5">{relatedProducts.map((item, index) => <ProductCard key={`related-${item._id || item.id}`} product={item} index={index} prefix="related" {...productCardProps} />)}</div>
+      <div className="related-product-grid grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-5">{relatedProducts.map((item, index) => <ProductCard key={`related-${item._id || item.id}`} product={item} index={index} prefix="related" {...productCardProps} />)}</div>
     </section>}
   </main>
 }

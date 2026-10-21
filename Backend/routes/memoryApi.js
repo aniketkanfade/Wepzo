@@ -1,4 +1,5 @@
 const express = require('express');
+const mongoose = require('mongoose');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const archiver = require('archiver');
@@ -13,6 +14,7 @@ const { sendEmail, sendTestEmail } = require('../lib/smtpTransport');
 const { sendSmsTest } = require('../lib/smsGateway');
 const { v4: uuidv4 } = require('uuid');
 const { store, schedulePersist } = require('../lib/memoryStore');
+const BusinessSettings = require('../models/BusinessSettings');
 const WEB_PAGE_DEFAULT_CONTENT = require('../../shared/webPageDefaults.json');
 const {
   attachStoreRef, syncData, recomputeStoreCounts, cascadeDeleteStore,
@@ -824,52 +826,6 @@ function buildWebsiteIdentity(userId, moduleIdentity) {
   return `${String(userId || '').trim()}:${String(moduleIdentity || '').trim().toLowerCase()}`;
 }
 
-function ensureTenantWebsite(user, module, name = '') {
-  if (!Array.isArray(store.websites)) store.websites = [];
-  const moduleId = String(module?._id || user?.selectedModuleId || user?.websiteModuleId || '');
-  const moduleSlug = websiteModuleSlugFor(module || user || {});
-  let website = store.websites.find(item => String(item.userId) === String(user?._id)
-    && (item.websiteModuleId && moduleId
-      ? String(item.websiteModuleId) === moduleId
-      : normalizeWebsiteModuleSlug(item.websiteModuleSlug || item.moduleType || '') === moduleSlug));
-  let changed = false;
-
-  if (!website) {
-    website = {
-      _id: uuidv4(),
-      websiteKey: buildWebsiteIdentity(user._id, moduleId || moduleSlug),
-      websiteModuleId: moduleId,
-      name: String(name || '').trim() || `${user.name || 'My'} Website`,
-      moduleType: websiteBuilderType(module || user),
-      websiteModuleSlug: moduleSlug,
-      userId: user._id,
-      components: [],
-      totalAmount: 0,
-      domain: null,
-      status: 'draft',
-    };
-    store.websites.push(website);
-    changed = true;
-  } else {
-    const resolvedModuleId = moduleId || String(website.websiteModuleId || '');
-    const websiteKey = buildWebsiteIdentity(user._id, resolvedModuleId || moduleSlug);
-    if (website.websiteModuleId !== resolvedModuleId
-      || website.websiteModuleSlug !== moduleSlug
-      || website.websiteKey !== websiteKey) {
-      website.websiteModuleId = resolvedModuleId;
-      website.websiteModuleSlug = moduleSlug;
-      website.websiteKey = websiteKey;
-      changed = true;
-    }
-  }
-
-  if (user.websiteId !== website._id) {
-    user.websiteId = website._id;
-    changed = true;
-  }
-  return { website, changed };
-}
-
 function normalizeWebsiteHost(value) {
   return String(value || '').split(',')[0].trim().toLowerCase()
     .replace(/^https?:\/\//, '').split(/[/?#]/)[0].replace(/:\d+$/, '').replace(/\.$/, '');
@@ -1093,16 +1049,13 @@ router.post('/auth/register', async (req, res) => {
     createdAt: new Date().toISOString(),
   };
   store.users.unshift(user);
-  const { website } = ensureTenantWebsite(user, candidateModule, req.body?.websiteName);
-  schedulePersist();
   res.status(201).json({
     token: token(user._id),
     user: {
       id: user._id, name: user.name, email: user.email, role: user.role,
-      accessSections: user.accessSections, websiteId: website._id, selectedModuleId: user.selectedModuleId, selectedModuleSlug: user.selectedModuleSlug, selectedModuleName: user.selectedModuleName, selectedModuleType: user.selectedModuleType,
+      accessSections: user.accessSections, selectedModuleId: user.selectedModuleId, selectedModuleSlug: user.selectedModuleSlug, selectedModuleName: user.selectedModuleName, selectedModuleType: user.selectedModuleType,
     },
     module: { id: user.selectedModuleId, slug: user.selectedModuleSlug, name: user.selectedModuleName, type: user.selectedModuleType },
-    websiteId: website._id,
   });
 });
 router.post('/auth/login', async (req, res) => {
@@ -1132,15 +1085,13 @@ router.post('/auth/login', async (req, res) => {
       user.selectedModuleSlug = normalizeWebsiteModuleSlug(selectedModule.slug || selectedModule.type || user.selectedModuleSlug || '');
       user.selectedModuleType = websiteBuilderType(selectedModule);
     }
+    const website = user.role === 'website_user' ? findUserWebsite(user) : null;
     if (user.role === 'website_user') {
-      const tenantModule = selectedModule || {
-        _id: user.selectedModuleId || user.websiteModuleId || '',
-        slug: user.selectedModuleSlug || user.websiteModuleSlug || user.selectedModuleType || '',
-        type: user.selectedModuleType || '',
-        name: user.selectedModuleName || '',
-      };
-      const ensured = ensureTenantWebsite(user, tenantModule, `${user.name || 'My'} Website`);
-      if (ensured.changed) schedulePersist();
+      const websiteId = String(website?._id || '');
+      if (user.websiteId !== websiteId) {
+        user.websiteId = websiteId;
+        schedulePersist();
+      }
     }
     return res.json({ token: token(user._id), user: { id: user._id, name: user.name, email: user.email, role: user.role, accessSections: user.accessSections, websiteId: user.websiteId || '', selectedModuleId: user.selectedModuleId || selectedModule?._id || '', selectedModuleSlug: user.selectedModuleSlug || selectedModule?.slug || requestModuleSlug, selectedModuleName: user.selectedModuleName || selectedModule?.name, selectedModuleType: user.selectedModuleType || (selectedModule && websiteBuilderType(selectedModule)) } });
   }
@@ -4417,11 +4368,25 @@ router.put('/settings/payment-gateway', auth, (req, res) => {
   res.json(businessSettingsResponse(store.paymentGatewaySettings));
 });
 
-router.get('/settings/business', auth, (req, res) => {
+router.get('/settings/business', auth, async (req, res) => {
+  const scope = businessSettingsScope(req);
+  if (mongoose.connection.readyState === 1) {
+    try {
+      const record = await BusinessSettings.findOne({ scope }).lean();
+      if (record?.settings) return res.json(businessSettingsResponse(record.settings));
+      const legacySettings = businessSettingsForRequest(req);
+      if (Object.keys(legacySettings).length) {
+        await BusinessSettings.updateOne({ scope }, { $setOnInsert: { settings: legacySettings } }, { upsert: true });
+      }
+      return res.json(businessSettingsResponse(legacySettings));
+    } catch (error) {
+      console.error('MongoDB business settings read failed:', error.message);
+    }
+  }
   res.json(businessSettingsResponse(businessSettingsForRequest(req)));
 });
 
-router.put('/settings/business', auth, (req, res) => {
+router.put('/settings/business', auth, async (req, res) => {
   const scope = businessSettingsScope(req);
   const info = businessSettingsModule(req);
   const protectedIntegrationSecretsProvided = BUSINESS_PAYMENT_SECRETS
@@ -4465,6 +4430,21 @@ router.put('/settings/business', auth, (req, res) => {
     }
     if (selectedGateway && !['razorpay', 'phonepe', 'cashfree'].includes(selectedGateway)) {
       return res.status(400).json({ message: 'Choose Razorpay, PhonePe, or Cashfree.' });
+    }
+  }
+  if (process.env.MONGODB_URI && mongoose.connection.readyState !== 1) {
+    return res.status(503).json({ message: 'MongoDB is configured but not connected; business settings were not saved.' });
+  }
+  if (mongoose.connection.readyState === 1) {
+    try {
+      await BusinessSettings.findOneAndUpdate(
+        { scope },
+        { $set: { settings: updated } },
+        { upsert: true, new: true, setDefaultsOnInsert: true, runValidators: true },
+      );
+    } catch (error) {
+      console.error('MongoDB business settings write failed:', error.message);
+      return res.status(503).json({ message: 'Business settings could not be saved to MongoDB.' });
     }
   }
   store.businessSettingsByModule[scope] = updated;
@@ -5343,8 +5323,6 @@ router.get('/on-domain/package', auth, (req, res) => {
   if (req.user.role !== 'website_user') return res.status(403).json({ message: 'Website account zaroori hai' });
   const module = onDomainModule(req);
   if (!module) return res.status(404).json({ message: 'Website module not found' });
-  const ensuredTenant = ensureTenantWebsite(req.user, module, `${req.user.name || 'My'} Website`);
-  if (ensuredTenant.changed) schedulePersist();
   const selectedWebsite = onDomainWebsiteForUser(req, module);
   const populatedTenantWebsite = selectedWebsite ? populateWebsite(selectedWebsite) : null;
   const tenantWebsite = selectedWebsite ? {
@@ -5486,7 +5464,59 @@ router.post('/on-domain/free-hosting', auth, async (req, res) => {
   const availability = websiteDomainAvailability(domainName, 'custom', website._id);
   if (!availability.available) return res.status(domainName ? 409 : 400).json({ message: availability.message });
   if (website.serviceStoppedAt || websiteSubscriptionExpired(website)) return res.status(402).json({ message: 'Renew or reactivate the tenant website service before hosting it.' });
-  if (website.status !== 'published') return res.status(409).json({ message: 'Publish or purchase your tenant website before starting free domain hosting. Free hosting covers the domain only.' });
+  if (website.status !== 'published') {
+    if (website.status !== 'draft') return res.status(409).json({ message: 'This tenant website cannot be published for hosting yet.' });
+    if (website.purchase?.status === 'pending') return res.status(409).json({ message: 'Finish or cancel the current website checkout before starting free hosting.' });
+
+    const moduleSlug = websiteModuleSlugFor(module);
+    const freePlan = (store.websiteSubscriptionPlans || [])
+      .filter(plan => plan.status !== false && plan.priceMode === 'free'
+        && (!plan.moduleSlug || normalizeWebsiteModuleSlug(plan.moduleSlug) === moduleSlug))
+      .sort((a, b) => Number(b.isDefault === true) - Number(a.isDefault === true))[0];
+    const now = new Date();
+    const activatedAt = now.toISOString();
+    if (website.purchase?.status !== 'paid' && freePlan) {
+      const durationValue = Number(freePlan.durationValue) || 30;
+      const durationUnit = ['day', 'month', 'year'].includes(freePlan.durationUnit) ? freePlan.durationUnit : 'month';
+      website.purchase = {
+        _id: uuidv4(),
+        type: 'subscription',
+        status: 'paid',
+        amount: 0,
+        subscriptionAmount: 0,
+        domainAmount: 0,
+        totalAmount: 0,
+        priceMode: 'free',
+        planId: freePlan._id,
+        planName: freePlan.name || 'Free website plan',
+        subscriptionDurationValue: durationValue,
+        subscriptionDurationUnit: durationUnit,
+        paidAt: activatedAt,
+        createdAt: activatedAt,
+        expiresAt: websiteSubscriptionExpiry(now, durationValue, durationUnit),
+        payments: website.purchase?.payments || [],
+      };
+    } else if (website.purchase?.status !== 'paid' && module.fullPurchasePriceMode === 'free') {
+      website.purchase = {
+        _id: uuidv4(),
+        type: 'full',
+        status: 'paid',
+        amount: 0,
+        totalAmount: 0,
+        priceMode: 'free',
+        planName: 'Free full purchase',
+        paidAt: activatedAt,
+        createdAt: activatedAt,
+        payments: website.purchase?.payments || [],
+      };
+    } else if (website.purchase?.status !== 'paid') {
+      return res.status(402).json({ message: 'An active free website plan is not configured for this module.' });
+    }
+    website.status = 'published';
+    website.publishedAt = activatedAt;
+    delete website.serviceStoppedAt;
+  }
+  if (website.status !== 'published') return res.status(409).json({ message: 'Publish your tenant website before hosting its domain.' });
   if (website.hosting?.status === 'active') {
     if (normalizeWebsiteDomain(website.hosting.domain) !== availability.fullDomain) return res.status(409).json({ message: `This tenant is already hosted at ${website.hosting.domain}.` });
     return res.json({ free: true, websiteId: String(website._id), domainName: availability.fullDomain, hosting: website.hosting });
@@ -8172,9 +8202,17 @@ router.get('/shop/home', (req, res) => {
   const activeStores = catalog.stores;
   const requestedModule = String(req.query.module || '').trim().toLowerCase();
   const homeCatalog = quickCommerceStorefront ? catalog.products : qcCatalog(websiteId, websiteContext);
+  const storefrontStats = {
+    ...store,
+    orders: (store.orders || []).filter(order => belongsToWebsite(order, websiteId) && isShopWebsiteRecord(order, websiteContext)),
+    productReviews: (store.productReviews || []).filter(review => belongsToWebsite(review, websiteId) && isShopWebsiteRecord(review, websiteContext)),
+  };
   const list = homeCatalog
     .filter(product => !requestedModule || shopModuleSlug(product, websiteContext) === requestedModule)
-    .map(product => toShopProduct(product, websiteContext));
+    .map(product => {
+      const { unitsSold, orderCount, reviewCount } = getProductStats(storefrontStats, product);
+      return { ...toShopProduct(product, websiteContext), unitsSold, orderCount, reviewCount };
+    });
   const moduleSlugsWithProducts = new Set(list.map(product => String(product.moduleSlug || '').trim().toLowerCase()).filter(Boolean));
   const modulesWithProducts = (store.systemModules || [])
     .filter(module => belongsToWebsite(module, websiteId) && module.status !== false && module.status !== 'false' && module.status !== 'inactive' && isShopWebsiteRecord(module, websiteContext))

@@ -3,9 +3,9 @@ import { imageOf } from '../lib/storefront'
 export default function CategoryGrid({ categories, categoryProduct, onSelect, visible, title, onBack }) {
   if (!visible) return null
 
-  return <section aria-label={title || 'Shop by category'}>
+  return <section id="category-browser" aria-label={title || 'Shop by category'}>
     {(title || onBack) && <div className="mb-3 flex items-center gap-3">
-      {onBack && <button type="button" className="text-sm font-semibold text-slate-600" onClick={onBack}>← Back</button>}
+      {onBack && <button type="button" className="category-grid-back-button text-sm font-semibold text-slate-600" onClick={onBack}>← Back</button>}
       {title && <h2 className="text-base font-bold">{title}</h2>}
     </div>}
     <div className="category-row grid grid-cols-10 gap-4 overflow-x-auto">

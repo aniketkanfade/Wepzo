@@ -46,27 +46,45 @@ export default function ProductCard({ product, index, prefix, business, showFavo
     setVariantPickerOpen(true)
   }
   const isFavorite = favorites.includes(String(productId ?? ''))
+  const configuredCartButtonStyle = business?.themeColors?.productCartButtonStyle
+  const cartButtonStyle = configuredCartButtonStyle === 'quantity' || configuredCartButtonStyle === 'bottom-quantity' ? 'image' : configuredCartButtonStyle || 'image'
+  const imageButtonLabel = business?.themeColors?.productImageButtonLabel === 'plus' ? '+' : 'Add'
 
-  return <article className="product-card overflow-hidden rounded-lg border border-slate-200 bg-white p-2 shadow-sm" key={`${prefix}-${productId || index}`}>
+  return <article className={`product-card overflow-hidden rounded-lg border border-slate-200 bg-white p-2 shadow-sm${cartButtonStyle === 'image' ? ' product-card-add-below-image' : ''}`} key={`${prefix}-${productId || index}`}>
     <div className="product-image-wrap">
       <button type="button" className="product-image" aria-label={`View ${product.name}`} disabled={!canOpenDetails} onClick={() => setSelected(product)}>
         {imageOf(product)
           ? <img src={imageOf(product)} alt={product.name} />
           : <div className={`product-placeholder tone-${index % 5}`}><span>{product.name?.slice(0, 1)}</span></div>}
-        {discountPercent > 0 && <span className="sale-badge">{discountPercent}% OFF</span>}
+        {discountPercent > 0 && <span className="sale-badge">{discountPercent}% <span className="sale-badge-label">OFF</span></span>}
       </button>
       {showFavorites && <button type="button" className={`favorite-toggle${isFavorite ? ' active' : ''}`} aria-label={isFavorite ? `Remove ${product.name} from saved items` : `Save ${product.name}`} aria-pressed={isFavorite} onClick={() => toggleFavorite(product)}>{isFavorite ? '♥' : '♡'}</button>}
+      {showCart && cartButtonStyle === 'image' && (itemInCart
+        ? <div className="product-image-quantity" aria-label={`${itemInCart.qty} in cart`} onClick={event => event.stopPropagation()}>
+          <button type="button" aria-label={`Remove one ${product.name}`} onClick={() => changeQty({ ...product, variantId: itemInCart.variantId }, -1)}>−</button>
+          <span>{itemInCart.qty}</span>
+          <button type="button" aria-label={`Add one ${product.name}`} onClick={() => variants.length ? openVariantPicker() : addProduct(null)}>+</button>
+        </div>
+        : <button type="button" className={`product-image-add${imageButtonLabel === '+' ? ' product-image-add--plus' : ''}`} aria-label={`Add ${product.name} to cart`} onClick={event => { event.stopPropagation(); variants.length ? openVariantPicker() : addProduct(null) }}>{imageButtonLabel}</button>)}
     </div>
     <div className="product-meta">
       <div className="product-name">
         <h3>{product.name}</h3>
         <div className="product-prices">
-          <b>{money(salePrice, business)}</b>
           {hasDiscount && <del>{money(regularPrice, business)}</del>}
+          <b>{money(salePrice, business)}</b>
         </div>
+        {hasDiscount && <small className="product-savings">Save {money(regularPrice - salePrice, business)} ({discountPercent}% off)</small>}
       </div>
     </div>
-    {showCart && (itemInCart
+    {showCart && cartButtonStyle === 'image' && (itemInCart
+      ? <div className="product-image-quantity" aria-label={`${itemInCart.qty} in cart`}>
+        <button type="button" aria-label={`Remove one ${product.name}`} onClick={() => changeQty({ ...product, variantId: itemInCart.variantId }, -1)}>−</button>
+        <span>{itemInCart.qty}</span>
+        <button type="button" aria-label={`Add one ${product.name}`} onClick={() => variants.length ? openVariantPicker() : addProduct(null)}>+</button>
+      </div>
+      : <button type="button" className="product-image-add" aria-label={`Add ${product.name} to cart`} onClick={() => variants.length ? openVariantPicker() : addProduct(null)}>Add</button>)}
+    {showCart && cartButtonStyle === 'bottom' && (itemInCart
       ? <div className="product-cart-quantity" aria-label={`${itemInCart.qty} in cart`}>
         <button type="button" aria-label={`Remove one ${product.name}`} onClick={() => changeQty({ ...product, variantId: itemInCart.variantId }, -1)}>−</button>
         <span>{itemInCart.qty}</span>

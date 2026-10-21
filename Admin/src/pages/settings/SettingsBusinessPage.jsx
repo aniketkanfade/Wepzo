@@ -42,7 +42,11 @@ const DEFAULT_FORM = {
     pageBackground: '#ffffff',
     surfaceBackground: '#ffffff',
     productCardBackground: '#ffffff',
+    productCardMobileBackground: '#ffffff',
     productCardText: '#1f2937',
+    productCardSaveColor: '#dc2626',
+    productCartButtonStyle: 'image',
+    productImageButtonLabel: 'add',
     productCardHoverBackground: '#fff7ed',
     productCardHoverText: '#172744',
     productCardHoverBorder: '#f2c9ad',
@@ -163,6 +167,8 @@ function LaptopStorefrontPreview({ form, moduleName, moduleKey, viewMode = 'desk
   if (moduleKey === 'marketing') return <MarketingWebsitePreview form={form} viewMode={viewMode} />;
   if (moduleKey === 'information-web') return <WebPageThemePreview form={form} viewMode={viewMode} />;
   const colors = { ...DEFAULT_FORM.themeColors, ...(form.themeColors || {}) };
+  const cartButtonStyle = colors.productCartButtonStyle === 'bottom' ? 'bottom' : 'image';
+  const imageButtonLabel = colors.productImageButtonLabel === 'plus' ? '+' : 'Add';
   const logo = form.businessLogo || form.logo || '';
   const storeName = form.businessName || form.platformName || 'Your Store';
   const isQuickCommerce = moduleKey === 'quick-commerce';
@@ -189,8 +195,9 @@ function LaptopStorefrontPreview({ form, moduleName, moduleKey, viewMode = 'desk
         <div className="mb-3 flex min-h-[68px] items-center justify-between rounded-lg px-3 py-2" style={{ backgroundColor: colors.surfaceBackground }}><div><strong className="block text-[11px] leading-tight text-slate-900">{heroTitle}</strong><span className="mt-1 block text-[8px] text-slate-500">{heroSubtitle}</span></div><span className="inline-flex rounded px-2 py-1.5 text-[8px] font-semibold" style={{ backgroundColor: colors.buttonBackground, color: colors.buttonText }}>Shop now</span></div>
         <div className="mb-2 flex items-center justify-between"><strong className="text-[10px] text-slate-900">{productSectionTitle}</strong><span className="text-[8px]" style={{ color: form.primaryColor || '#f45b15' }}>View all</span></div>
         <div className="grid grid-cols-2 gap-2">{previewProducts.slice(0, 2).map(product => {
-          const productHovered = isQuickCommerce && hoveredPreviewProduct === product.name;
-          return <div key={product.name} onMouseEnter={() => setHoveredPreviewProduct(product.name)} onMouseLeave={() => setHoveredPreviewProduct('')} className="min-h-[174px] overflow-hidden rounded-md border p-2 transition-colors" style={{ backgroundColor: isQuickCommerce ? (productHovered ? colors.productCardHoverBackground : colors.productCardBackground) : colors.surfaceBackground, color: isQuickCommerce && productHovered ? colors.productCardHoverText : isQuickCommerce ? colors.productCardText : '#1f2937', borderColor: productHovered ? colors.productCardHoverBorder : '#e2e8f0' }}><div className="grid h-[96px] place-items-center overflow-hidden rounded bg-white"><img src={product.image} alt={product.name} className="h-full w-full object-contain" /></div><strong className="mt-1 block truncate text-[8px]">{product.name}</strong><span className="block text-[9px] font-semibold" style={{ color: colors.priceColor }}>{product.price}</span><span onMouseEnter={() => setHoveredPreviewButton(true)} onMouseLeave={() => setHoveredPreviewButton(false)} className="mt-1 grid h-6 place-items-center rounded text-[8px] font-semibold" style={{ backgroundColor: isQuickCommerce && hoveredPreviewButton ? colors.buttonHoverBackground : colors.buttonBackground, color: isQuickCommerce && hoveredPreviewButton ? colors.buttonHoverText : colors.buttonText }}>Add to cart</span></div>;
+          const productHovered = hoveredPreviewProduct === product.name;
+          const productBackground = productHovered ? colors.productCardHoverBackground : viewMode === 'mobile' ? colors.productCardMobileBackground : colors.productCardBackground;
+          return <div key={product.name} onMouseEnter={() => setHoveredPreviewProduct(product.name)} onMouseLeave={() => setHoveredPreviewProduct('')} className="min-h-[174px] overflow-hidden rounded-md border p-2 transition-colors" style={{ backgroundColor: productBackground, color: productHovered ? colors.productCardHoverText : colors.productCardText, borderColor: productHovered ? colors.productCardHoverBorder : '#e2e8f0' }}><div className="relative grid h-[96px] place-items-center overflow-hidden rounded bg-white"><img src={product.image} alt={product.name} className="h-full w-full object-contain" />{cartButtonStyle === 'image' && <span className={`absolute bottom-1 right-1 grid place-items-center rounded text-[8px] font-semibold ${imageButtonLabel === '+' ? 'h-[30px] w-[30px] p-0 text-2xl' : 'px-2 py-1'}`} style={{ backgroundColor: hoveredPreviewButton ? colors.buttonHoverBackground : colors.buttonBackground, color: hoveredPreviewButton ? colors.buttonHoverText : colors.buttonText }}>{imageButtonLabel}</span>}</div><strong className="mt-1 block truncate text-[8px]">{product.name}</strong><span className="block text-[9px] font-semibold" style={{ color: colors.priceColor }}>{product.price}</span>{cartButtonStyle === 'bottom' && <span onMouseEnter={() => setHoveredPreviewButton(true)} onMouseLeave={() => setHoveredPreviewButton(false)} className="mt-1 grid h-6 place-items-center rounded text-[8px] font-semibold" style={{ backgroundColor: hoveredPreviewButton ? colors.buttonHoverBackground : colors.buttonBackground, color: hoveredPreviewButton ? colors.buttonHoverText : colors.buttonText }}>Add to cart</span>}</div>;
         })}</div>
       </div>
       <div className="flex h-7 items-center justify-center text-[8px]" style={{ backgroundColor: colors.footerBackground, color: colors.footerText }}>{form.copyrightText || storeName}</div>
@@ -224,11 +231,11 @@ function LaptopStorefrontPreview({ form, moduleName, moduleKey, viewMode = 'desk
           </div>
           <div className="mb-2 flex items-center justify-between"><strong className="text-xs text-slate-900">{productSectionTitle}</strong><span className="text-[9px]" style={{ color: form.primaryColor || '#f45b15' }}>View all</span></div>
           <div className="grid grid-cols-5 gap-2">
-            {previewProducts.map(product => <div key={product.name} onMouseEnter={() => setHoveredPreviewProduct(product.name)} onMouseLeave={() => setHoveredPreviewProduct('')} className="overflow-hidden rounded-md border p-1.5 transition-colors" style={{ backgroundColor: isQuickCommerce ? (hoveredPreviewProduct === product.name ? colors.productCardHoverBackground : colors.productCardBackground) : colors.surfaceBackground, color: hoveredPreviewProduct === product.name ? colors.productCardHoverText : colors.productCardText, borderColor: hoveredPreviewProduct === product.name ? colors.productCardHoverBorder : '#e2e8f0' }}>
-              <div className="grid h-[78px] place-items-center overflow-hidden rounded bg-white"><img src={product.image} alt={product.name} className="h-full w-full object-contain" /></div>
-              <strong className="mt-1 block truncate text-[9px]" style={{ color: isQuickCommerce && hoveredPreviewProduct === product.name ? colors.productCardHoverText : isQuickCommerce ? colors.productCardText : '#1f2937' }}>{product.name}</strong>
+            {previewProducts.map(product => <div key={product.name} onMouseEnter={() => setHoveredPreviewProduct(product.name)} onMouseLeave={() => setHoveredPreviewProduct('')} className="overflow-hidden rounded-md border p-1.5 transition-colors" style={{ backgroundColor: hoveredPreviewProduct === product.name ? colors.productCardHoverBackground : colors.productCardBackground, color: hoveredPreviewProduct === product.name ? colors.productCardHoverText : colors.productCardText, borderColor: hoveredPreviewProduct === product.name ? colors.productCardHoverBorder : '#e2e8f0' }}>
+              <div className="relative grid h-[78px] place-items-center overflow-hidden rounded bg-white"><img src={product.image} alt={product.name} className="h-full w-full object-contain" />{cartButtonStyle === 'image' && <span className={`absolute bottom-1 right-1 grid place-items-center rounded text-[8px] font-semibold ${imageButtonLabel === '+' ? 'h-[30px] w-[30px] p-0 text-2xl' : 'px-2 py-1'}`} style={{ backgroundColor: hoveredPreviewButton ? colors.buttonHoverBackground : colors.buttonBackground, color: hoveredPreviewButton ? colors.buttonHoverText : colors.buttonText }}>{imageButtonLabel}</span>}</div>
+              <strong className="mt-1 block truncate text-[9px]" style={{ color: hoveredPreviewProduct === product.name ? colors.productCardHoverText : colors.productCardText }}>{product.name}</strong>
               <span className="block text-[10px] font-semibold" style={{ color: colors.priceColor }}>{product.price}</span>
-              <span onMouseEnter={() => setHoveredPreviewButton(true)} onMouseLeave={() => setHoveredPreviewButton(false)} className="mt-1 grid h-6 place-items-center rounded text-[8px] font-semibold" style={{ backgroundColor: isQuickCommerce && hoveredPreviewButton ? colors.buttonHoverBackground : colors.buttonBackground, color: isQuickCommerce && hoveredPreviewButton ? colors.buttonHoverText : colors.buttonText }}>Add to cart</span>
+              {cartButtonStyle === 'bottom' && <span onMouseEnter={() => setHoveredPreviewButton(true)} onMouseLeave={() => setHoveredPreviewButton(false)} className="mt-1 grid h-6 place-items-center rounded text-[8px] font-semibold" style={{ backgroundColor: hoveredPreviewButton ? colors.buttonHoverBackground : colors.buttonBackground, color: hoveredPreviewButton ? colors.buttonHoverText : colors.buttonText }}>Add to cart</span>}
             </div>)}
           </div>
         </div>
@@ -275,12 +282,13 @@ export default function SettingsBusinessPage({ colorsOnly = false }) {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState('');
+  const [desktopColorCopied, setDesktopColorCopied] = useState(false);
 
   const loadSettings = async () => {
     setLoading(true);
     try {
       const { data } = await api.get('/settings/business');
-      setForm({ ...DEFAULT_FORM, ...(data || {}), themeColors: { ...DEFAULT_FORM.themeColors, ...(data?.themeColors || {}) } });
+      setForm({ ...DEFAULT_FORM, ...(data || {}), themeColors: { ...DEFAULT_FORM.themeColors, ...(data?.themeColors || {}), productCartButtonStyle: ['quantity', 'bottom-quantity'].includes(data?.themeColors?.productCartButtonStyle) ? 'image' : data?.themeColors?.productCartButtonStyle || DEFAULT_FORM.themeColors.productCartButtonStyle } });
       setError('');
     } catch {
       setError('Business settings load nahi hui.');
@@ -296,7 +304,11 @@ export default function SettingsBusinessPage({ colorsOnly = false }) {
     ...current,
     themeColors: { ...DEFAULT_FORM.themeColors, ...(current.themeColors || {}), [key]: value },
   }));
-  const copyThemeColor = (source, target) => setThemeColor(target, themeColorValue(source));
+  const copyThemeColor = (source, target) => {
+    const sourceColor = form.themeColors?.[source] || DEFAULT_FORM.themeColors[source] || '#ffffff';
+    setThemeColor(target, sourceColor);
+    setDesktopColorCopied(true);
+  };
 
   const uploadImage = (key, file) => {
     if (!file) return;
@@ -326,7 +338,7 @@ export default function SettingsBusinessPage({ colorsOnly = false }) {
         businessLng: Number(form.businessLng) || 0,
       };
       const { data } = await api.put('/settings/business', payload);
-      setForm({ ...DEFAULT_FORM, ...(data || {}), themeColors: { ...DEFAULT_FORM.themeColors, ...(data?.themeColors || {}) } });
+      setForm({ ...DEFAULT_FORM, ...(data || {}), themeColors: { ...DEFAULT_FORM.themeColors, ...(data?.themeColors || {}), productCartButtonStyle: ['quantity', 'bottom-quantity'].includes(data?.themeColors?.productCartButtonStyle) ? 'image' : data?.themeColors?.productCartButtonStyle || DEFAULT_FORM.themeColors.productCartButtonStyle } });
       setSaved(true);
       window.setTimeout(() => setSaved(false), 2400);
     } catch (requestError) {
@@ -352,7 +364,7 @@ export default function SettingsBusinessPage({ colorsOnly = false }) {
     ['buttonBackground', 'Main buttons'], ['buttonText', 'Button text'],
     ['footerBackground', 'Footer background'], ['footerText', 'Footer text'],
     ['pageBackground', 'Page background'], ['surfaceBackground', 'Cards and surfaces'],
-    ['productCardBackground', 'Product card background'], ['productCardText', 'Product card text'],
+    [previewMode === 'mobile' ? 'productCardMobileBackground' : 'productCardBackground', previewMode === 'mobile' ? 'Mobile product card background' : 'Desktop product card background'], ['productCardText', 'Product card text'], ['productCardSaveColor', 'Save / discount accent'],
     ['productCardHoverBackground', 'Product card hover background'],
     ['productCardHoverText', 'Product card hover text'], ['productCardHoverBorder', 'Product card hover border'],
     ['buttonHoverBackground', 'Button hover background'], ['buttonHoverText', 'Button hover text'],
@@ -393,10 +405,30 @@ export default function SettingsBusinessPage({ colorsOnly = false }) {
             </div>
           </div>
           <LaptopStorefrontPreview form={form} moduleName={activeModule?.name} moduleKey={getAdminModuleKey(activeModule)} viewMode={previewMode} />
+          <div className="pt-2">
+            <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+              <h3 className="text-sm font-semibold text-slate-800">Product card &amp; hover colors</h3>
+              {previewMode === 'mobile' && <button type="button" onClick={() => copyThemeColor('productCardBackground', 'productCardMobileBackground')} className="rounded-md border border-slate-200 px-2 py-1.5 text-[11px] font-medium text-slate-600 hover:bg-slate-50">{desktopColorCopied ? 'Copied to mobile' : 'Copy desktop color to mobile'}</button>}
+            </div>
+            <div className="grid gap-2 sm:grid-cols-2">{themeColorControls.slice(10).map(renderThemeColor)}</div>
+            <label className="mt-2 flex min-h-14 w-full min-w-0 items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700">
+              <span className="shrink-0">Product cart button</span>
+              <select aria-label="Product cart button" value={form.themeColors?.productCartButtonStyle || 'image'} onChange={event => setThemeColor('productCartButtonStyle', event.target.value)} className="min-w-0 flex-1 rounded-md border border-slate-300 bg-white px-2 py-2 text-xs">
+                <option value="bottom">Bottom Add to Cart</option>
+                <option value="image">Image bottom-right: Add</option>
+              </select>
+            </label>
+            <label className="mt-2 flex min-h-14 w-full min-w-0 items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700">
+              <span className="shrink-0">Image button label</span>
+              <select aria-label="Image button label" value={form.themeColors?.productImageButtonLabel || 'add'} onChange={event => setThemeColor('productImageButtonLabel', event.target.value)} className="min-w-0 flex-1 rounded-md border border-slate-300 bg-white px-2 py-2 text-xs">
+                <option value="add">Add</option>
+                <option value="plus">+</option>
+              </select>
+            </label>
+          </div>
         </div>
         <div className="space-y-4">
           <div><h3 className="mb-2 text-sm font-semibold text-slate-800">Storefront colors</h3><div className="grid gap-2">{themeColorControls.slice(0, 10).map(renderThemeColor)}</div></div>
-          <div><h3 className="mb-2 text-sm font-semibold text-slate-800">Product card &amp; hover colors</h3><div className="grid gap-2">{themeColorControls.slice(10).map(renderThemeColor)}</div></div>
         </div>
       </div>
     </Section>
