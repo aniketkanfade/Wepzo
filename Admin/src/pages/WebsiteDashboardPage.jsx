@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { CalendarClock, Check, ExternalLink, Globe2, Layers3, LogOut, Pencil, RefreshCw, ShieldCheck, UploadCloud } from 'lucide-react';
+import { CalendarClock, Check, ExternalLink, Globe2, Layers3, LogOut, RefreshCw, ShieldCheck, UploadCloud } from 'lucide-react';
 import api from '../api/axios';
 import { useAuthStore, useBuilderStore } from '../store/useStore';
 import { getAdminModuleKey } from '../constants/adminModules';
@@ -36,7 +36,7 @@ export default function WebsiteDashboardPage() {
         const list = Array.isArray(websiteResponse.data) ? websiteResponse.data : [];
         const ownWebsite = list.find(item => String(item._id) === String(user?.websiteId)) || list[0];
         if (!ownWebsite) {
-          navigate('/website-builder', { replace: true });
+          navigate('/sub-domain', { replace: true });
           return;
         }
         setWebsite(ownWebsite);
@@ -120,9 +120,9 @@ export default function WebsiteDashboardPage() {
 
       <section className="rounded-xl bg-[#111a2a] p-3 shadow-xl shadow-black/20 sm:p-4">
         <div className="mb-3 flex items-start justify-between"><div><h1 className="font-semibold">{website.name || 'My Website'}</h1><p className="mt-1 text-xs text-slate-400">Manage your website, domain and plan</p></div><span className={`rounded-full px-2 py-1 text-[10px] font-bold ${serviceEnded ? 'bg-rose-900/70 text-rose-300' : published ? 'bg-emerald-900/70 text-emerald-300' : 'bg-amber-900/70 text-amber-300'}`}>{serviceEnded ? (website.serviceStoppedAt ? 'Service stopped' : 'Subscription expired') : published ? 'Live' : 'Setup in progress'}</span></div>
-        <div className="rounded-lg bg-[#1d293b] p-2.5">
-          <div className="flex items-start justify-between gap-3"><div className="flex min-w-0 items-start gap-2"><Globe2 size={14} className="mt-0.5 shrink-0 text-slate-400"/><div className="min-w-0"><p className="truncate text-xs font-semibold">{website.domain?.fullDomain || website.domain?.name || 'Domain not connected'}</p><p className="mt-1 text-[10px] text-slate-400">{website.domain?.type === 'custom' ? 'Custom domain' : website.domain?.type === 'subdomain' ? 'Wepzo subdomain' : 'Connect a domain in the designer'}</p></div></div>{published && <a aria-label="Open website in new tab" href={viewUrl} target="_blank" rel="noreferrer" className="rounded p-1 text-slate-300 hover:bg-slate-700"><ExternalLink size={14}/></a>}</div>
-          <div className={`mt-2 grid ${serviceEnded ? 'grid-cols-1' : 'grid-cols-2'} gap-2`}>{!serviceEnded && <button type="button" onClick={() => navigate('/website-builder')} className="inline-flex items-center justify-center gap-1.5 rounded-full border border-slate-600 px-3 py-1.5 text-[11px] font-medium text-slate-100 hover:bg-slate-700"><Pencil size={12}/> Edit Website</button>}<a href={published ? viewUrl : undefined} target={published ? '_blank' : undefined} rel="noreferrer" aria-disabled={!published} onClick={event => { if (!published) event.preventDefault(); }} className={`inline-flex items-center justify-center gap-1.5 rounded-full px-3 py-1.5 text-[11px] font-semibold ${published ? 'bg-slate-100 text-slate-900 hover:bg-white' : 'cursor-not-allowed bg-slate-700 text-slate-400'}`}><ExternalLink size={12}/> View Website</a></div>
+          <div className="rounded-lg bg-[#1d293b] p-2.5">
+          <div className="flex items-start justify-between gap-3"><div className="flex min-w-0 items-start gap-2"><Globe2 size={14} className="mt-0.5 shrink-0 text-slate-400"/><div className="min-w-0"><p className="truncate text-xs font-semibold">{website.domain?.fullDomain || website.domain?.name || 'Domain not connected'}</p><p className="mt-1 text-[10px] text-slate-400">{website.domain?.type === 'custom' ? 'Custom domain' : website.domain?.type === 'subdomain' ? 'WEPZO subdomain' : 'Connect a domain in Subdomain setup'}</p></div></div>{published && <a aria-label="Open website in new tab" href={viewUrl} target="_blank" rel="noreferrer" className="rounded p-1 text-slate-300 hover:bg-slate-700"><ExternalLink size={14}/></a>}</div>
+          <div className={`mt-2 grid ${serviceEnded ? 'grid-cols-1' : 'grid-cols-2'} gap-2`}>{!serviceEnded && <button type="button" onClick={() => navigate('/sub-domain')} className="inline-flex items-center justify-center gap-1.5 rounded-full border border-slate-600 px-3 py-1.5 text-[11px] font-medium text-slate-100 hover:bg-slate-700"><Globe2 size={12}/> Subdomain</button>}<a href={published ? viewUrl : undefined} target={published ? '_blank' : undefined} rel="noreferrer" aria-disabled={!published} onClick={event => { if (!published) event.preventDefault(); }} className={`inline-flex items-center justify-center gap-1.5 rounded-full px-3 py-1.5 text-[11px] font-semibold ${published ? 'bg-slate-100 text-slate-900 hover:bg-white' : 'cursor-not-allowed bg-slate-700 text-slate-400'}`}><ExternalLink size={12}/> View Website</a></div>
           {published && website.domain?.fullDomain && <div className="mt-3 border-t border-slate-700 pt-3">
             <button type="button" onClick={hostWebsite} disabled={hostingLoading || serviceEnded} className="inline-flex w-full items-center justify-center gap-2 rounded-full bg-orange-500 py-2 text-[11px] font-semibold text-white hover:bg-orange-400 disabled:cursor-wait disabled:opacity-60">
               <UploadCloud size={13}/>{hostingLoading ? 'Hosting website…' : website.hosting?.status === 'active' ? 'Update VPS hosting' : 'Host website on WEPZO VPS'}

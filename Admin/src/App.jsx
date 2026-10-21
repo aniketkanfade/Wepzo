@@ -133,8 +133,8 @@ function PaidWebsiteRoute({ children }) {
   if (status === 'loading') return <div className="flex min-h-screen items-center justify-center bg-slate-50 text-sm text-slate-500">Checking website payment...</div>;
   const hasGatewayReturn = window.location.pathname === '/website-renewal'
     && new URLSearchParams(window.location.search).has('wepzoOrderId');
-  if (status === 'unpaid' && !hasGatewayReturn) return <Navigate to="/website-builder" replace />;
-  if (status === 'error') return <main className="mx-auto mt-16 max-w-lg rounded-xl border border-amber-200 bg-amber-50 p-6 text-sm text-amber-900">We could not verify your website payment status. <Link className="font-semibold underline" to="/website-builder">Open the website builder</Link> to continue or try again.</main>;
+  if (status === 'unpaid' && !hasGatewayReturn) return <Navigate to="/sub-domain" replace />;
+  if (status === 'error') return <main className="mx-auto mt-16 max-w-lg rounded-xl border border-amber-200 bg-amber-50 p-6 text-sm text-amber-900">We could not verify your website payment status. <Link className="font-semibold underline" to="/sub-domain">Open subdomain setup</Link> to continue or try again.</main>;
   return children;
 }
 

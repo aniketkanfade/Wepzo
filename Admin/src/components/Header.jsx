@@ -129,7 +129,7 @@ export default function Header({ onMenuToggle, showMenuToggle = true, websiteAcc
       ...getAdminSidebarMenu(module),
       ...SETTINGS_SIDEBARS.settings.items,
       ...WEBSITE_HEADER_ACCESS_OPTIONS,
-    ]).filter(item => allowedPaths.has(item.path));
+    ]).filter(item => item.path !== '/website-builder' && allowedPaths.has(item.path));
     const matchingSearchItems = searchQuery.trim()
       ? searchItems.filter(item => `${item.label} ${item.path}`.toLowerCase().includes(searchQuery.trim().toLowerCase())).slice(0, 8)
       : [];
@@ -208,14 +208,14 @@ export default function Header({ onMenuToggle, showMenuToggle = true, websiteAcc
             )}
           </div>
 
-          <button
+          {user?.role !== 'website_user' && <button
             type="button"
             onClick={() => navigate('/website-builder')}
             className="text-primary-600 font-semibold hover:text-primary-700 transition flex items-center gap-1.5"
           >
             <LayoutGrid size={16} />
             Design Website
-          </button>
+          </button>}
         </nav>
       </div>
 
