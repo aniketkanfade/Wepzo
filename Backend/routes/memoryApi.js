@@ -1,4 +1,5 @@
 const express = require('express');
+const mongoose = require('mongoose');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const archiver = require('archiver');
@@ -13,6 +14,7 @@ const { sendEmail, sendTestEmail } = require('../lib/smtpTransport');
 const { sendSmsTest } = require('../lib/smsGateway');
 const { v4: uuidv4 } = require('uuid');
 const { store, schedulePersist } = require('../lib/memoryStore');
+const BusinessSettings = require('../models/BusinessSettings');
 const WEB_PAGE_DEFAULT_CONTENT = require('../../shared/webPageDefaults.json');
 const {
   attachStoreRef, syncData, recomputeStoreCounts, cascadeDeleteStore,
@@ -4366,11 +4368,25 @@ router.put('/settings/payment-gateway', auth, (req, res) => {
   res.json(businessSettingsResponse(store.paymentGatewaySettings));
 });
 
-router.get('/settings/business', auth, (req, res) => {
+router.get('/settings/business', auth, async (req, res) => {
+  const scope = businessSettingsScope(req);
+  if (mongoose.connection.readyState === 1) {
+    try {
+      const record = await BusinessSettings.findOne({ scope }).lean();
+      if (record?.settings) return res.json(businessSettingsResponse(record.settings));
+      const legacySettings = businessSettingsForRequest(req);
+      if (Object.keys(legacySettings).length) {
+        await BusinessSettings.updateOne({ scope }, { $setOnInsert: { settings: legacySettings } }, { upsert: true });
+      }
+      return res.json(businessSettingsResponse(legacySettings));
+    } catch (error) {
+      console.error('MongoDB business settings read failed:', error.message);
+    }
+  }
   res.json(businessSettingsResponse(businessSettingsForRequest(req)));
 });
 
-router.put('/settings/business', auth, (req, res) => {
+router.put('/settings/business', auth, async (req, res) => {
   const scope = businessSettingsScope(req);
   const info = businessSettingsModule(req);
   const protectedIntegrationSecretsProvided = BUSINESS_PAYMENT_SECRETS
@@ -4414,6 +4430,21 @@ router.put('/settings/business', auth, (req, res) => {
     }
     if (selectedGateway && !['razorpay', 'phonepe', 'cashfree'].includes(selectedGateway)) {
       return res.status(400).json({ message: 'Choose Razorpay, PhonePe, or Cashfree.' });
+    }
+  }
+  if (process.env.MONGODB_URI && mongoose.connection.readyState !== 1) {
+    return res.status(503).json({ message: 'MongoDB is configured but not connected; business settings were not saved.' });
+  }
+  if (mongoose.connection.readyState === 1) {
+    try {
+      await BusinessSettings.findOneAndUpdate(
+        { scope },
+        { $set: { settings: updated } },
+        { upsert: true, new: true, setDefaultsOnInsert: true, runValidators: true },
+      );
+    } catch (error) {
+      console.error('MongoDB business settings write failed:', error.message);
+      return res.status(503).json({ message: 'Business settings could not be saved to MongoDB.' });
     }
   }
   store.businessSettingsByModule[scope] = updated;
@@ -8171,9 +8202,17 @@ router.get('/shop/home', (req, res) => {
   const activeStores = catalog.stores;
   const requestedModule = String(req.query.module || '').trim().toLowerCase();
   const homeCatalog = quickCommerceStorefront ? catalog.products : qcCatalog(websiteId, websiteContext);
+  const storefrontStats = {
+    ...store,
+    orders: (store.orders || []).filter(order => belongsToWebsite(order, websiteId) && isShopWebsiteRecord(order, websiteContext)),
+    productReviews: (store.productReviews || []).filter(review => belongsToWebsite(review, websiteId) && isShopWebsiteRecord(review, websiteContext)),
+  };
   const list = homeCatalog
     .filter(product => !requestedModule || shopModuleSlug(product, websiteContext) === requestedModule)
-    .map(product => toShopProduct(product, websiteContext));
+    .map(product => {
+      const { unitsSold, orderCount, reviewCount } = getProductStats(storefrontStats, product);
+      return { ...toShopProduct(product, websiteContext), unitsSold, orderCount, reviewCount };
+    });
   const moduleSlugsWithProducts = new Set(list.map(product => String(product.moduleSlug || '').trim().toLowerCase()).filter(Boolean));
   const modulesWithProducts = (store.systemModules || [])
     .filter(module => belongsToWebsite(module, websiteId) && module.status !== false && module.status !== 'false' && module.status !== 'inactive' && isShopWebsiteRecord(module, websiteContext))

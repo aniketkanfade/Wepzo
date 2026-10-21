@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import CategoryGrid from '../components/CategoryGrid'
 import CustomerAuthModal from '../components/CustomerAuthModal'
 import DeliveryAddressModal from '../components/DeliveryAddressModal'
@@ -7,6 +7,7 @@ import LocationModal from '../components/LocationModal'
 import ProductDetailPage from './ProductDetailPage'
 import PromotionBanners from '../components/PromotionBanners'
 import {
+  CategoryRecommendationsSection,
   FlashDealsSection,
   ProductGridSection,
   TrendingProductsSection,
@@ -15,6 +16,7 @@ import { CartPage, OrdersPage, ProfilePage, SupportPage, WishlistPage } from '..
 import StoreFooter from '../components/StoreFooter'
 import StoreHeader from '../components/StoreHeader'
 import StoreNavigation from '../components/StoreNavigation'
+import MobileAppNav from '../components/MobileAppNav'
 import { CookieNotice, MaintenancePage, Toast } from '../components/StoreNotices'
 import { imageOf, money } from '../lib/storefront'
 import useStorefront from '../hooks/useStorefront'
@@ -52,6 +54,9 @@ export default function StorefrontPage() {
   } = store
 
   const mainAdminWebsite = home?.isMainWebsite === true
+  const [productInteractions, setProductInteractions] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('wepzo-category-product-interactions') || '{}') } catch { return {} }
+  })
   const showDefaultStorefront = mainAdminWebsite || selectedComponentData.length === 0
   const hasComponent = (...slugs) => selectedComponentData.some(component => slugs.includes(String(component.slug || '').toLowerCase()))
   const hasComponentType = (...types) => selectedComponentData.some(component => types.includes(String(component.type || '').toLowerCase().replace(/-/g, '_')))
@@ -78,7 +83,28 @@ export default function StorefrontPage() {
     loading, error, onRetry: load, business, showFavorites, showCart: showCartButton,
     favorites, cartItem, toggleFavorite, changeQty, setMessage,
     setCartOpen: open => { if (open) navigatePage('cart') }, setCheckout,
-    canOpenDetails: showProductDetails, setSelected: openProduct,
+    canOpenDetails: showProductDetails, setSelected: product => {
+      const id = String(product?._id || product?.id || '')
+      if (id) {
+        const categoryPath = [product.mainCategory || product.category, product.subCategory, product.childCategory]
+          .filter(Boolean).join(' / ').trim().toLowerCase()
+        const moduleSlug = String(product.moduleSlug || product.module?.slug || product.module || '').toLowerCase()
+        const next = { ...productInteractions, [id]: { views: (Number(productInteractions[id]?.views) || 0) + 1, lastViewed: Date.now(), categoryPath, moduleSlug } }
+        setProductInteractions(next)
+        try { localStorage.setItem('wepzo-category-product-interactions', JSON.stringify(next)) } catch { /* recommendations still work for this session */ }
+      }
+      openProduct(product)
+    },
+  }
+  const recommendationScope = [category, subCategory, childCategory].filter(Boolean).join(' / ')
+  const showCategoryRecommendations = Boolean(selectedModule || recommendationScope || showCategories)
+  const browseCategories = () => {
+    if (!selectedModule && modules[0]?.slug) {
+      goToModule(modules[0].slug)
+      window.setTimeout(() => document.getElementById('category-browser')?.scrollIntoView({ behavior: 'smooth' }), 50)
+      return
+    }
+    document.getElementById('category-browser')?.scrollIntoView({ behavior: 'smooth' })
   }
   const productId = selected?._id || selected?.id
   const productModuleRef = selected?.moduleSlug || selected?.module?.slug || (typeof selected?.module === 'string' ? selected.module : '')
@@ -111,6 +137,7 @@ export default function StorefrontPage() {
       .filter(section => section.products.length > 0)
     return sectionModules.length ? sectionModules : [{ name: 'Products', slug: 'all', products: shown.slice(0, 12) }]
   }, [modules, selectedModule, shown])
+  const recommendationProducts = selectedModule ? moduleSections.flatMap(section => section.products) : shown
   const promotions = asList(home?.promotionalBanners).filter(banner => banner && banner.active !== false && banner.isActive !== false)
   const explicitlyPlacedHomeMid = [
     ...asList(home?.homeMidBanners), ...asList(home?.homeMiddleBanners), ...promotions.filter(banner => isPlacement(banner, ['home_mid', 'home_middle', 'home_mid_banner', 'mid_home', 'home_promotion'])),
@@ -151,10 +178,19 @@ export default function StorefrontPage() {
     '--search-button': themeColors.searchButton || business.primaryColor || '#304ca3',
     '--button-background': themeColors.buttonBackground || business.primaryColor || '#304ca3',
     '--button-text': themeColors.buttonText || '#ffffff',
+    '--button-hover-background': themeColors.buttonHoverBackground || '#f4510b',
+    '--button-hover-text': themeColors.buttonHoverText || '#ffffff',
     '--footer-background': themeColors.footerBackground || '#10223b',
     '--footer-text': themeColors.footerText || '#ffffff',
     '--page-background': themeColors.pageBackground || '#ffffff',
     '--surface-background': themeColors.surfaceBackground || '#ffffff',
+    '--product-card-background': themeColors.productCardBackground || themeColors.surfaceBackground || '#ffffff',
+    '--product-card-mobile-background': themeColors.productCardMobileBackground || themeColors.productCardBackground || themeColors.surfaceBackground || '#ffffff',
+    '--product-card-text': themeColors.productCardText || '#1f2937',
+    '--product-card-hover-background': themeColors.productCardHoverBackground || '#fff7ed',
+    '--product-card-hover-text': themeColors.productCardHoverText || '#172744',
+    '--product-card-hover-border': themeColors.productCardHoverBorder || '#f2c9ad',
+    '--product-card-save-color': themeColors.productCardSaveColor || '#dc2626',
   }}>
     <StoreHeader
       business={business} customer={customer} category={category} categories={categories} query={query}
@@ -173,7 +209,7 @@ export default function StorefrontPage() {
       {isProductRoute
         ? selected
           ? <ProductDetailPage product={selected} relatedProducts={relatedProducts} business={business} onClose={closeProduct} productCardProps={productSectionProps} />
-          : <section className="px-5 py-24 text-center text-slate-600">{loading ? 'Loading product…' : <>Product nahi mila. <a className="font-semibold text-orange-600" href={`/${window.location.search}`}>Back to store</a></>}</section>
+          : <section className="px-5 py-24 text-center text-slate-600">{loading ? 'Loading product…' : <>Product nahi mila. <a className="mobile-back-button font-semibold text-orange-600" href={`/${window.location.search}`}>Back to store</a></>}</section>
         : <>
           <HeroSection banners={heroBanners} deals={deals} visible={showHero && !selectedModule} />
           {selectedModule && <PromotionBanners banners={categoryPromotions} />}
@@ -192,6 +228,10 @@ export default function StorefrontPage() {
           />
           {showDeals && !selectedModule && <FlashDealsSection {...productSectionProps} sales={home?.flashSales} products={products} />}
           {!selectedModule && <PromotionBanners banners={homeMidBanners} />}
+          {showCategoryRecommendations && <CategoryRecommendationsSection
+            {...productSectionProps} products={recommendationProducts} categoryLabel={recommendationScope}
+            moduleSlug={selectedModule} interactions={productInteractions}
+          />}
           {mainAdminWebsite
             ? selectedModule
               ? <ProductGridSection {...productSectionProps} products={shown} prefix="catalog" />
@@ -207,7 +247,10 @@ export default function StorefrontPage() {
                   </section>
                 ))}
               </>
-            : (showProductGrid || selectedModule) && <><ProductGridSection {...productSectionProps} products={shown} prefix="catalog" />{!selectedModule && <PromotionBanners banners={storefrontBanners} />}</>}
+            : (showProductGrid || selectedModule) && <>
+              <ProductGridSection {...productSectionProps} products={shown} prefix="catalog" />
+              {!selectedModule && <PromotionBanners banners={storefrontBanners} />}
+            </>}
         </>}
     </main>}
     {(currentPage === 'cart' || currentPage === 'checkout') && <CartPage
@@ -230,6 +273,14 @@ export default function StorefrontPage() {
     />}
     {currentPage === 'support' && <SupportPage business={business} />}
 
+    <MobileAppNav
+      activePage={currentPage} selectedModule={selectedModule} modules={modules} cartCount={count}
+      onHome={goHome} onCategories={browseCategories}
+      onSelectModule={slug => { goToModule(slug); window.setTimeout(() => document.getElementById('category-browser')?.scrollIntoView({ behavior: 'smooth' }), 50) }}
+      onCart={() => navigatePage('cart')} onProfile={() => navigatePage('profile')}
+      showCategories={showCategories && modules.length > 0}
+      showCart={showCartButton} showProfile={showProfile}
+    />
     <StoreFooter business={business} visible={showFooter} onOpenSupport={() => navigatePage('support')} />
     <Toast message={message} clear={() => setMessage('')} />
     <CookieNotice business={business} enabled={selectedComponentData.length > 0} accepted={cookieAccepted} accept={() => setCookieAccepted(true)} />

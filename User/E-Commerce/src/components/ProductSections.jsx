@@ -94,6 +94,55 @@ export function TrendingProductsSection({ city, ...props }) {
   return <ProductSection {...props} title={`Trending Products${city ? ` in ${city}` : ''}`} prefix="trending" sectionId="collection" />
 }
 
+const metric = (product, keys) => {
+  for (const key of keys) {
+    const value = Number(product?.[key])
+    if (Number.isFinite(value) && value > 0) return value
+  }
+  return 0
+}
+
+export function CategoryRecommendationsSection({ products = [], categoryLabel, moduleSlug, interactions = {}, ...props }) {
+  if (!products.length) return null
+  const salesKeys = ['salesCount', 'soldCount', 'totalSold', 'unitsSold', 'orderCount', 'ordersCount', 'purchaseCount', 'purchases', 'sales']
+  const reviewKeys = ['reviewCount', 'reviewsCount', 'totalReviews']
+  const ratingOf = product => Number(product.rating || product.averageRating || 0)
+  const reviewCountOf = product => metric(product, reviewKeys)
+    || (Array.isArray(product.reviews) ? product.reviews.length : Number(product.reviews) || 0)
+  const popular = [...products].sort((a, b) =>
+    metric(b, salesKeys) - metric(a, salesKeys)
+    || ratingOf(b) - ratingOf(a)
+    || reviewCountOf(b) - reviewCountOf(a)
+  ).slice(0, 6)
+  const popularIds = new Set(popular.map(product => String(product._id || product.id || '')))
+  const normalizeScope = value => String(value || '').trim().toLowerCase().replace(/\s*\/\s*/g, '/')
+  const scopedInteractions = Object.fromEntries(Object.entries(interactions).filter(([, entry]) => categoryLabel
+    ? normalizeScope(entry.categoryPath) === normalizeScope(categoryLabel)
+      || normalizeScope(entry.categoryPath).startsWith(`${normalizeScope(categoryLabel)}/`)
+    : moduleSlug
+      ? String(entry.moduleSlug || '').toLowerCase() === String(moduleSlug).toLowerCase()
+      : true
+  ))
+  const seenIds = new Set(Object.keys(scopedInteractions))
+  const unseen = products.filter(product => !seenIds.has(String(product._id || product.id || '')))
+  const distinctProducts = products.filter(product => !popularIds.has(String(product._id || product.id || '')))
+  const unseenDistinct = unseen.filter(product => !popularIds.has(String(product._id || product.id || '')))
+  const recommendationPool = unseenDistinct.length ? unseenDistinct : distinctProducts
+  const suitable = [...recommendationPool].sort((a, b) => {
+    const aId = String(a._id || a.id || '')
+    const bId = String(b._id || b.id || '')
+    return (Number(scopedInteractions[bId]?.views) || 0) - (Number(scopedInteractions[aId]?.views) || 0)
+      || Number(scopedInteractions[bId]?.lastViewed || 0) - Number(scopedInteractions[aId]?.lastViewed || 0)
+      || ratingOf(b) - ratingOf(a)
+      || metric(b, salesKeys) - metric(a, salesKeys)
+  }).slice(0, 6)
+
+  return <>
+    <ProductSection {...props} title="Popular Products" products={popular} prefix="category-popular" />
+    {suitable.length > 0 && <ProductSection {...props} title="Suitable for You" products={suitable} prefix="category-suitable" />}
+  </>
+}
+
 export function WishlistSection({ products, favorites, ...props }) {
   const savedIds = new Set(favorites.map(String))
   return <ProductSection {...props} favorites={favorites} title="Wishlist" prefix="wishlist" sectionId="wishlist" products={products.filter(product => savedIds.has(String(product._id || product.id || '')))} />

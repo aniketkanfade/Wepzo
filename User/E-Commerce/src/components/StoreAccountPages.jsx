@@ -87,7 +87,7 @@ export function CartPage({ cart, products, count, subtotal, business, changeQty,
         <section className="cart-page-card checkout-order-card" aria-label="Order details">
           <div className="cart-page-card-heading">
             <div><span className="cart-page-cart-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3 4h2l2.2 11.2a2 2 0 0 0 2 1.6h8.9a2 2 0 0 0 1.9-1.4L22 9H6"/><circle cx="10" cy="21" r="1"/><circle cx="18" cy="21" r="1"/></svg></span><div><h2>Order Details</h2><p>{count} item(s) in your order</p></div></div>
-            <button type="button" className="cart-clear-button" onClick={onCart}>Back to cart</button>
+            <button type="button" className="cart-clear-button mobile-back-button" onClick={onCart}>Back to cart</button>
           </div>
           <div className="cart-page-items" aria-label="Items in your order">{productRows}</div>
           <div className="checkout-order-bill cart-page-bill-details">{billDetails}</div>
