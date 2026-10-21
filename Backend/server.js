@@ -21,6 +21,10 @@ app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 app.use('/api/uploads/website-modules', express.static(path.join(__dirname, 'uploads', 'website-modules')));
 app.use('/api/main-admin', require('./routes/orderAdminAuth'));
 
+app.get('/', (req, res) => {
+  res.json({ status: 'ok', message: 'Wepzo backend is running' });
+});
+
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', message: 'WEPZO API is running' });
 });
