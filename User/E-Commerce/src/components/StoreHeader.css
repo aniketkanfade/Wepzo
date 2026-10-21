@@ -1,4 +1,6 @@
-/* Keep the category/navigation row at the top while the main header scrolls away. */
+/* Keep the store header and category row visible together while scrolling. */
+.storefront { --store-header-sticky-height: 62px; }
+
 .storefront > .header {
   isolation: isolate;
   display: grid;
@@ -7,8 +9,8 @@
   gap: clamp(10px, 1.4vw, 22px);
   height: 62px;
   padding: 0 clamp(16px, 6.35vw, 100px);
-  position: relative;
-  top: auto;
+  position: sticky;
+  top: 0;
   z-index: 25;
   border-bottom: 1px solid #e6e8ed;
   background: transparent;
@@ -276,7 +278,7 @@
 
 .storefront > .nav {
   position: sticky;
-  top: 0;
+  top: var(--store-header-sticky-height, 62px);
   z-index: 20;
   background: #fff;
 }
@@ -286,9 +288,11 @@
 }
 
 @media (max-width: 760px) {
+  .storefront { --store-header-sticky-height: 101px; }
+
   .storefront > .header {
-    position: relative;
-    top: auto;
+    position: sticky;
+    top: 0;
     background: transparent;
     grid-template-columns: minmax(0, 1fr) auto;
     grid-template-rows: 42px 40px;
@@ -386,7 +390,7 @@
 
   .storefront > .nav {
     position: sticky;
-    top: 0;
+    top: var(--store-header-sticky-height, 101px);
     z-index: 40;
     background: #fff;
   }
