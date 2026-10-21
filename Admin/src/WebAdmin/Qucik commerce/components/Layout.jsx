@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Navigate, Outlet, useLocation } from 'react-router-dom';
 import Header from '../../../components/Header';
 import { useAuthStore, useBuilderStore, useModuleStore } from '../../../store/useStore';
@@ -28,6 +28,7 @@ function matchesAllowedRoute(pathname, allowedPaths, knownPaths) {
 
 export default function Layout() {
   const location = useLocation();
+  const mainRef = useRef(null);
   const user = useAuthStore(state => state.user);
   const logout = useAuthStore(state => state.logout);
   const resetBuilder = useBuilderStore(state => state.reset);
@@ -45,6 +46,10 @@ export default function Layout() {
   const isOnDomainPage = location.pathname === '/on-domain';
   const isWebsiteUser = user?.role === 'website_user';
   const isSettings = location.pathname.startsWith('/settings') || ['/components', '/plans', '/users', '/roles'].includes(location.pathname);
+  useEffect(() => {
+    mainRef.current?.scrollTo({ top: 0, left: 0 });
+  }, [location.pathname]);
+
   useEffect(() => {
     if (!isWebsiteUser || !user?.selectedModuleSlug) return;
     const module = { _id: user.selectedModuleSlug, id: user.selectedModuleSlug, slug: user.selectedModuleSlug, name: user.selectedModuleName || user.selectedModuleSlug, type: user.selectedModuleType || user.selectedModuleSlug };
@@ -129,7 +134,7 @@ export default function Layout() {
             : <Sidebar mobileOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />)}
         <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
           {!isOnDomainPage && (!isWebsiteUser || hasPaidWebsite) && (!isWebsiteUser || effectiveWebsiteAccess.header.length > 0) && <Header onMenuToggle={() => setSidebarOpen(!sidebarOpen)} showMenuToggle={!isWebsiteBuilder} websiteAccess={effectiveWebsiteAccess}/>}
-          <main className={`min-h-0 flex-1 overflow-y-auto bg-[#f3f4f6] ${isOnDomainPage ? 'p-0' : 'p-4 lg:p-6'}`}>
+          <main ref={mainRef} className={`min-h-0 flex-1 overflow-y-auto bg-[#f3f4f6] ${isOnDomainPage ? 'p-0' : 'p-4 lg:p-6'}`}>
             <PageErrorBoundary key={`${location.pathname}:${activeModule?.slug || 'ecommerce'}`}><Outlet /></PageErrorBoundary>
           </main>
           {(!isWebsiteUser || hasPaidWebsite) && <AdminSupportDock />}

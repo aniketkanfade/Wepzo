@@ -60,7 +60,7 @@ npm install
 npm run dev     # Starts on http://localhost:3000
 ```
 
-To configure the Admin API, copy `Admin/.env.example` to `Admin/.env.local`. `VITE_API_URL` is the shared backend URL; optional module-specific variables override it for that module.
+For production, the Admin uses the shared Render API URL from `Admin/.env.production`. Copy `Admin/.env.example` to `Admin/.env.local` to override it for local development. Optional module-specific variables override the shared API URL.
 
 ## API Endpoints
 
