@@ -83,6 +83,7 @@ import WebsiteDashboardPage from './pages/WebsiteDashboardPage';
 import WebsiteRenewalPage from './pages/WebsiteRenewalPage';
 import WelcomePage from './pages/WelcomePage';
 import OnDomainPage from './pages/OnDomainPage';
+import SubdomainPage from './pages/SubdomainPage';
 import WelcomePageAdmin from './pages/settings/WelcomePageAdmin';
 import OnDomainAdminPage from './pages/settings/OnDomainAdminPage';
 import SettingsTaxPage from './pages/settings/SettingsTaxPage';
@@ -172,6 +173,7 @@ export default function App() {
         <Route path="quick-commerce/zones" element={<QuickCommerceZonesPage />} />
         <Route path="website-builder" element={<WebsiteBuilder />} />
         <Route path="on-domain" element={<OnDomainPage />} />
+        <Route path="sub-domain" element={<SubdomainPage />} />
         <Route path="website-subscription" element={<WebsiteSubscriptionPage />} />
         <Route path="components" element={<ComponentsPage />} />
         <Route path="plans" element={<PlansPage />} />
