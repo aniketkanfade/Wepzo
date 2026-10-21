@@ -603,7 +603,30 @@ function findUserWebsite(user) {
 
 function ensureUserWebsite(user) {
   const existing = findUserWebsite(user);
-  if (existing || user?.role !== 'website_user') return existing;
+  if (user?.role !== 'website_user') return existing;
+  const tenantId = String(user._id || '');
+  if (existing) {
+    const previousId = String(existing._id || '');
+    if (tenantId && previousId !== tenantId
+      && !(store.websites || []).some(item => item !== existing && String(item._id) === tenantId)) {
+      const seen = new WeakSet();
+      const replaceWebsiteIdReferences = value => {
+        if (!value || typeof value !== 'object' || seen.has(value)) return;
+        seen.add(value);
+        if (Array.isArray(value)) return value.forEach(replaceWebsiteIdReferences);
+        Object.entries(value).forEach(([key, child]) => {
+          if (key === 'websiteId' && String(child || '') === previousId) value[key] = tenantId;
+          else replaceWebsiteIdReferences(child);
+        });
+      };
+      replaceWebsiteIdReferences(store);
+      existing._id = tenantId;
+      user.websiteId = tenantId;
+      schedulePersist();
+    }
+    return existing;
+  }
+  if (!tenantId) return null;
   const moduleId = String(user.selectedModuleId || user.websiteModuleId || '').trim();
   const moduleSlug = normalizeWebsiteModuleSlug(user.selectedModuleSlug || user.websiteModuleSlug || user.selectedModuleType || '');
   const module = (store.websiteModules || []).find(item => moduleId && String(item._id) === moduleId)
@@ -611,7 +634,7 @@ function ensureUserWebsite(user) {
   if (!module) return null;
   const websiteModuleSlug = websiteModuleSlugFor(module);
   const website = {
-    _id: uuidv4(),
+    _id: tenantId,
     websiteKey: buildWebsiteIdentity(user._id, module._id || websiteModuleSlug),
     websiteModuleId: String(module._id || ''),
     name: `${String(user.name || '').trim() || 'My'} Website`,
