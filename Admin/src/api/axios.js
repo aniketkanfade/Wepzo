@@ -1,13 +1,18 @@
 import axios from 'axios';
 import { getAdminModuleKey } from '../constants/adminModules';
 
-const sharedApiUrl = import.meta.env.VITE_API_URL || '/api';
+const normalizeApiUrl = value => {
+  const url = String(value || '/api').trim().replace(/\/+$/, '');
+  return /\/api$/i.test(url) ? url : `${url}/api`;
+};
+
+const sharedApiUrl = normalizeApiUrl(import.meta.env.VITE_API_URL || '/api');
 const moduleApiUrls = {
-  'quick-commerce': import.meta.env.VITE_QUICK_COMMERCE_API_URL || sharedApiUrl,
-  'e-commerce': import.meta.env.VITE_E_COMMERCE_API_URL || sharedApiUrl,
-  'store-single': import.meta.env.VITE_STORE_SINGLE_API_URL || sharedApiUrl,
-  marketing: import.meta.env.VITE_MARKETING_API_URL || sharedApiUrl,
-  'information-web': import.meta.env.VITE_INFORMATION_WEB_API_URL || sharedApiUrl,
+  'quick-commerce': normalizeApiUrl(import.meta.env.VITE_QUICK_COMMERCE_API_URL || sharedApiUrl),
+  'e-commerce': normalizeApiUrl(import.meta.env.VITE_E_COMMERCE_API_URL || sharedApiUrl),
+  'store-single': normalizeApiUrl(import.meta.env.VITE_STORE_SINGLE_API_URL || sharedApiUrl),
+  marketing: normalizeApiUrl(import.meta.env.VITE_MARKETING_API_URL || sharedApiUrl),
+  'information-web': normalizeApiUrl(import.meta.env.VITE_INFORMATION_WEB_API_URL || sharedApiUrl),
 };
 
 const api = axios.create({
