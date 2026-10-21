@@ -5496,7 +5496,7 @@ router.post('/on-domain/free-hosting', auth, async (req, res) => {
         expiresAt: websiteSubscriptionExpiry(now, durationValue, durationUnit),
         payments: website.purchase?.payments || [],
       };
-    } else if (website.purchase?.status !== 'paid' && module.fullPurchasePriceMode === 'free') {
+    } else if (website.purchase?.status !== 'paid' && (module.fullPurchasePriceMode === 'free' || onDomainFreeMode(module))) {
       website.purchase = {
         _id: uuidv4(),
         type: 'full',
@@ -5504,13 +5504,11 @@ router.post('/on-domain/free-hosting', auth, async (req, res) => {
         amount: 0,
         totalAmount: 0,
         priceMode: 'free',
-        planName: 'Free full purchase',
+        planName: module.fullPurchasePriceMode === 'free' ? 'Free full purchase' : 'Free On Domain hosting',
         paidAt: activatedAt,
         createdAt: activatedAt,
         payments: website.purchase?.payments || [],
       };
-    } else if (website.purchase?.status !== 'paid') {
-      return res.status(402).json({ message: 'An active free website plan is not configured for this module.' });
     }
     website.status = 'published';
     website.publishedAt = activatedAt;
