@@ -759,3 +759,14 @@ body { min-width: 320px; overflow-x: clip; }
     white-space: nowrap;
   }
 }
+
+/* Keep desktop store navigation stacked below its header; preserve the mobile layout. */
+@media (min-width: 761px) {
+  .storefront > .header { position: sticky; top: 0; z-index: 45; }
+  .storefront > .nav { position: sticky; top: 62px; z-index: 44; }
+}
+
+@media (max-width: 760px) {
+  .storefront > .header { position: relative; top: auto; }
+  .storefront > .nav { position: sticky; top: 0; }
+}
