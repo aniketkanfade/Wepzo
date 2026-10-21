@@ -1,8 +1,7 @@
-const fs = require('fs');
-const path = require('path');
 const bcrypt = require('bcryptjs');
 const { v4: uuidv4 } = require('uuid');
 const { QUICK_COMMERCE_COMPONENTS } = require('./quickCommerceComponents');
+const { loadState, saveState } = require('./mongoStateStore');
 
 
 const store = {
@@ -71,10 +70,6 @@ const store = {
 
 let adminId = null;
 
-const PERSIST_PATH = process.env.DATA_FILE
-  ? path.resolve(process.env.DATA_FILE)
-  : path.join(__dirname, '..', 'data', 'wepzo-store.json');
-
 const PERSIST_KEYS = [
   'productItems', 'products', 'productImportHistory', 'productExportHistory', 'orders', 'customers', 'deliveryZones', 'stores',
   'websiteSubscriptionPlans', 'ownDomainOrders',
@@ -98,16 +93,6 @@ function collectionHasData(val) {
   if (val && typeof val === 'object') return Object.keys(val).length > 0;
   if (typeof val === 'number') return true;
   return val != null && val !== '';
-}
-
-function loadPersisted() {
-  try {
-    if (!fs.existsSync(PERSIST_PATH)) return null;
-    return JSON.parse(fs.readFileSync(PERSIST_PATH, 'utf8'));
-  } catch (err) {
-    console.warn('Could not load wepzo-store.json:', err.message);
-    return null;
-  }
 }
 
 function normalizeWebsiteModuleKey(value) {
@@ -152,19 +137,17 @@ function applyPersisted(data) {
 }
 
 let persistTimer = null;
+let persistQueue = Promise.resolve();
 
 function persistNow() {
-  try {
-    const dir = path.dirname(PERSIST_PATH);
-    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-    const payload = {};
-    PERSIST_KEYS.forEach((key) => {
-      if (store[key] !== undefined) payload[key] = store[key];
-    });
-    fs.writeFileSync(PERSIST_PATH, JSON.stringify(payload));
-  } catch (err) {
-    console.warn('Persist failed:', err.message);
-  }
+  const snapshot = Object.fromEntries(PERSIST_KEYS
+    .filter(key => store[key] !== undefined)
+    .map(key => [key, store[key]]));
+  const operation = persistQueue.then(() => saveState(snapshot));
+  persistQueue = operation.catch(error => {
+    console.error('MongoDB application-state persistence failed:', error.message);
+  });
+  return operation;
 }
 
 function schedulePersist() {
@@ -349,7 +332,7 @@ function ensureWebsiteModuleContent() {
   persistNow();
 }
 async function seedMemory() {
-  const persisted = loadPersisted();
+  const persisted = await loadState(PERSIST_KEYS);
   if (persisted) {
     applyPersisted(persisted);
     ensureQuickCommerceCatalog();
@@ -357,7 +340,8 @@ async function seedMemory() {
     ensureWebsiteModuleContent();
     const { ensureMainAdminStorefront } = require('./mainAdminStorefrontSeed');
     if (ensureMainAdminStorefront(store)) persistNow();
-    console.log('Memory store loaded from wepzo-store.json');
+    await persistNow();
+    console.log('Application state loaded from MongoDB.');
     return;
   }
 
@@ -728,8 +712,8 @@ async function seedMemory() {
   ensureWebsiteModuleContent();
   const { ensureMainAdminStorefront } = require('./mainAdminStorefrontSeed');
   ensureMainAdminStorefront(store);
-  persistNow();
-  console.log('Memory store seeded. Login: admin@wepzo.com / admin123');
+  await persistNow();
+  console.log('Application state seeded in MongoDB.');
 }
 
-module.exports = { store, seedMemory, schedulePersist, persistNow, PERSIST_PATH };
+module.exports = { store, seedMemory, schedulePersist, persistNow, PERSIST_KEYS };
