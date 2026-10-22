@@ -1023,7 +1023,7 @@
   .qc-header-search.is-mobile-sticky {
     position: fixed !important;
     z-index: 1100;
-    top: 8px;
+    top: 12px;
     right: 8px;
     left: 8px;
     width: auto;

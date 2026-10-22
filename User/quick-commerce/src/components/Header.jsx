@@ -369,7 +369,7 @@ export default function Header({ componentEnabled = () => true }) {
           </form>
           {searchNotice && <p role="status" className="absolute left-0 right-0 top-[calc(100%+5px)] z-50 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600 shadow-lg">{searchNotice}</p>}
           {showSuggest && q.trim() && (
-            <div className="qc-search-suggestions absolute left-0 right-14 top-[calc(100%+6px)] z-50 bg-white rounded-xl shadow-xl border border-slate-100 overflow-hidden py-1">
+            <div className="qc-search-suggestions absolute left-0 right-14 top-[calc(100%+6px)] z-50 rounded-xl shadow-xl border border-slate-100 overflow-hidden py-1" style={{ backgroundColor: '#e9edf2' }}>
               {suggests.map(p => (
                 <button
                   key={p.id}
@@ -379,12 +379,13 @@ export default function Header({ componentEnabled = () => true }) {
                     setQ('');
                     navigate(`/p/${p.id}`);
                   }}
-                  className="qc-search-suggestion-item w-full flex items-center gap-2 px-2 py-1 hover:bg-slate-50 text-left"
+                  className="qc-search-suggestion-item w-full items-center gap-2 px-2 py-1 hover:bg-slate-50 text-left"
+                  style={{ display: 'grid', gridTemplateColumns: '34px minmax(0, 1fr)', width: '100%', minHeight: 42, padding: '4px 8px', textAlign: 'left' }}
                 >
                   <span className="qc-search-suggestion-image h-9 w-9 rounded-md bg-slate-50 border border-slate-100 overflow-hidden shrink-0">
                     <img src={p.image} alt="" className="h-full w-full object-contain" />
                   </span>
-                  <span className="qc-search-suggestion-name" style={{ display: 'block', flex: '1 1 0%', minWidth: 0, color: '#1f2937', fontSize: 12, fontWeight: 650, lineHeight: 1.25, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{productSuggestionName(p)}</span>
+                  <div className="qc-search-suggestion-name" style={{ display: 'block', gridColumn: 2, minWidth: 0, color: '#1f2937', fontSize: 12, fontWeight: 650, lineHeight: 1.25, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{productSuggestionName(p)}</div>
                 </button>
               ))}
               {suggests.length === 0 && (
