@@ -495,27 +495,35 @@ function addMainAdminRecords(store, website) {
   }
 
   if (!Array.isArray(store.banners)) store.banners = []
-  const bannerCountBeforeHeroCleanup = store.banners.length
-  store.banners = store.banners.filter(banner => !(String(banner.websiteId || '') === websiteId && banner.mainAdminSeedKey === 'main-admin-home-hero'))
-  if (store.banners.length !== bannerCountBeforeHeroCleanup) changed = true
   const bannerSeeds = [
     {
-      seedKey: 'main-admin-home-promo-fresh', title: 'Fresh & Healthy Daily Essentials',
-      subtitle: 'Top Brands · Best Prices · Fast Delivery', placement: 'Home Middle',
-      image: 'https://images.unsplash.com/photo-1542838132-92c53300491e?w=1000&h=360&fit=crop', cta: 'Shop Now', priority: 1,
+      seedKey: 'main-admin-ecommerce-banner-home-top', title: 'Everyday Finds, All in One Place',
+      subtitle: 'Discover useful picks across every category', placement: 'Home Top',
+      image: 'https://images.unsplash.com/photo-1555529669-e69e7aa0ba9a?w=1600&h=600&fit=crop',
+      video: 'https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4', cta: 'Shop Now', priority: 1,
     },
     {
-      seedKey: 'main-admin-home-promo-electronics', title: 'Latest Electronics For Your Daily Life',
-      subtitle: 'Laptops · Mobiles · Accessories · Gadgets', placement: 'Home Middle',
-      image: 'https://images.unsplash.com/photo-1498049794561-7780e7231661?w=1000&h=360&fit=crop', cta: 'Shop Now', priority: 2,
+      seedKey: 'main-admin-ecommerce-banner-home-mid', title: 'Fresh Picks for Your Everyday',
+      subtitle: 'Explore more essentials and new arrivals', placement: 'Home Mid',
+      image: 'https://images.unsplash.com/photo-1498049794561-7780e7231661?w=1200&h=420&fit=crop', cta: 'Explore Now', priority: 2,
+    },
+    {
+      seedKey: 'main-admin-ecommerce-banner-category', title: 'Find More of What You Love',
+      subtitle: 'Shop top picks across E-Commerce categories', placement: 'Category',
+      image: 'https://images.unsplash.com/photo-1441986300917-64674bd600d8?w=1200&h=520&fit=crop', cta: 'Browse Products', priority: 3,
+      moduleSlug: 'electronics', modules: ['electronics', 'home-appliances', 'furniture', 'fashion', 'grocery', 'beauty-personal-care'],
+    },
+    {
+      seedKey: 'main-admin-ecommerce-banner-store-page', title: 'Discover Something New',
+      subtitle: 'More great finds are waiting for you', placement: 'Store Page',
+      image: 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=1200&h=520&fit=crop', cta: 'Shop Now', priority: 4,
     },
   ]
-  bannerSeeds.forEach(banner => {
-    if (store.banners.some(item => String(item.websiteId || '') === websiteId && item.mainAdminSeedKey === banner.seedKey)) return
-    store.banners.push({ _id: uuidv4(), status: 'Active', link: '#collection', ...banner, ...scoped })
+  bannerSeeds.forEach(({ seedKey, ...banner }) => {
+    if (store.banners.some(item => String(item.websiteId || '') === websiteId && item.mainAdminSeedKey === seedKey)) return
+    store.banners.push({ _id: uuidv4(), status: 'Active', mainAdminSeedKey: seedKey, link: '#collection', ...banner, ...scoped })
     changed = true
   })
-
   const promotionSeeds = [
     { collection: 'campaigns', seedKey: 'main-admin-promo-campaign', title: 'Everyday Essentials Sale', subtitle: 'Save on groceries and home essentials this week.', cta: 'Explore offers', link: '#collection', image: 'https://images.unsplash.com/photo-1542838132-92c53300491e?w=1200&h=500&fit=crop', placement: 'Home Middle', type: 'Seasonal', store: 'All Stores' },
     { collection: 'otherBanners', seedKey: 'main-admin-promo-other-banner', title: 'Fast delivery, fresh picks', subtitle: 'Your daily favourites, delivered to your door.', cta: 'Shop now', link: '#collection', image: 'https://images.unsplash.com/photo-1543168256-418811576931?w=1200&h=500&fit=crop', section: 'Store Page', store: 'All Stores' },

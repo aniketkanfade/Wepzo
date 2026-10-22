@@ -32,7 +32,7 @@ export const PROMOTION_MODULES = {
   banners: {
     type: 'banners',
     title: 'Banners',
-    description: 'Home aur category banners manage karein',
+    description: 'E-Commerce homepage hero, homepage middle, category aur store banners manage karein',
     icon: Image,
     iconBg: 'bg-blue-50',
     iconColor: 'text-blue-600',

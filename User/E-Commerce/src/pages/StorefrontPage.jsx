@@ -143,9 +143,7 @@ export default function StorefrontPage() {
     ...asList(home?.homeMidBanners), ...asList(home?.homeMiddleBanners), ...promotions.filter(banner => isPlacement(banner, ['home_mid', 'home_middle', 'home_mid_banner', 'mid_home', 'home_promotion'])),
   ]
   const homeMidBanners = uniqueBanners([
-    ...promotions.filter(banner => !bannerPlacement(banner) && !hasBannerModule(banner)),
     ...explicitlyPlacedHomeMid,
-    ...promotions.filter(banner => isPlacement(banner, ['promotion', 'promotional', 'promotional_banner', 'home', 'home_banner'])),
   ])
   const storefrontBanners = uniqueBanners([
     ...asList(home?.storefrontBanners), ...asList(home?.storeFrontBanners), ...asList(home?.storefrontPromotions),
@@ -227,7 +225,6 @@ export default function StorefrontPage() {
             visible={showCategories && Boolean(selectedModule)}
           />
           {showDeals && !selectedModule && <FlashDealsSection {...productSectionProps} sales={home?.flashSales} products={products} />}
-          {!selectedModule && <PromotionBanners banners={homeMidBanners} />}
           {showCategoryRecommendations && <CategoryRecommendationsSection
             {...productSectionProps} products={recommendationProducts} categoryLabel={recommendationScope}
             moduleSlug={selectedModule} interactions={productInteractions}
@@ -237,7 +234,7 @@ export default function StorefrontPage() {
               ? <ProductGridSection {...productSectionProps} products={shown} prefix="catalog" />
               : <>
                 <TrendingProductsSection {...productSectionProps} products={bestsellers} city={home?.city} />
-                <PromotionBanners banners={storefrontBanners} />
+                <PromotionBanners banners={homeMidBanners} />
                 {moduleSections.map(section => (
                   <section key={section.slug || section._id || section.name} className="pt-4">
                     <div className="mb-3 flex items-center justify-between">
@@ -246,8 +243,10 @@ export default function StorefrontPage() {
                     <ProductGridSection {...productSectionProps} products={section.products} prefix={`catalog-${section.slug || section._id || section.name}`} />
                   </section>
                 ))}
+                <PromotionBanners banners={storefrontBanners} />
               </>
             : (showProductGrid || selectedModule) && <>
+              {!selectedModule && <PromotionBanners banners={homeMidBanners} />}
               <ProductGridSection {...productSectionProps} products={shown} prefix="catalog" />
               {!selectedModule && <PromotionBanners banners={storefrontBanners} />}
             </>}
