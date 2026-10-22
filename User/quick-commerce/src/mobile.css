@@ -75,6 +75,8 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    font-size: 10px;
+    line-height: 1.2;
   }
 
   .qc-header {
