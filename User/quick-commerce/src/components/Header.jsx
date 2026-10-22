@@ -270,7 +270,15 @@ export default function Header({ componentEnabled = () => true }) {
     }
     if (navigationLevel === 'category') return String(item._id) === String(activeCategory?._id);
     return String(item._id) === String(activeSubCategory?._id);
-  };  const placeLine = locationSubtitle(current);
+  };
+  const isHomeNavigationActive = location.pathname === '/'
+    && !selectedModuleSlug
+    && !selectedModuleId
+    && !selectedCategoryId
+    && !selectedSubCategoryId
+    && !searchParams.has('childCategoryId')
+    && !searchParams.has('category');
+  const placeLine = locationSubtitle(current);
   const compactPlaceLine = placeLine;
   const storeLat = pickup?.lat ?? 21.1458;
   const storeLng = pickup?.lng ?? 79.0882;
@@ -414,7 +422,7 @@ export default function Header({ componentEnabled = () => true }) {
         </div>}
       </div>
       {componentEnabled('quick-commerce-categories') && <nav className={'qc-header-cats ' + (navigationLevel === 'module' ? 'is-module-nav ' : 'is-catalog-nav ') + (navigationLevel === 'module' && isScrolledDown ? 'is-compact' : '')}>
-        <Link to="/" className={!selectedModuleSlug ? 'qc-header-module active' : 'qc-header-module'}>
+        <Link to="/" className={isHomeNavigationActive ? 'qc-header-module active' : 'qc-header-module'}>
           <span className="qc-header-all-icon"><Home size={22} strokeWidth={1.8} /></span>
           <span>Home</span>
         </Link>
