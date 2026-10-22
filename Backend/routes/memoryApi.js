@@ -8666,7 +8666,7 @@ router.get('/shop/products/:id', (req, res) => {
   if (websiteContext.error) return res.status(websiteContext.error.status).json({ message: websiteContext.error.message });
   const id = req.params.id;
   const products = isQuickCommerceStorefront(websiteContext)
-    ? quickCommerceCatalogForLocation(req.query.lat, req.query.lng, websiteContext.websiteId, websiteContext, true).products
+    ? quickCommerceCatalogForRequest(req.query.lat, req.query.lng, websiteContext.websiteId, websiteContext).products
     : qcCatalog(websiteContext.websiteId, websiteContext);
   const item = products.find(product => product._id === id || String(product.productId) === id);
   if (!item) return res.status(404).json({ message: 'Product not found' });
