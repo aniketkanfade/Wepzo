@@ -321,6 +321,13 @@
   color: var(--button-text, #fff) !important;
 }
 
+@media (max-width: 640px) {
+  .qc-header-search .qc-search-submit-icon {
+    background: transparent !important;
+    color: var(--header-text, #172744) !important;
+  }
+}
+
 .qc-header-search .qc-search-tool:not(.qc-search-tool-mic) {
   background-color: transparent !important;
   border-right-color: color-mix(in srgb, var(--header-text, #172744) 16%, transparent) !important;
