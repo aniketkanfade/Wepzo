@@ -11,10 +11,20 @@ const sameId = (a, b) => String(a || '') === String(b || '');
 const imageFallback = 'https://images.unsplash.com/photo-1542838132-92c53300491e?w=180&h=140&fit=crop';
 
 function ChoiceButton({ item, active, onClick }) {
-  return <button type="button" onClick={onClick} className={'qc-category-choice flex min-w-[94px] flex-col items-center gap-1 rounded-xl border px-3 py-2 text-center text-xs font-medium transition ' + (active ? 'is-active border-brand-500 bg-brand-50 text-slate-900 font-semibold' : 'border-slate-100 bg-white text-slate-600 hover:border-brand-200')}>
-    <img src={item.image || imageFallback} alt="" className="h-12 w-14 rounded-md object-contain"/>
+  return <button type="button" onClick={onClick} className={'qc-category-choice flex min-w-[94px] flex-col items-center gap-1 rounded-xl border px-1 py-1 text-center text-xs font-medium transition ' + (active ? 'is-active border-brand-500 bg-brand-50 text-slate-900 font-semibold' : 'border-transparent bg-white text-slate-600 hover:border-brand-200')}>
+    <span className="qc-category-choice-image"><img src={item.image || imageFallback} alt=""/></span>
     <span>{item.name}</span>
   </button>;
+}
+
+function CategoryChoiceSection({ title, items, activeId, onChoose, emptyText }) {
+  return <section className="qc-category-card-section mb-4">
+    <h2 className="qc-category-level-title">{title}</h2>
+    <div className="qc-category-choice-list">
+      {items.map(item => <ChoiceButton key={item._id} item={item} active={sameId(item._id, activeId)} onClick={() => onChoose(item)}/>)}
+      {items.length === 0 && <p className="py-3 text-sm text-slate-400">{emptyText}</p>}
+    </div>
+  </section>;
 }
 
 export default function CategoryPage() {
@@ -162,15 +172,12 @@ export default function CategoryPage() {
       <button type="button" onClick={resetVisualSearch} className="shrink-0 rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50">Clear</button>
     </section>}
     {moduleSlug && <div className="qc-all-modules-link mb-4 flex gap-2 overflow-x-auto pb-1"><Link to="/" className="shrink-0 rounded-full border px-3 py-1.5 text-xs font-semibold text-slate-600">All Modules</Link></div>}
-    {category && !subCategory && <section className="mb-4"><div className="qc-category-level-title mb-2 text-sm font-semibold text-slate-700">Sub Categories</div><div className="flex gap-2 overflow-x-auto pb-2">
-      {subCategories.map(item => <ChoiceButton key={item._id} item={item} active={sameId(item._id, subCategory?._id)} onClick={() => chooseSubCategory(item)}/>)}
-      {subCategories.length === 0 && <p className="py-3 text-sm text-slate-400">No subcategories available.</p>}
-    </div></section>}
-
-    {subCategory && <section className="mb-4"><div className="qc-category-level-title mb-2 text-sm font-semibold text-slate-700">Child Categories</div><div className="flex gap-2 overflow-x-auto pb-2">
-      {childCategories.map(item => <ChoiceButton key={item._id} item={item} active={sameId(item._id, childCategory?._id)} onClick={() => chooseChildCategory(item)}/>)}
-      {childCategories.length === 0 && <p className="py-3 text-sm text-slate-400">No child categories available.</p>}
-    </div></section>}
+    {!category && !q && !wishlistOnly && !storeId && !brandId && !visualSearch && categories.length > 0 && <CategoryChoiceSection
+      title={`${module?.name || 'All'} Categories`} items={categories} activeId={category?._id} onChoose={chooseCategory} emptyText="No categories available."/>}
+    {category && !subCategory && <CategoryChoiceSection
+      title={`${category.name} Categories`} items={subCategories} activeId={subCategory?._id} onChoose={chooseSubCategory} emptyText="No subcategories available."/>}
+    {subCategory && <CategoryChoiceSection
+      title={`${subCategory.name} Categories`} items={childCategories} activeId={childCategory?._id} onChoose={chooseChildCategory} emptyText="No child categories available."/>}
     <div className="qc-category-products-grid grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
       {items.map(product => <ProductCard key={product.id || product._id || product.productId} product={product} showWishlistRemove={wishlistOnly}/>) }
     </div>
