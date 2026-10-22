@@ -28,6 +28,12 @@ function locationSubtitle(current) {
   return parts.join(', ') || current.line || 'Location';
 }
 
+function productSuggestionName(product) {
+  return [product?.name, product?.productName, product?.product?.name, product?.product?.productName, product?.title, product?.brand]
+    .map(value => String(value || '').trim())
+    .find(Boolean) || 'Product';
+}
+
 export default function Header({ componentEnabled = () => true }) {
   const navigate = useNavigate();
   const location = useLocation();
@@ -378,7 +384,7 @@ export default function Header({ componentEnabled = () => true }) {
                   <span className="qc-search-suggestion-image h-9 w-9 rounded-md bg-slate-50 border border-slate-100 overflow-hidden shrink-0">
                     <img src={p.image} alt="" className="h-full w-full object-contain" />
                   </span>
-                  <span className="qc-search-suggestion-name">{p.name || p.productName || p.title || p.brand || 'Product'}</span>
+                  <span className="qc-search-suggestion-name" style={{ display: 'block', flex: '1 1 0%', minWidth: 0, color: '#1f2937', fontSize: 12, fontWeight: 650, lineHeight: 1.25, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{productSuggestionName(p)}</span>
                 </button>
               ))}
               {suggests.length === 0 && (
