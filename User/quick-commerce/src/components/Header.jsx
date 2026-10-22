@@ -377,7 +377,7 @@ export default function Header({ componentEnabled = () => true }) {
           </form>
           {searchNotice && <p role="status" className="absolute left-0 right-0 top-[calc(100%+5px)] z-50 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600 shadow-lg">{searchNotice}</p>}
           {showSuggest && q.trim() && (
-            <div className="qc-search-suggestions absolute left-0 right-14 top-[calc(100%+6px)] z-50 rounded-xl shadow-xl border border-slate-100 overflow-hidden py-1" style={{ backgroundColor: '#e9edf2' }} onMouseDown={event => { if (event.target === event.currentTarget) setShowSuggest(false); }}>
+            <div className="qc-search-suggestions absolute left-0 right-0 top-[calc(100%+2px)] z-50 shadow-xl border border-slate-200 overflow-hidden py-1" style={{ backgroundColor: '#e9edf2' }} onMouseDown={event => { if (event.target === event.currentTarget) setShowSuggest(false); }}>
               {suggests.map(p => (
                 <button
                   key={p.id}
