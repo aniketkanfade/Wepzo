@@ -91,9 +91,9 @@ The Admin selects an API URL from the active website module. By default, all mod
 | Marketing | `VITE_MARKETING_API_URL` |
 | Information Web | `VITE_INFORMATION_WEB_API_URL` |
 
-Use `VITE_API_URL` as the shared fallback URL. To run separate memory-backed servers, start each Backend instance with a unique `PORT`, matching `WEBSITE_MODULE`, and unique `DATA_FILE`, for example from `Backend/`:
+Use `VITE_API_URL` as the shared fallback URL. Local development may run separate servers with unique `PORT`, matching `WEBSITE_MODULE`, and unique `DATA_FILE`, for example from `Backend/`:
 
-The Quick Commerce customer storefront uses `VITE_QUICK_COMMERCE_API_URL` (or the shared `VITE_API_URL`) for API requests. Its production build is configured in `User/quick-commerce/.env.production`; keep this pointed at the deployed backend, not `localhost`.
+Production requires `MONGODB_URI`: the backend imports the existing local data snapshot into MongoDB on first connection, then stores platform changes there and will not start in production without MongoDB. The Quick Commerce storefront proxies `/api` to the backend through `User/quick-commerce/vercel.json`; shopper cart, favorites, and location state are also saved in MongoDB, and customer sessions use an HTTP-only cookie.
 
 ```powershell
 $env:PORT="5101"

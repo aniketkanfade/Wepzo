@@ -1,5 +1,4 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
 
 const itemKey = item => String(item.cartKey || item.id);
 const storeIdOf = product => String(product.storeId || product.store?._id || product.store?.storeId || '');
@@ -36,11 +35,18 @@ const upsertProduct = (items, product, qty) => {
   return items;
 };
 
-export const useCart = create(persist((set, get) => ({
+export const useCart = create((set, get) => ({
   items: [],
   couponCode: '',
   pendingAdd: null,
+  pendingPaymentOrder: null,
+  replace: cart => set({
+    items: Array.isArray(cart?.items) ? cart.items : [],
+    couponCode: String(cart?.couponCode || ''),
+    pendingPaymentOrder: cart?.pendingPaymentOrder || null,
+  }),
   setCouponCode: couponCode => set({ couponCode: String(couponCode || '').trim().toUpperCase() }),
+  setPendingPaymentOrder: pendingPaymentOrder => set({ pendingPaymentOrder }),
   add: (product, qty = 1, options = {}) => {
     const items = [...get().items];
     if (items.length && items.some(item => !sameStore(item, product))) {
@@ -62,10 +68,7 @@ export const useCart = create(persist((set, get) => ({
     set({ items: get().items.map(item => itemKey(item) === String(cartKey) ? { ...item, qty } : item) });
   },
   remove: cartKey => set({ items: get().items.filter(item => itemKey(item) !== String(cartKey)) }),
-  clear: () => set({ items: [], couponCode: '' }),
+  clear: () => set({ items: [], couponCode: '', pendingPaymentOrder: null }),
   count: () => get().items.reduce((total, item) => total + item.qty, 0),
   subtotal: () => get().items.reduce((total, item) => total + item.price * item.qty, 0),
-}), {
-  name: 'wepzo-qc-cart',
-  partialize: state => ({ items: state.items, couponCode: state.couponCode }),
 }));

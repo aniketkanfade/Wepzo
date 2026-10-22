@@ -15,6 +15,7 @@ const { sendSmsTest } = require('../lib/smsGateway');
 const { v4: uuidv4 } = require('uuid');
 const { store, schedulePersist } = require('../lib/memoryStore');
 const BusinessSettings = require('../models/BusinessSettings');
+const ShopperState = require('../models/ShopperState');
 const WEB_PAGE_DEFAULT_CONTENT = require('../../shared/webPageDefaults.json');
 const {
   attachStoreRef, syncData, recomputeStoreCounts, cascadeDeleteStore,
@@ -563,6 +564,20 @@ function readBearer(req) {
   return raw.replace(/^Bearer\s+/i, '').trim();
 }
 
+function readShopToken(req) {
+  const bearer = readBearer(req);
+  if (bearer) return bearer;
+  const cookie = String(req.headers.cookie || '').split(';').map(value => value.trim())
+    .find(value => value.startsWith('wepzo_shop_session='));
+  if (!cookie) return '';
+  try { return decodeURIComponent(cookie.slice('wepzo_shop_session='.length)); } catch { return ''; }
+}
+
+function setShopSessionCookie(req, res, value, maxAge = 60 * 60 * 24 * 7) {
+  const secure = process.env.NODE_ENV === 'production' || process.env.RENDER === 'true' || req.get('x-forwarded-proto') === 'https' ? '; Secure' : '';
+  res.setHeader('Set-Cookie', `wepzo_shop_session=${encodeURIComponent(value)}; Path=/; Max-Age=${maxAge}; HttpOnly; SameSite=Lax${secure}`);
+}
+
 function verifyAnySecret(t) {
   let lastErr;
   for (const secret of JWT_VERIFY_SECRETS) {
@@ -994,7 +1009,7 @@ function belongsToWebsite(item, websiteId) {
 
 function shopAuth(req, res, next) {
   try {
-    const t = readBearer(req);
+    const t = readShopToken(req);
     if (!t) return res.status(401).json({ message: LOGIN_AGAIN, code: 'NO_TOKEN' });
     const decoded = verifyAnySecret(t);
     if (decoded.kind !== 'shop') {
@@ -1022,7 +1037,7 @@ function shopAuth(req, res, next) {
 }
 
 function shopAuthIfPresent(req, res, next) {
-  if (!readBearer(req)) return next();
+  if (!readShopToken(req)) return next();
   return shopAuth(req, res, next);
 }
 
@@ -8136,8 +8151,10 @@ router.post('/shop/auth/register', async (req, res) => {
     createdAt: new Date().toISOString(),
   };
   store.customers.unshift(customer);
+  const sessionToken = token(customer._id, { kind: 'shop', email: customer.email, websiteId, websiteModuleId: websiteContext.moduleId });
+  setShopSessionCookie(req, res, sessionToken);
   res.status(201).json({
-    token: token(customer._id, { kind: 'shop', email: customer.email, websiteId, websiteModuleId: websiteContext.moduleId }),
+    token: sessionToken,
     user: publicCustomer(customer),
   });
 });
@@ -8160,10 +8177,97 @@ router.post('/shop/auth/login', async (req, res) => {
   }
   user.lastLoginAt = new Date().toISOString();
   user.loginCount = (Number(user.loginCount) || 0) + 1;
-  res.json({ token: token(user._id, { kind: 'shop', email: user.email, websiteId, websiteModuleId: websiteContext.moduleId }), user: publicCustomer(user) });
+  const sessionToken = token(user._id, { kind: 'shop', email: user.email, websiteId, websiteModuleId: websiteContext.moduleId });
+  setShopSessionCookie(req, res, sessionToken);
+  res.json({ token: sessionToken, user: publicCustomer(user) });
 });
 
-router.get('/shop/auth/me', shopAuth, (req, res) => res.json({ user: publicCustomer(req.customer) }));
+function shopperStateSession(req, res) {
+  const cookie = String(req.headers.cookie || '').split(';').map(value => value.trim())
+    .find(value => value.startsWith('wepzo_shopper_state='));
+  if (cookie) {
+    try {
+      const sessionId = decodeURIComponent(cookie.slice('wepzo_shopper_state='.length));
+      if (/^[a-f0-9]{64}$/i.test(sessionId)) return sessionId;
+    } catch { /* Issue a fresh shopper session for an invalid cookie. */ }
+  }
+  const sessionId = crypto.randomBytes(32).toString('hex');
+  const secure = process.env.NODE_ENV === 'production' || process.env.RENDER === 'true' || req.get('x-forwarded-proto') === 'https' ? '; Secure' : '';
+  res.setHeader('Set-Cookie', `wepzo_shopper_state=${encodeURIComponent(sessionId)}; Path=/; Max-Age=31536000; HttpOnly; SameSite=Lax${secure}`);
+  return sessionId;
+}
+
+const emptyShopperState = () => ({
+  cart: { items: [], couponCode: '', pendingPaymentOrder: null },
+  wishlist: { items: [] },
+  location: { current: null, saved: [], gps: null, pickup: null },
+});
+
+router.get('/shop/state', async (req, res) => {
+  if (mongoose.connection.readyState !== 1) {
+    return res.status(503).json({ message: 'MongoDB is required to load shopper data.' });
+  }
+  const websiteContext = websiteContextForRequest(req);
+  if (websiteContext.error) return res.status(websiteContext.error.status).json({ message: websiteContext.error.message });
+  const sessionId = shopperStateSession(req, res);
+  try {
+    const record = await ShopperState.findOne({ websiteId: websiteContext.websiteId || '', sessionId }).lean();
+    return res.json(record?.state || emptyShopperState());
+  } catch (error) {
+    return res.status(503).json({ message: error.message || 'Shopper data could not be loaded from MongoDB.' });
+  }
+});
+
+router.put('/shop/state', async (req, res) => {
+  if (mongoose.connection.readyState !== 1) {
+    return res.status(503).json({ message: 'MongoDB is required to save shopper data.' });
+  }
+  const websiteContext = websiteContextForRequest(req);
+  if (websiteContext.error) return res.status(websiteContext.error.status).json({ message: websiteContext.error.message });
+  const sessionId = shopperStateSession(req, res);
+  const state = req.body?.state;
+  if (!state || typeof state !== 'object' || Array.isArray(state)
+    || Buffer.byteLength(JSON.stringify(state), 'utf8') > 200_000) {
+    return res.status(400).json({ message: 'Shopper data is invalid or too large.' });
+  }
+  try {
+    const normalized = {
+      cart: {
+        items: Array.isArray(state.cart?.items) ? state.cart.items.slice(0, 100) : [],
+        couponCode: String(state.cart?.couponCode || '').slice(0, 64),
+        pendingPaymentOrder: state.cart?.pendingPaymentOrder && typeof state.cart.pendingPaymentOrder === 'object'
+          ? { _id: String(state.cart.pendingPaymentOrder._id || ''), orderNo: String(state.cart.pendingPaymentOrder.orderNo || '') }
+          : null,
+      },
+      wishlist: { items: Array.isArray(state.wishlist?.items) ? state.wishlist.items.slice(0, 500) : [] },
+      location: {
+        current: state.location?.current || null,
+        saved: Array.isArray(state.location?.saved) ? state.location.saved.slice(0, 50) : [],
+        gps: state.location?.gps || null,
+        pickup: state.location?.pickup || null,
+      },
+    };
+    await ShopperState.findOneAndUpdate(
+      { websiteId: websiteContext.websiteId || '', sessionId },
+      { $set: { state: normalized } },
+      { upsert: true, new: true, runValidators: true },
+    );
+    return res.json({ ok: true });
+  } catch (error) {
+    return res.status(503).json({ message: error.message || 'Shopper data could not be saved to MongoDB.' });
+  }
+});
+
+router.get('/shop/auth/me', shopAuthIfPresent, (req, res) => res.json({ user: publicCustomer(req.customer || null) }));
+router.post('/shop/auth/session', shopAuth, (req, res) => {
+  const sessionToken = readShopToken(req);
+  setShopSessionCookie(req, res, sessionToken);
+  res.json({ user: publicCustomer(req.customer) });
+});
+router.post('/shop/auth/logout', (req, res) => {
+  setShopSessionCookie(req, res, '', 0);
+  res.json({ ok: true });
+});
 router.put('/shop/auth/me', shopAuth, (req, res) => {
   const name = String(req.body?.name || '').trim();
   const phone = String(req.body?.phone || '').replace(/\D/g, '');

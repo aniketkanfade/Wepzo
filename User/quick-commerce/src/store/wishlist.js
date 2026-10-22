@@ -1,8 +1,8 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
 
-export const useWishlist = create(persist((set, get) => ({
+export const useWishlist = create((set, get) => ({
   items: [],
+  replace: items => set({ items: Array.isArray(items) ? items : [] }),
   has: (id) => get().items.some(x => x.id === id),
   toggle: (product) => {
     if (!product?.id) return;
@@ -24,4 +24,4 @@ export const useWishlist = create(persist((set, get) => ({
         }],
     });
   },
-}), { name: 'wepzo-qc-wishlist' }));
+}));

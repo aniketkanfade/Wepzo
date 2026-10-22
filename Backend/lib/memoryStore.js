@@ -1,8 +1,10 @@
 const fs = require('fs');
 const path = require('path');
 const bcrypt = require('bcryptjs');
+const mongoose = require('mongoose');
 const { v4: uuidv4 } = require('uuid');
 const { QUICK_COMMERCE_COMPONENTS } = require('./quickCommerceComponents');
+const PlatformData = require('../models/PlatformData');
 
 
 const store = {
@@ -152,19 +154,50 @@ function applyPersisted(data) {
 }
 
 let persistTimer = null;
+let mongoPersistQueue = Promise.resolve();
+
+function persistedSnapshot() {
+  const payload = {};
+  PERSIST_KEYS.forEach((key) => {
+    if (store[key] !== undefined) payload[key] = store[key];
+  });
+  return payload;
+}
 
 function persistNow() {
+  const payload = persistedSnapshot();
+  if (mongoose.connection.readyState === 1) {
+    mongoPersistQueue = mongoPersistQueue
+      .then(() => PlatformData.findByIdAndUpdate('primary', { $set: { data: payload } }, { upsert: true, new: true }))
+      .catch(err => { console.error('MongoDB platform data save failed:', err.message); });
+    return mongoPersistQueue;
+  }
+  if (process.env.NODE_ENV === 'production' || process.env.RENDER === 'true') return;
   try {
     const dir = path.dirname(PERSIST_PATH);
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-    const payload = {};
-    PERSIST_KEYS.forEach((key) => {
-      if (store[key] !== undefined) payload[key] = store[key];
-    });
     fs.writeFileSync(PERSIST_PATH, JSON.stringify(payload));
   } catch (err) {
     console.warn('Persist failed:', err.message);
   }
+}
+
+async function loadPersistedFromMongo() {
+  if (mongoose.connection.readyState !== 1) {
+    throw new Error('MongoDB must be connected before loading platform data.');
+  }
+  const record = await PlatformData.findById('primary').lean();
+  if (record?.data && Object.keys(record.data).length > 0) {
+    applyPersisted(record.data);
+    return;
+  }
+  const existing = loadPersisted();
+  if (existing) applyPersisted(existing);
+  await PlatformData.findByIdAndUpdate(
+    'primary',
+    { $set: { data: persistedSnapshot() } },
+    { upsert: true, new: true },
+  );
 }
 
 function schedulePersist() {
@@ -732,4 +765,4 @@ async function seedMemory() {
   console.log('Memory store seeded. Login: admin@wepzo.com / admin123');
 }
 
-module.exports = { store, seedMemory, schedulePersist, persistNow, PERSIST_PATH };
+module.exports = { store, seedMemory, schedulePersist, persistNow, loadPersistedFromMongo, PERSIST_PATH };

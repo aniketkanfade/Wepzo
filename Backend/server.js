@@ -3,11 +3,12 @@ const express = require('express');
 const cors = require('cors');
 const mongoose = require('mongoose');
 const path = require('path');
-const { seedMemory } = require('./lib/memoryStore');
+const { seedMemory, loadPersistedFromMongo } = require('./lib/memoryStore');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
 const WEBSITE_MODULE = String(process.env.WEBSITE_MODULE || '').trim().toLowerCase();
+const IS_PRODUCTION = process.env.NODE_ENV === 'production' || process.env.RENDER === 'true';
 
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
@@ -65,15 +66,23 @@ async function bootstrap() {
     try {
       await mongoose.connect(process.env.MONGODB_URI, { serverSelectionTimeoutMS: 10000 });
       console.log('MongoDB connected');
+      await loadPersistedFromMongo();
       await startWithMongo();
     } catch (error) {
+      if (IS_PRODUCTION) throw error;
       console.error('MongoDB connection failed; database-backed settings will be unavailable:', error.message);
     }
   } else {
-    console.warn('MONGODB_URI is not configured; running in memory-only mode.');
+    if (IS_PRODUCTION) {
+      throw new Error('MONGODB_URI is required in production; the backend will not start with local-file storage.');
+    }
+    console.warn('MONGODB_URI is not configured; running in development file-storage mode.');
   }
 
   app.listen(PORT, '0.0.0.0', () => console.log(`Server listening on port ${PORT} (all network interfaces)`));
 }
 
-bootstrap();
+bootstrap().catch(error => {
+  console.error('Backend startup failed:', error.message);
+  process.exitCode = 1;
+});

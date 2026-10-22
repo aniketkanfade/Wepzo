@@ -10,8 +10,6 @@ import CartItemRow from '../components/CartItemRow';
 import LocationModal from '../components/LocationModal';
 import { useSiteSettings } from '../store/siteSettings';
 
-const PENDING_PAYMENT_KEY = 'wepzo-qc-pending-payment-order';
-
 function loadCheckoutScript(src, name, ready) {
   if (ready()) return Promise.resolve(true);
   return new Promise(resolve => {
@@ -39,8 +37,11 @@ function checkoutReturnUrl() {
 export default function CheckoutPage({ backgroundLocation }) {
   const { items, subtotal, clear } = useCart();
   const couponCode = useCart(s => s.couponCode);
+  const pendingPaymentOrder = useCart(s => s.pendingPaymentOrder);
+  const setPendingPaymentOrder = useCart(s => s.setPendingPaymentOrder);
   const loc = useLocationStore(s => s.current);
   const user = useAuthStore(s => s.user);
+  const authLoading = useAuthStore(s => s.loading);
   const token = useAuthStore(s => s.token);
   const business = useSiteSettings(s => s.business);
   const navigate = useNavigate();
@@ -54,15 +55,12 @@ export default function CheckoutPage({ backgroundLocation }) {
   const [quote, setQuote] = useState(null);
   const [saving, setSaving] = useState(false);
   const [paymentError, setPaymentError] = useState('');
-  const [pendingPaymentOrder, setPendingPaymentOrder] = useState(() => {
-    try { return JSON.parse(localStorage.getItem(PENDING_PAYMENT_KEY) || 'null'); } catch { return null; }
-  });
   const [locationModalOpen, setLocationModalOpen] = useState(false);
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
   useEffect(() => {
-    if (!user) navigate('/login?next=/checkout', { replace: true, state: { backgroundLocation } });
-  }, [user, navigate, backgroundLocation]);
+    if (!authLoading && !user) navigate('/login?next=/checkout', { replace: true, state: { backgroundLocation } });
+  }, [authLoading, user, navigate, backgroundLocation]);
 
   useEffect(() => {
     if (user) setForm(f => ({ ...f, customer: user.name || f.customer, phone: user.phone || f.phone }));
@@ -81,7 +79,7 @@ export default function CheckoutPage({ backgroundLocation }) {
     const params = new URLSearchParams(window.location.search);
     const orderId = params.get('wepzoOrderId');
     const gateway = params.get('paymentGateway');
-    if (!orderId || !gateway || !token) return;
+    if (!orderId || !gateway || authLoading || !user) return;
     shop.setToken(token);
     setSaving(true);
     setPaymentError('');
@@ -90,7 +88,6 @@ export default function CheckoutPage({ backgroundLocation }) {
         if (!result?.verified) throw new Error('Payment could not be verified.');
         clear();
         setPendingPaymentOrder(null);
-        localStorage.removeItem(PENDING_PAYMENT_KEY);
         navigate(`/track/${result.order?.orderNo || orderId}`, { replace: true });
       })
       .catch(error => setPaymentError(error.response?.data?.message || error.message || 'Payment status could not be verified.'))
@@ -102,7 +99,7 @@ export default function CheckoutPage({ backgroundLocation }) {
         window.history.replaceState(window.history.state || {}, '', `${window.location.pathname}${query ? `?${query}` : ''}${window.location.hash}`);
         setSaving(false);
       });
-  }, [token]);
+  }, [token, user, authLoading]);
 
   useEffect(() => {
     if (!items.length) return;
@@ -118,7 +115,7 @@ export default function CheckoutPage({ backgroundLocation }) {
   const place = async (e) => {
     e.preventDefault();
     if (!items.length) return navigate('/cart', { state: { backgroundLocation } });
-    if (!token) return navigate('/login?next=/checkout', { state: { backgroundLocation } });
+    if (!user) return navigate('/login?next=/checkout', { state: { backgroundLocation } });
     shop.setToken(token);
     if (quote && !quote.deliverable) return alert(quote.message || 'Delivery nahi ho sakti');
     setSaving(true);
@@ -138,7 +135,6 @@ export default function CheckoutPage({ backgroundLocation }) {
       if (form.payment === 'ONLINE') {
         const retryOrder = { _id: order._id, orderNo: order.orderNo };
         setPendingPaymentOrder(retryOrder);
-        localStorage.setItem(PENDING_PAYMENT_KEY, JSON.stringify(retryOrder));
         const payment = await shop.initiatePayment({ orderId: order._id, returnUrl: checkoutReturnUrl() });
         if (payment.provider === 'phonepe' && payment.redirectUrl) {
           window.location.assign(payment.redirectUrl);
@@ -162,7 +158,6 @@ export default function CheckoutPage({ backgroundLocation }) {
                   if (!verified?.verified) throw new Error('Payment could not be verified.');
                   clear();
                   setPendingPaymentOrder(null);
-                  localStorage.removeItem(PENDING_PAYMENT_KEY);
                   navigate(`/track/${verified.order?.orderNo || order.orderNo}`);
                   resolve(true);
                 } catch (error) { reject(error); }
@@ -180,7 +175,6 @@ export default function CheckoutPage({ backgroundLocation }) {
       } else {
         clear();
         setPendingPaymentOrder(null);
-        localStorage.removeItem(PENDING_PAYMENT_KEY);
         navigate(`/track/${order.orderNo}`);
       }
     } catch (err) {
@@ -197,7 +191,7 @@ export default function CheckoutPage({ backgroundLocation }) {
 
   const closeCheckout = () => navigate('/cart', { state: { backgroundLocation } });
 
-  if (!user) return null;
+  if (authLoading || !user) return null;
   if (!items.length) {
     return (
       <div className="fixed inset-0 z-[1100] flex justify-end">

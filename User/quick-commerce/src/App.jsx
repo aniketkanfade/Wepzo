@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { ClipboardList, Home, ShoppingCart, UserRound, X } from 'lucide-react';
 import { Link, Routes, Route, useLocation, useNavigate } from 'react-router-dom';
 import Header from './components/Header';
@@ -12,7 +12,13 @@ import LoginPage from './pages/LoginPage';
 import AccountPage from './pages/AccountPage';
 import { useSiteSettings } from './store/siteSettings';
 import { useCart } from './store/cart';
+import { useWishlist } from './store/wishlist';
+import { useLocationStore } from './store/location';
+import { useAuthStore } from './store/auth';
 import CartDrawer from './components/CartDrawer';
+import { readQcToken, shop } from './api';
+import { clearLegacyShopStorage, mergeLegacyShopState, readLegacyShopState } from './legacyShopStorage';
+import { getWebsiteContext, setWebsiteContext } from './websiteContext';
 
 function UnavailableFeature() {
   return <div className="mx-auto max-w-3xl px-4 py-20 text-center text-slate-500">This feature is not included in this website.</div>;
@@ -31,6 +37,7 @@ function MobileAppNavigation({ componentEnabled, pathname, onOpenCart }) {
 }
 
 export default function App() {
+  const [shopDataError, setShopDataError] = useState('');
   const location = useLocation();
   const navigate = useNavigate();
   const cartRoute = location.pathname === '/cart';
@@ -47,9 +54,7 @@ export default function App() {
   const builderPreview = searchParams.get('builderPreview') === '1';
   const templatePreview = searchParams.get('templatePreview') === '1';
   const publishedPreview = searchParams.get('published') === '1';
-  const savedContext = (() => {
-    try { return JSON.parse(sessionStorage.getItem('wepzo-website-context') || 'null'); } catch { return null; }
-  })();
+  const savedContext = getWebsiteContext();
   const activeWebsiteMode = adminPreview ? null : publishedPreview || builderPreview ? (publishedPreview ? 'published' : 'builder') : savedContext?.mode;
   const websiteContextActive = activeWebsiteMode === 'published' || activeWebsiteMode === 'builder';
   const componentList = searchParams.has('components')
@@ -60,14 +65,87 @@ export default function App() {
     && !(templatePreview && ['quick-commerce-profile', 'quick-commerce-account'].includes(slug));
 
   useEffect(() => {
-    const contextKey = 'wepzo-website-context';
+    let active = true;
+    let ready = false;
+    let saveTimer;
+    let cleanup = () => {};
+    const handleSessionError = event => setShopDataError(event.detail || 'Could not end the customer session.');
+    window.addEventListener('wepzo:shop-session-error', handleSessionError);
+    const saveState = () => {
+      if (!ready) return;
+      window.clearTimeout(saveTimer);
+      saveTimer = window.setTimeout(() => {
+        const cart = useCart.getState();
+        const wishlist = useWishlist.getState();
+        const location = useLocationStore.getState();
+        shop.saveState({
+          cart: { items: cart.items, couponCode: cart.couponCode, pendingPaymentOrder: cart.pendingPaymentOrder },
+          wishlist: { items: wishlist.items },
+          location: { current: location.current, saved: location.saved, gps: location.gps, pickup: location.pickup },
+        }).catch(error => {
+          if (active) setShopDataError(error.response?.data?.message || error.message || 'Shopper data could not be saved to MongoDB.');
+        });
+      }, 300);
+    };
+
+    const loadShopperData = async () => {
+      try {
+        const legacy = readLegacyShopState();
+        const savedState = await shop.state();
+        const state = mergeLegacyShopState(savedState, legacy.state);
+        await shop.saveState(state);
+
+        if (legacy.auth?.token) {
+          shop.setToken(legacy.auth.token);
+          try {
+            await shop.establishSession();
+          } catch (error) {
+            if (error.response?.status !== 401) throw error;
+            shop.setToken(null);
+          }
+        }
+        const session = await shop.me().then(result => result.user).catch(error => {
+          if (error.response?.status !== 401) throw error;
+          return null;
+        });
+        if (!active) return;
+        useCart.getState().replace(state.cart);
+        useWishlist.getState().replace(state.wishlist?.items);
+        useLocationStore.getState().replace(state.location);
+        useAuthStore.getState().setSession(readQcToken(), session);
+        clearLegacyShopStorage();
+        ready = true;
+        setShopDataError('');
+        const unsubscribers = [
+          useCart.subscribe(saveState),
+          useWishlist.subscribe(saveState),
+          useLocationStore.subscribe(saveState),
+        ];
+        cleanup = () => unsubscribers.forEach(unsubscribe => unsubscribe());
+      } catch (error) {
+        if (!active) return;
+        useAuthStore.getState().setSession(null, null);
+        setShopDataError(error.response?.data?.message || error.message || 'Shopper data could not be loaded from MongoDB.');
+      }
+    };
+    loadShopperData();
+
+    return () => {
+      active = false;
+      window.clearTimeout(saveTimer);
+      cleanup();
+      window.removeEventListener('wepzo:shop-session-error', handleSessionError);
+    };
+  }, []);
+
+  useEffect(() => {
     if (!templatePreview && (publishedPreview || builderPreview) && searchParams.get('websiteId')) {
-      sessionStorage.setItem(contextKey, JSON.stringify({
+      setWebsiteContext({
         mode: publishedPreview ? 'published' : 'builder',
         websiteId: searchParams.get('websiteId'),
         websiteModuleId: searchParams.get('websiteModuleId') || '',
         components: [...selectedComponents],
-      }));
+      });
       return;
     }
     if (adminPreview || templatePreview || !savedContext?.websiteId || !savedContext?.mode) return;
@@ -111,6 +189,7 @@ export default function App() {
       '--button-hover-background': business.themeColors?.buttonHoverBackground || business.themeColors?.buttonBackground || business.primaryColor || '#f4510b',
       '--button-hover-text': business.themeColors?.buttonHoverText || business.themeColors?.buttonText || '#ffffff',
     }}>
+      {shopDataError && <p role="alert" className="bg-rose-50 px-4 py-2 text-center text-sm text-rose-700">{shopDataError}</p>}
       <Header componentEnabled={componentEnabled} />
       <main className="flex-1">
         <Routes location={backgroundLocation || location}>

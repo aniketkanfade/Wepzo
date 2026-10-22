@@ -11,7 +11,7 @@ import { etaMinutesFromKm, haversineKm } from '../utils/eta';
 import CartDrawer from './CartDrawer';
 import { useSiteSettings } from '../store/siteSettings';
 import googleLensIcon from '../assets/google-lens-icon.svg';
-import { prepareVisualSearchImage } from '../utils/visualSearch';
+import { prepareVisualSearchImage, setVisualSearchImage } from '../utils/visualSearch';
 
 function locationSubtitle(current) {
   if (!current) return 'Select location';
@@ -191,7 +191,7 @@ export default function Header({ componentEnabled = () => true }) {
     setSearchNotice('Preparing your image...');
     try {
       const imageData = await prepareVisualSearchImage(file);
-      sessionStorage.setItem('wepzo-qc-visual-search-image', imageData);
+      setVisualSearchImage(imageData);
       const params = new URLSearchParams();
       params.set('visualSearch', '1');
       if (selectedModuleSlug) params.set('module', selectedModuleSlug);
