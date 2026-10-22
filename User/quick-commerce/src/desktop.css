@@ -367,6 +367,15 @@
     background: transparent !important;
     color: var(--header-text, #172744) !important;
   }
+
+  .qc-header .qc-header-search form > button.qc-search-tool-mic,
+  .qc-header .qc-header-search form > button.qc-search-tool-mic:hover,
+  .qc-header .qc-header-search form > button.qc-search-tool-mic:focus {
+    background: transparent !important;
+    background-color: transparent !important;
+    box-shadow: none !important;
+    color: var(--header-text, #172744) !important;
+  }
 }
 
 .qc-header-search .qc-search-tool:not(.qc-search-tool-mic) {
