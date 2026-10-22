@@ -88,10 +88,20 @@ function Rail({ children, className = '' }) {
 }
 
 function ProductGridCarousel({ products, rows = 2 }) {
+  const pages = [];
+  const pageSize = rows * 3;
+  for (let index = 0; index < products.length; index += pageSize) {
+    pages.push(products.slice(index, index + pageSize));
+  }
+
   return (
     <div className="qc-product-mobile-carousel">
-      <div className="qc-product-carousel-track no-scrollbar" style={{ '--qc-carousel-rows': rows }}>
-        {products.map(product => <ProductCard key={product.id || product._id} product={product} />)}
+      <div className="qc-product-carousel-track no-scrollbar">
+        {pages.map((page, pageIndex) => (
+          <div className="qc-product-carousel-page" key={pageIndex} style={{ '--qc-carousel-rows': rows }}>
+            {page.map(product => <ProductCard key={product.id || product._id} product={product} />)}
+          </div>
+        ))}
       </div>
     </div>
   );
