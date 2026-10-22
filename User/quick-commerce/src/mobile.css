@@ -274,8 +274,7 @@
   }
 
   .qc-home .qc-product-image-wrap > a:first-child {
-    height: 68px;
-    aspect-ratio: auto;
+    aspect-ratio: 1 / 1;
     padding: 4px;
     background: #f7fafc;
   }
@@ -1074,22 +1073,15 @@
   .qc-header-cats.is-module-nav .qc-header-module img {
     display: block;
     width: 52px;
-    height: 50px;
+    height: 52px;
     flex: 0 0 auto;
-    object-fit: cover;
+    aspect-ratio: 1 / 1;
+    object-fit: contain;
     border-radius: 11px;
     background: transparent;
     mix-blend-mode: normal;
     transform: none;
   }
-
-  .qc-header-cats.is-module-nav .qc-header-module:nth-child(2) { background: linear-gradient(145deg, #fff8df, #e7f5d1 54%, #ffe1bc); }
-  .qc-header-cats.is-module-nav .qc-header-module:nth-child(3) { background: linear-gradient(145deg, #fff0df, #ffd6c9 55%, #ffe3eb); }
-  .qc-header-cats.is-module-nav .qc-header-module:nth-child(4) { background: linear-gradient(145deg, #edf6ff, #d5e8ff 55%, #e9ddff); }
-  .qc-header-cats.is-module-nav .qc-header-module:nth-child(5) { background: linear-gradient(145deg, #fff9d8, #ffe28d 55%, #ffd978); }
-  .qc-header-cats.is-module-nav .qc-header-module:nth-child(6) { background: linear-gradient(145deg, #e8fff4, #c6f0df 55%, #d6f1ff); }
-  .qc-header-cats.is-module-nav .qc-header-module:nth-child(7) { background: linear-gradient(145deg, #f4edff, #e3d8ff 55%, #ffe4f2); }
-  .qc-header-cats.is-module-nav .qc-header-module:nth-child(8) { background: linear-gradient(145deg, #eafcff, #d2eff5 55%, #e9e2ff); }
 
   .qc-header-cats.is-module-nav .qc-header-module span:last-child {
     max-width: 100%;

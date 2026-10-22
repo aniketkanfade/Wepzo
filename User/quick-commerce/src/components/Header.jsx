@@ -259,7 +259,9 @@ export default function Header({ componentEnabled = () => true }) {
     return '/c?' + next.toString();
   };
   const isNavigationItemActive = item => {
-    if (navigationLevel === 'module') return item.slug === activeModule?.slug;
+    if (navigationLevel === 'module') {
+      return String(item._id || item.slug) === String(activeModule?._id || activeModule?.slug);
+    }
     if (navigationLevel === 'category') return String(item._id) === String(activeCategory?._id);
     return String(item._id) === String(activeSubCategory?._id);
   };  const placeLine = locationSubtitle(current);
