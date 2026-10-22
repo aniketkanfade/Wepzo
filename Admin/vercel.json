@@ -1,6 +1,14 @@
 {
   "rewrites": [
     {
+      "source": "/api/(.*)",
+      "destination": "https://wepzo.onrender.com/api/$1"
+    },
+    {
+      "source": "/uploads/(.*)",
+      "destination": "https://wepzo.onrender.com/uploads/$1"
+    },
+    {
       "source": "/(.*)",
       "destination": "/"
     }
