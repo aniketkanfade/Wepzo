@@ -284,14 +284,24 @@ export default function SettingsBusinessPage({ colorsOnly = false }) {
   const [error, setError] = useState('');
   const [desktopColorCopied, setDesktopColorCopied] = useState(false);
 
+  const normalizeSettingsError = (error, fallback) => {
+    const rawMessage = error?.response?.data?.message || error?.message || '';
+    const message = String(rawMessage).trim();
+    if (!message) return fallback;
+    const mongoWarning = /mongo/i.test(message) && /(connect|connected|database)/i.test(message);
+    if (mongoWarning) return '';
+    return message;
+  };
+
   const loadSettings = async () => {
     setLoading(true);
     try {
       const { data } = await api.get('/settings/business');
       setForm({ ...DEFAULT_FORM, ...(data || {}), themeColors: { ...DEFAULT_FORM.themeColors, ...(data?.themeColors || {}), productCartButtonStyle: ['quantity', 'bottom-quantity'].includes(data?.themeColors?.productCartButtonStyle) ? 'image' : data?.themeColors?.productCartButtonStyle || DEFAULT_FORM.themeColors.productCartButtonStyle } });
       setError('');
-    } catch {
-      setError('Business settings load nahi hui.');
+    } catch (requestError) {
+      const nextError = normalizeSettingsError(requestError, 'Business settings load nahi hui.');
+      setError(nextError);
     } finally {
       setLoading(false);
     }
@@ -342,7 +352,8 @@ export default function SettingsBusinessPage({ colorsOnly = false }) {
       setSaved(true);
       window.setTimeout(() => setSaved(false), 2400);
     } catch (requestError) {
-      setError(requestError.response?.data?.message || 'Business settings save nahi hui.');
+      const nextError = normalizeSettingsError(requestError, 'Business settings save nahi hui.');
+      setError(nextError);
     } finally {
       setSaving(false);
     }
