@@ -186,10 +186,18 @@ async function loadPersistedFromMongo() {
   if (mongoose.connection.readyState !== 1) {
     throw new Error('MongoDB must be connected before loading platform data.');
   }
+  const { ensureStarterCatalogs } = require('./starterCatalogSeed');
   const record = await PlatformData.findById('primary').lean();
   if (record?.data && Object.keys(record.data).length > 0) {
     applyPersisted(record.data);
     removeBundledProductFixtures();
+    if (ensureStarterCatalogs(store)) {
+      await PlatformData.findByIdAndUpdate(
+        'primary',
+        { $set: { data: persistedSnapshot() } },
+        { upsert: true, new: true },
+      );
+    }
     return;
   }
   const existing = loadPersisted();
@@ -197,6 +205,7 @@ async function loadPersistedFromMongo() {
     applyPersisted(existing);
     removeBundledProductFixtures();
   }
+  ensureStarterCatalogs(store);
   await PlatformData.findByIdAndUpdate(
     'primary',
     { $set: { data: persistedSnapshot() } },
