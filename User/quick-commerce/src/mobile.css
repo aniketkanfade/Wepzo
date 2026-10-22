@@ -1145,3 +1145,12 @@
     padding-left: 8px;
   }
 }
+
+@media (max-width: 640px) {
+  .qc-header-main,
+  .qc-header-logo,
+  .qc-header-location {
+    border-left: 0 !important;
+    border-right: 0 !important;
+  }
+}
