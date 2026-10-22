@@ -307,7 +307,7 @@ export default function Header({ componentEnabled = () => true }) {
     {hasHeaderComponents && <header className="qc-header sticky top-0 z-40 bg-white border-b border-slate-100 shadow-[0_1px_8px_rgba(15,23,42,0.04)]">
       <div className="qc-header-main max-w-[1280px] mx-auto px-4 min-h-[68px] py-2.5 flex items-center gap-3">
         {componentEnabled('quick-commerce-header') && <Link to="/" className="qc-header-logo shrink-0 font-extrabold text-xl tracking-tight text-slate-900" aria-label={business.businessName || 'WEPZO'}>
-          {business.businessLogo ? <img src={business.businessLogo} alt={business.businessName || 'Business logo'} className="qc-header-brand-image" /> : <span><ShoppingCart size={17}/></span>}
+          {business.businessLogo && <img src={business.businessLogo} alt={business.businessName || 'Business logo'} className="qc-header-brand-image" />}
         </Link>}
         {componentEnabled('quick-commerce-location') && <button type="button" onClick={() => setOpen(true)}
           title={current?.line || current?.address || compactPlaceLine}

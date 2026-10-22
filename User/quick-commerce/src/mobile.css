@@ -876,7 +876,7 @@
 
   .qc-header-main {
     display: grid !important;
-    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.5fr);
     grid-template-rows: auto auto;
     column-gap: 8px;
     row-gap: 7px;
@@ -885,9 +885,9 @@
 
   .qc-header-logo {
     display: flex !important;
-    grid-column: 2;
+    grid-column: 1;
     grid-row: 1;
-    justify-self: end;
+    justify-self: start;
     min-height: 28px;
   }
 
@@ -897,9 +897,9 @@
   }
 
   .qc-header-location {
-    grid-column: 1;
+    grid-column: 2;
     grid-row: 1;
-    justify-self: stretch;
+    justify-self: end;
     max-width: 100% !important;
     height: 100%;
     border-left: 0 !important;
@@ -1138,7 +1138,7 @@
 
 @media (max-width: 360px) {
   .qc-header-main {
-    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.5fr);
     column-gap: 6px;
     row-gap: 6px;
     padding-right: 8px;
