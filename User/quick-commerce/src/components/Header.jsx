@@ -40,6 +40,7 @@ export default function Header({ componentEnabled = () => true }) {
   const count = useCart(s => s.items.reduce((n, x) => n + x.qty, 0));
   const wishCount = useWishlist(s => s.items.length);
   const current = useLocationStore(s => s.current);
+  const savedLocations = useLocationStore(s => s.saved);
   const pickup = useLocationStore(s => s.pickup);
   const setPickup = useLocationStore(s => s.setPickup);
   const business = useSiteSettings(s => s.business);
@@ -280,7 +281,15 @@ export default function Header({ componentEnabled = () => true }) {
     && !searchParams.has('category');
   const placeLine = locationSubtitle(current);
   const compactPlaceLine = placeLine;
-  const rawLocationLabel = String(current?.label || '').trim();
+  const matchingSavedLocation = current && (savedLocations || []).find(saved => {
+    if (current.id && saved.id && String(current.id) === String(saved.id)) return true;
+    const distance = haversineKm(current.lat, current.lng, saved.lat, saved.lng);
+    if (distance != null && distance <= 0.1) return true;
+    const currentAddress = String(current.line || current.address || '').trim().toLowerCase();
+    const savedAddress = String(saved.line || saved.address || '').trim().toLowerCase();
+    return Boolean(currentAddress && savedAddress && currentAddress === savedAddress);
+  });
+  const rawLocationLabel = String(matchingSavedLocation?.label || (current?.label === 'Current' ? 'Other' : current?.label || 'Other')).trim();
   const savedLocationLabel = /^(home|work|office|other)$/i.test(rawLocationLabel)
     ? (/^(work|office)$/i.test(rawLocationLabel) ? 'Office' : rawLocationLabel[0].toUpperCase() + rawLocationLabel.slice(1).toLowerCase())
     : '';

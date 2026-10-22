@@ -941,6 +941,9 @@
   }
 
   .qc-header-location .qc-location-line {
+    display: flex;
+    width: 100%;
+    min-width: 0;
     gap: 4px;
   }
 
@@ -964,9 +967,9 @@
   }
 
   .qc-header-location > span:last-child > .qc-location-compact {
-    flex: 1;
+    flex: 1 1 0;
     min-width: 0;
-    max-width: 100%;
+    max-width: none;
     display: block;
     overflow: hidden;
     font-size: 10px;
@@ -1217,6 +1220,15 @@
 }
 
 @media (max-width: 640px) {
+  .qc-header-cats.is-module-nav.is-compact {
+    position: static !important;
+    top: auto;
+    right: auto;
+    left: auto;
+    width: 100%;
+    box-shadow: none;
+  }
+
   #root {
     padding-bottom: calc(76px + env(safe-area-inset-bottom));
   }
