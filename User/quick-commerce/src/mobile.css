@@ -1237,7 +1237,7 @@
   .qc-search-suggestions {
     position: absolute;
     z-index: 1202;
-    top: calc(100% + 2px);
+    top: 100%;
     right: 0;
     left: 0;
     width: 100%;
@@ -1245,7 +1245,7 @@
     box-sizing: border-box;
     padding: 3px 0;
     border: 1px solid #d8dde3;
-    border-radius: 0;
+    border-radius: 10px;
     background-color: #e9edf2;
     overflow-y: auto;
     box-shadow: none;
