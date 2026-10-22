@@ -1,6 +1,9 @@
 import axios from 'axios';
 
-const api = axios.create({ baseURL: '/api' });
+const baseURL = import.meta.env.VITE_QUICK_COMMERCE_API_URL
+  || import.meta.env.VITE_API_URL
+  || '/api';
+const api = axios.create({ baseURL: baseURL.replace(/\/+$/, '') });
 
 export function readQcToken() {
   try {

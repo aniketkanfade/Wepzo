@@ -93,6 +93,8 @@ The Admin selects an API URL from the active website module. By default, all mod
 
 Use `VITE_API_URL` as the shared fallback URL. To run separate memory-backed servers, start each Backend instance with a unique `PORT`, matching `WEBSITE_MODULE`, and unique `DATA_FILE`, for example from `Backend/`:
 
+The Quick Commerce customer storefront uses `VITE_QUICK_COMMERCE_API_URL` (or the shared `VITE_API_URL`) for API requests. Its production build is configured in `User/quick-commerce/.env.production`; keep this pointed at the deployed backend, not `localhost`.
+
 ```powershell
 $env:PORT="5101"
 $env:WEBSITE_MODULE="ecommerce"
