@@ -3,7 +3,7 @@ import { MapContainer, Marker, TileLayer, useMap, useMapEvents } from 'react-lea
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import Icon from './Icon.jsx'
-import { products, photo, formatINR, FREE_SHIPPING_LIMIT, SHIPPING_FEE } from '../data/store.js'
+import { photo, formatINR, FREE_SHIPPING_LIMIT, SHIPPING_FEE } from '../data/store.js'
 import { getProductQuantityLimit } from '../utils/productLimits.js'
 
 function loadRazorpayCheckout() {
@@ -51,7 +51,7 @@ function MapPinPicker({ pin, onPlace }) {
   return <Marker position={[pin.lat, pin.lng]} icon={locationIcon} />
 }
 
-export default function Checkout({ cart, products: catalog = products, customer, address, advanceAmount, paymentSettings, deliverySettings = {}, serviceZones = [], onSaveAddress, onQuantityChange, onOrderPlaced, onBack }) {
+export default function Checkout({ cart, products: catalog = [], customer, address, advanceAmount, paymentSettings, deliverySettings = {}, serviceZones = [], onSaveAddress, onQuantityChange, onOrderPlaced, onBack }) {
   const [mapOpen, setMapOpen] = useState(false)
   const hasConfiguredServiceZones = serviceZones.length > 0
   const isInsideServiceZone = !hasConfiguredServiceZones || (address?.pin && isWithinIndia(address.pin) && serviceZones.some((zone) => (zone.boundary || []).length >= 3 ? isPointInPolygon(address.pin, zone.boundary) : distanceKm(address.pin, zone) <= Number(zone.radiusKm || 0)))

@@ -10,7 +10,7 @@ npm install
 npm run dev
 ```
 
-The default API is `http://localhost:5000/api`. Set up a published website and launch the storefront with its tenant ID:
+The storefront calls its same-origin `/api` endpoint. For local development, configure `VITE_API_PROXY_TARGET` in `.env.local` (copy `.env.example`) to point to the backend. Set up a published website and launch the storefront with its tenant ID:
 
 ```text
 http://localhost:5173/?websiteId=YOUR_WEBSITE_ID

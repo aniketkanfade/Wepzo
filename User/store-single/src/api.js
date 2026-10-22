@@ -6,7 +6,7 @@ export const BUILDER_PREVIEW = params.get('builderPreview') === '1'
 export const ADMIN_PREVIEW = params.get('adminPreview') === '1'
 export const API = (import.meta.env.VITE_STORE_SINGLE_API_URL
   || import.meta.env.VITE_API_URL
-  || (import.meta.env.DEV ? 'http://localhost:5000/api' : '/api')).replace(/\/$/, '')
+  || '/api').replace(/\/$/, '')
 
 export async function request(path, { method = 'GET', body, token = '' } = {}) {
   const headers = {
