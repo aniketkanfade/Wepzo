@@ -1245,7 +1245,8 @@
     box-sizing: border-box;
     padding: 3px 0;
     border: 1px solid #d8dde3;
-    border-radius: 10px;
+    border-top: 0;
+    border-radius: 0 0 12px 12px;
     background-color: #e9edf2;
     overflow-y: auto;
     box-shadow: none;
@@ -1258,7 +1259,14 @@
   .qc-header-search.has-suggestions form {
     position: relative;
     z-index: 1203;
-    border-radius: 999px;
+    border-radius: 12px 12px 0 0;
+    border-color: #d8dde3;
+    border-bottom: 0;
+    background: #e9edf2;
+  }
+
+  .qc-header-search.has-suggestions.is-mobile-sticky {
+    padding-bottom: 0;
   }
 
   .qc-search-suggestion-item {
