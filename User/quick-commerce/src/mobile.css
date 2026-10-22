@@ -974,6 +974,11 @@
     text-overflow: ellipsis;
   }
 
+  .qc-header-location .qc-location-line > svg:last-child {
+    flex: 0 0 auto;
+    margin-left: auto;
+  }
+
   .qc-header-favorites,
   .qc-header-cart {
     display: none !important;
