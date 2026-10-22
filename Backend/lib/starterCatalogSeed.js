@@ -21,16 +21,16 @@ const catalogDefinitions = [
       deliveryUnit: 'Days',
     },
     products: [
-      { sku: 'WEPZO-EC-HL-001', name: 'Cotton Double Bedsheet Set', subCategory: 'Bedding', childCategory: 'Bedsheets', price: 899, stock: 20, unit: '1 set', specs: { Material: 'Cotton blend', Size: 'Double', Includes: 'Bedsheet and 2 pillow covers' } },
-      { sku: 'WEPZO-EC-HL-002', name: 'Stainless Steel Water Bottle', subCategory: 'Kitchen & Dining', childCategory: 'Drinkware', price: 349, stock: 25, unit: '1 piece', specs: { Material: 'Stainless steel', Capacity: '1 litre', Care: 'Hand wash recommended' } },
-      { sku: 'WEPZO-EC-HL-003', name: 'Food Storage Container Set', subCategory: 'Kitchen & Dining', childCategory: 'Food Storage', price: 499, stock: 18, unit: '5 pieces', specs: { Material: 'Food-grade plastic', Pieces: '5', Care: 'Wash before first use' } },
-      { sku: 'WEPZO-EC-HL-004', name: 'Ceramic Dinner Plate Set', subCategory: 'Kitchen & Dining', childCategory: 'Dinnerware', price: 699, stock: 12, unit: '6 pieces', specs: { Material: 'Ceramic', Pieces: '6 dinner plates', Care: 'Handle with care' } },
-      { sku: 'WEPZO-EC-HL-005', name: 'LED Desk Lamp', subCategory: 'Home Lighting', childCategory: 'Desk Lamps', price: 799, stock: 15, unit: '1 piece', specs: { Light: 'LED', Power: 'USB powered', Use: 'Indoor desk lighting' } },
-      { sku: 'WEPZO-EC-HL-006', name: 'Cotton Bath Towel Set', subCategory: 'Bath', childCategory: 'Towels', price: 599, stock: 18, unit: '2 pieces', specs: { Material: 'Cotton', Pieces: '2 bath towels', Care: 'Machine wash cold' } },
-      { sku: 'WEPZO-EC-HL-007', name: 'Microfiber Pillow Pair', subCategory: 'Bedding', childCategory: 'Pillows', price: 699, stock: 16, unit: '2 pieces', specs: { Filling: 'Microfiber', Pieces: '2 pillows', Use: 'Indoor bedding' } },
-      { sku: 'WEPZO-EC-HL-008', name: 'Insulated Lunch Box', subCategory: 'Kitchen & Dining', childCategory: 'Food Containers', price: 449, stock: 20, unit: '700 ml', specs: { Material: 'Food-grade plastic and steel', Capacity: '700 ml', Care: 'Hand wash recommended' } },
-      { sku: 'WEPZO-EC-HL-009', name: 'Non-Stick Frying Pan', subCategory: 'Kitchen & Dining', childCategory: 'Cookware', price: 699, stock: 14, unit: '24 cm', specs: { Material: 'Aluminium', Diameter: '24 cm', Care: 'Use non-metal utensils' } },
-      { sku: 'WEPZO-EC-HL-010', name: 'Yoga Exercise Mat', subCategory: 'Fitness', childCategory: 'Exercise Mats', price: 599, stock: 18, unit: '1 piece', specs: { Thickness: '6 mm', Use: 'Indoor exercise', Care: 'Wipe clean after use' } },
+      { sku: 'WEPZO-EC-HL-001', name: 'Cotton Double Bedsheet Set', subCategory: 'Bedding', childCategory: 'Bedsheets', price: 899, stock: 20, unit: '1 set', image: 'https://images.unsplash.com/photo-1631049307264-da0ec9d70304?auto=format&fit=crop&w=600&q=80', specs: { Material: 'Cotton blend', Size: 'Double', Includes: 'Bedsheet and 2 pillow covers' } },
+      { sku: 'WEPZO-EC-HL-002', name: 'Stainless Steel Water Bottle', subCategory: 'Kitchen & Dining', childCategory: 'Drinkware', price: 349, stock: 25, unit: '1 piece', image: 'https://images.unsplash.com/photo-1602143407151-7111542de6e8?auto=format&fit=crop&w=600&q=80', specs: { Material: 'Stainless steel', Capacity: '1 litre', Care: 'Hand wash recommended' } },
+      { sku: 'WEPZO-EC-HL-003', name: 'Food Storage Container Set', subCategory: 'Kitchen & Dining', childCategory: 'Food Storage', price: 499, stock: 18, unit: '5 pieces', image: 'https://images.unsplash.com/photo-1556911220-bff31c812dba?auto=format&fit=crop&w=600&q=80', specs: { Material: 'Food-grade plastic', Pieces: '5', Care: 'Wash before first use' } },
+      { sku: 'WEPZO-EC-HL-004', name: 'Ceramic Dinner Plate Set', subCategory: 'Kitchen & Dining', childCategory: 'Dinnerware', price: 699, stock: 12, unit: '6 pieces', image: 'https://images.unsplash.com/photo-1603199506016-b9a594b593c0?auto=format&fit=crop&w=600&q=80', specs: { Material: 'Ceramic', Pieces: '6 dinner plates', Care: 'Handle with care' } },
+      { sku: 'WEPZO-EC-HL-005', name: 'LED Desk Lamp', subCategory: 'Home Lighting', childCategory: 'Desk Lamps', price: 799, stock: 15, unit: '1 piece', image: 'https://images.unsplash.com/photo-1507473885765-e6ed057f782c?auto=format&fit=crop&w=600&q=80', specs: { Light: 'LED', Power: 'USB powered', Use: 'Indoor desk lighting' } },
+      { sku: 'WEPZO-EC-HL-006', name: 'Cotton Bath Towel Set', subCategory: 'Bath', childCategory: 'Towels', price: 599, stock: 18, unit: '2 pieces', image: 'https://images.unsplash.com/photo-1600369671236-e74521d4b6ad?auto=format&fit=crop&w=600&q=80', specs: { Material: 'Cotton', Pieces: '2 bath towels', Care: 'Machine wash cold' } },
+      { sku: 'WEPZO-EC-HL-007', name: 'Microfiber Pillow Pair', subCategory: 'Bedding', childCategory: 'Pillows', price: 699, stock: 16, unit: '2 pieces', image: 'https://images.unsplash.com/photo-1631049307264-da0ec9d70304?auto=format&fit=crop&w=600&q=80', specs: { Filling: 'Microfiber', Pieces: '2 pillows', Use: 'Indoor bedding' } },
+      { sku: 'WEPZO-EC-HL-008', name: 'Insulated Lunch Box', subCategory: 'Kitchen & Dining', childCategory: 'Food Containers', price: 449, stock: 20, unit: '700 ml', image: 'https://images.unsplash.com/photo-1606760227091-3dd870d97f1d?auto=format&fit=crop&w=600&q=80', specs: { Material: 'Food-grade plastic and steel', Capacity: '700 ml', Care: 'Hand wash recommended' } },
+      { sku: 'WEPZO-EC-HL-009', name: 'Non-Stick Frying Pan', subCategory: 'Kitchen & Dining', childCategory: 'Cookware', price: 699, stock: 14, unit: '24 cm', image: 'https://images.unsplash.com/photo-1556911220-e15b29be8c8f?auto=format&fit=crop&w=600&q=80', specs: { Material: 'Aluminium', Diameter: '24 cm', Care: 'Use non-metal utensils' } },
+      { sku: 'WEPZO-EC-HL-010', name: 'Yoga Exercise Mat', subCategory: 'Fitness', childCategory: 'Exercise Mats', price: 599, stock: 18, unit: '1 piece', image: 'https://images.unsplash.com/photo-1544367567-0f2fcb009e0b?auto=format&fit=crop&w=600&q=80', specs: { Thickness: '6 mm', Use: 'Indoor exercise', Care: 'Wipe clean after use' } },
     ],
   },
   {
@@ -53,21 +53,21 @@ const catalogDefinitions = [
       deliveryUnit: 'Minutes',
     },
     products: [
-      { sku: 'WEPZO-QC-GR-001', name: 'Fresh Tomatoes', subCategory: 'Fruits & Vegetables', childCategory: 'Tomatoes', price: 38, stock: 25, unit: '1 kg', specs: { Form: 'Fresh produce', 'Pack size': '1 kg', Storage: 'Refrigerate after purchase' } },
-      { sku: 'WEPZO-QC-GR-002', name: 'Onions', subCategory: 'Fruits & Vegetables', childCategory: 'Onions', price: 32, stock: 30, unit: '1 kg', specs: { Form: 'Fresh produce', 'Pack size': '1 kg', Storage: 'Store in a cool, dry place' } },
-      { sku: 'WEPZO-QC-GR-003', name: 'Potatoes', subCategory: 'Fruits & Vegetables', childCategory: 'Potatoes', price: 30, stock: 30, unit: '1 kg', specs: { Form: 'Fresh produce', 'Pack size': '1 kg', Storage: 'Store in a cool, dry place' } },
-      { sku: 'WEPZO-QC-GR-004', name: 'Bananas', subCategory: 'Fruits & Vegetables', childCategory: 'Bananas', price: 56, stock: 20, unit: '6 pieces', specs: { Form: 'Fresh produce', 'Pack size': '6 pieces', Storage: 'Store at room temperature' } },
-      { sku: 'WEPZO-QC-GR-005', name: 'Toned Milk', subCategory: 'Dairy & Bakery', childCategory: 'Milk', price: 32, stock: 24, unit: '500 ml', specs: { Type: 'Toned milk', 'Pack size': '500 ml', Storage: 'Keep refrigerated' } },
-      { sku: 'WEPZO-QC-GR-006', name: 'Plain Curd', subCategory: 'Dairy & Bakery', childCategory: 'Curd', price: 35, stock: 18, unit: '400 g', specs: { Type: 'Plain curd', 'Pack size': '400 g', Storage: 'Keep refrigerated' } },
-      { sku: 'WEPZO-QC-GR-007', name: 'Whole Wheat Atta', subCategory: 'Staples', childCategory: 'Wheat Flour', price: 245, stock: 15, unit: '5 kg', specs: { Type: 'Whole wheat flour', 'Pack size': '5 kg', Storage: 'Store in an airtight container' } },
-      { sku: 'WEPZO-QC-GR-008', name: 'Toor Dal', subCategory: 'Staples', childCategory: 'Pulses', price: 165, stock: 18, unit: '1 kg', specs: { Type: 'Split pigeon peas', 'Pack size': '1 kg', Storage: 'Store in an airtight container' } },
-      { sku: 'WEPZO-QC-GR-009', name: 'Basmati Rice', subCategory: 'Staples', childCategory: 'Rice', price: 120, stock: 16, unit: '1 kg', specs: { Type: 'Basmati rice', 'Pack size': '1 kg', Storage: 'Store in a cool, dry place' } },
-      { sku: 'WEPZO-QC-GR-010', name: 'Sunflower Cooking Oil', subCategory: 'Cooking Essentials', childCategory: 'Cooking Oil', price: 169, stock: 14, unit: '1 litre', specs: { Type: 'Sunflower oil', 'Pack size': '1 litre', Storage: 'Store away from direct sunlight' } },
-      { sku: 'WEPZO-QC-GR-011', name: 'White Sugar', subCategory: 'Staples', childCategory: 'Sugar', price: 48, stock: 20, unit: '1 kg', specs: { Type: 'White sugar', 'Pack size': '1 kg', Storage: 'Store in an airtight container' } },
-      { sku: 'WEPZO-QC-GR-012', name: 'Assam Tea', subCategory: 'Snacks & Beverages', childCategory: 'Tea', price: 145, stock: 12, unit: '250 g', specs: { Type: 'Black tea', 'Pack size': '250 g', Storage: 'Store in an airtight container' } },
-      { sku: 'WEPZO-QC-GR-013', name: 'Bathing Soap', subCategory: 'Personal Care', childCategory: 'Bath & Body', price: 42, stock: 20, unit: '100 g', specs: { Type: 'Bathing soap', 'Pack size': '100 g', Use: 'External use only' } },
-      { sku: 'WEPZO-QC-GR-014', name: 'Dishwashing Liquid', subCategory: 'Home Care', childCategory: 'Dishwashing', price: 95, stock: 12, unit: '500 ml', specs: { Type: 'Dishwashing liquid', 'Pack size': '500 ml', Use: 'For dish cleaning' } },
-      { sku: 'WEPZO-QC-GR-015', name: 'Table Eggs', subCategory: 'Dairy & Bakery', childCategory: 'Eggs', price: 48, stock: 15, unit: '6 pieces', specs: { Type: 'Table eggs', 'Pack size': '6 pieces', Storage: 'Keep refrigerated' } },
+      { sku: 'WEPZO-QC-GR-001', name: 'Fresh Tomatoes', subCategory: 'Fruits & Vegetables', childCategory: 'Tomatoes', price: 38, stock: 25, unit: '1 kg', image: 'https://images.unsplash.com/photo-1546094096-0df4bcaaa337?auto=format&fit=crop&w=600&q=80', specs: { Form: 'Fresh produce', 'Pack size': '1 kg', Storage: 'Refrigerate after purchase' } },
+      { sku: 'WEPZO-QC-GR-002', name: 'Onions', subCategory: 'Fruits & Vegetables', childCategory: 'Onions', price: 32, stock: 30, unit: '1 kg', image: 'https://images.unsplash.com/photo-1508747703725-719777637510?auto=format&fit=crop&w=600&q=80', specs: { Form: 'Fresh produce', 'Pack size': '1 kg', Storage: 'Store in a cool, dry place' } },
+      { sku: 'WEPZO-QC-GR-003', name: 'Potatoes', subCategory: 'Fruits & Vegetables', childCategory: 'Potatoes', price: 30, stock: 30, unit: '1 kg', image: 'https://images.unsplash.com/photo-1518977676601-b53f82aba655?auto=format&fit=crop&w=600&q=80', specs: { Form: 'Fresh produce', 'Pack size': '1 kg', Storage: 'Store in a cool, dry place' } },
+      { sku: 'WEPZO-QC-GR-004', name: 'Bananas', subCategory: 'Fruits & Vegetables', childCategory: 'Bananas', price: 56, stock: 20, unit: '6 pieces', image: 'https://images.unsplash.com/photo-1571771894821-ce9b6c11b08e?auto=format&fit=crop&w=600&q=80', specs: { Form: 'Fresh produce', 'Pack size': '6 pieces', Storage: 'Store at room temperature' } },
+      { sku: 'WEPZO-QC-GR-005', name: 'Toned Milk', subCategory: 'Dairy & Bakery', childCategory: 'Milk', price: 32, stock: 24, unit: '500 ml', image: 'https://images.unsplash.com/photo-1563636619-e9143da7973b?auto=format&fit=crop&w=600&q=80', specs: { Type: 'Toned milk', 'Pack size': '500 ml', Storage: 'Keep refrigerated' } },
+      { sku: 'WEPZO-QC-GR-006', name: 'Plain Curd', subCategory: 'Dairy & Bakery', childCategory: 'Curd', price: 35, stock: 18, unit: '400 g', image: 'https://images.unsplash.com/photo-1563636619-e9143da7973b?auto=format&fit=crop&w=600&q=80', specs: { Type: 'Plain curd', 'Pack size': '400 g', Storage: 'Keep refrigerated' } },
+      { sku: 'WEPZO-QC-GR-007', name: 'Whole Wheat Atta', subCategory: 'Staples', childCategory: 'Wheat Flour', price: 245, stock: 15, unit: '5 kg', image: 'https://images.unsplash.com/photo-1586201375761-83865001e31c?auto=format&fit=crop&w=600&q=80', specs: { Type: 'Whole wheat flour', 'Pack size': '5 kg', Storage: 'Store in an airtight container' } },
+      { sku: 'WEPZO-QC-GR-008', name: 'Toor Dal', subCategory: 'Staples', childCategory: 'Pulses', price: 165, stock: 18, unit: '1 kg', image: 'https://images.unsplash.com/photo-1515543904379-3d757afe72e4?auto=format&fit=crop&w=600&q=80', specs: { Type: 'Split pigeon peas', 'Pack size': '1 kg', Storage: 'Store in an airtight container' } },
+      { sku: 'WEPZO-QC-GR-009', name: 'Basmati Rice', subCategory: 'Staples', childCategory: 'Rice', price: 120, stock: 16, unit: '1 kg', image: 'https://images.unsplash.com/photo-1586201375761-83865001e31c?auto=format&fit=crop&w=600&q=80', specs: { Type: 'Basmati rice', 'Pack size': '1 kg', Storage: 'Store in a cool, dry place' } },
+      { sku: 'WEPZO-QC-GR-010', name: 'Sunflower Cooking Oil', subCategory: 'Cooking Essentials', childCategory: 'Cooking Oil', price: 169, stock: 14, unit: '1 litre', image: 'https://images.unsplash.com/photo-1474979266404-7eaacbcd87c5?auto=format&fit=crop&w=600&q=80', specs: { Type: 'Sunflower oil', 'Pack size': '1 litre', Storage: 'Store away from direct sunlight' } },
+      { sku: 'WEPZO-QC-GR-011', name: 'White Sugar', subCategory: 'Staples', childCategory: 'Sugar', price: 48, stock: 20, unit: '1 kg', image: 'https://images.unsplash.com/photo-1581798459219-318e76aecc7b?auto=format&fit=crop&w=600&q=80', specs: { Type: 'White sugar', 'Pack size': '1 kg', Storage: 'Store in an airtight container' } },
+      { sku: 'WEPZO-QC-GR-012', name: 'Assam Tea', subCategory: 'Snacks & Beverages', childCategory: 'Tea', price: 145, stock: 12, unit: '250 g', image: 'https://images.unsplash.com/photo-1576092768241-dec231879fc3?auto=format&fit=crop&w=600&q=80', specs: { Type: 'Black tea', 'Pack size': '250 g', Storage: 'Store in an airtight container' } },
+      { sku: 'WEPZO-QC-GR-013', name: 'Bathing Soap', subCategory: 'Personal Care', childCategory: 'Bath & Body', price: 42, stock: 20, unit: '100 g', image: 'https://images.unsplash.com/photo-1600857544200-b2f666a9a2ec?auto=format&fit=crop&w=600&q=80', specs: { Type: 'Bathing soap', 'Pack size': '100 g', Use: 'External use only' } },
+      { sku: 'WEPZO-QC-GR-014', name: 'Dishwashing Liquid', subCategory: 'Home Care', childCategory: 'Dishwashing', price: 95, stock: 12, unit: '500 ml', image: 'https://images.unsplash.com/photo-1600857544200-b2f666a9a2ec?auto=format&fit=crop&w=600&q=80', specs: { Type: 'Dishwashing liquid', 'Pack size': '500 ml', Use: 'For dish cleaning' } },
+      { sku: 'WEPZO-QC-GR-015', name: 'Table Eggs', subCategory: 'Dairy & Bakery', childCategory: 'Eggs', price: 48, stock: 15, unit: '6 pieces', image: 'https://images.unsplash.com/photo-1518569656558-1f25e69d93d7?auto=format&fit=crop&w=600&q=80', specs: { Type: 'Table eggs', 'Pack size': '6 pieces', Storage: 'Keep refrigerated' } },
     ],
   },
 ];
@@ -222,7 +222,17 @@ function ensureProducts(store, definition, storeRecord, taxonomy) {
     const existing = store.productItems.find(item =>
       item.catalogSeedKey === product.sku || item.sku === product.sku
     );
-    if (existing) return;
+    if (existing) {
+      if (!String(existing.image || '').trim()) {
+        existing.image = product.image;
+        changed = true;
+      }
+      if (!Array.isArray(existing.images) || existing.images.length === 0) {
+        existing.images = [product.image];
+        changed = true;
+      }
+      return;
+    }
     const hierarchy = taxonomy.get(product.sku);
     store.productItems.push({
       _id: `wepzo-starter-product-${slugify(product.sku)}`,
@@ -245,8 +255,8 @@ function ensureProducts(store, definition, storeRecord, taxonomy) {
       moduleSlug: definition.systemModule.slug,
       store: storeRecord.name,
       storeId: storeRecord.storeId,
-      image: '',
-      images: [],
+      image: product.image,
+      images: [product.image],
       specs: product.specs,
       tags: ['starter catalog', 'verify price and stock'],
       catalogSeedKey: product.sku,
