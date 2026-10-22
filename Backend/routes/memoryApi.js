@@ -1647,6 +1647,39 @@ function quickCommerceCatalogForLocation(latValue, lngValue, websiteId = '', web
   return { zone, stores, storeIds, products };
 }
 
+function quickCommerceDefaultCatalog(websiteId = '', websiteContext = null) {
+  const zone = (store.deliveryZones || []).find(item => belongsToWebsite(item, websiteId)
+    && (item.isDefault === true || String(item.isDefault).toLowerCase() === 'true')
+    && item.status !== false
+    && isShopWebsiteRecord(item, websiteContext)
+    && isQuickCommerceWebsiteRecord(item)
+    && !isEcommerceDeliveryZone(item));
+  if (!zone) return { zone: null, stores: [], storeIds: new Set(), products: [] };
+  const stores = (store.stores || []).filter(item => belongsToWebsite(item, websiteId)
+    && isShopWebsiteRecord(item, websiteContext)
+    && isQuickCommerceWebsiteRecord(item)
+    && item.status === 'active'
+    && !item.isBlocked && (
+      String(item.zoneId || '') === String(zone._id)
+      || String(item.zoneId || '') === String(zone.zoneId)
+      || (item.lat != null && item.lng != null && isInsideDeliveryZone(zone, Number(item.lat), Number(item.lng)))
+    ));
+  const storeIds = new Set(stores.flatMap(item => [item._id, item.storeId].filter(Boolean).map(String)));
+  const products = stores.length ? qcCatalog(websiteId, websiteContext).filter(product => {
+    if (product.storeId != null && product.storeId !== '') return storeIds.has(String(product.storeId));
+    return stores.some(item => item.name === product.store);
+  }) : [];
+  return { zone, stores, storeIds, products };
+}
+
+function quickCommerceCatalogForRequest(latValue, lngValue, websiteId = '', websiteContext = null) {
+  const hasLocation = latValue !== undefined && latValue !== null && latValue !== ''
+    && lngValue !== undefined && lngValue !== null && lngValue !== '';
+  return hasLocation
+    ? quickCommerceCatalogForLocation(latValue, lngValue, websiteId, websiteContext, true)
+    : quickCommerceDefaultCatalog(websiteId, websiteContext);
+}
+
 function approveProductRequest(id, req) {
   const idx = store.productRequests.findIndex(r => r._id === id && isInAdminWebsiteModule(req, r));
   if (idx === -1) return { error: { status: 404, message: 'Not found' } };
@@ -8417,7 +8450,7 @@ router.get('/shop/home', async (req, res) => {
   const catalog = ecommerceStorefront
     ? { stores: (store.stores || []).filter(item => belongsToWebsite(item, websiteId) && isShopWebsiteRecord(item, websiteContext) && item.status === 'active') }
     : quickCommerceStorefront
-      ? quickCommerceCatalogForLocation(req.query.lat, req.query.lng, websiteId, websiteContext, true)
+      ? quickCommerceCatalogForRequest(req.query.lat, req.query.lng, websiteId, websiteContext)
       : quickCommerceCatalogForLocation(req.query.lat, req.query.lng, websiteId);
   const activeStores = catalog.stores;
   const requestedModule = String(req.query.module || '').trim().toLowerCase();
@@ -8601,7 +8634,7 @@ router.get('/shop/products', (req, res) => {
   const websiteContext = websiteContextForRequest(req);
   if (websiteContext.error) return res.status(websiteContext.error.status).json({ message: websiteContext.error.message });
   let list = isQuickCommerceStorefront(websiteContext)
-    ? quickCommerceCatalogForLocation(req.query.lat, req.query.lng, websiteContext.websiteId, websiteContext, true).products
+    ? quickCommerceCatalogForRequest(req.query.lat, req.query.lng, websiteContext.websiteId, websiteContext).products
     : qcCatalog(websiteContext.websiteId, websiteContext);
   const requestedModule = String(req.query.module || '').trim().toLowerCase();
   if (requestedModule) list = list.filter(product => shopModuleSlug(product, websiteContext) === requestedModule);

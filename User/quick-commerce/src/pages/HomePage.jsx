@@ -276,7 +276,7 @@ export default function HomePage({ componentEnabled = () => true, builderPreview
       )}
 
       {componentEnabled('quick-commerce-nearby-stores') && (data.stores || []).length > 0 && <section>
-        <div className="flex items-center justify-between mb-3"><h2 className="text-lg font-bold text-slate-900">Popular Stores Near You</h2><Link to={catalogPath} className="qc-home-view-all text-sm text-brand-600">View All</Link></div>
+        <div className="flex items-center justify-between mb-3"><h2 className="text-lg font-bold text-slate-900">{currentLocation ? 'Popular Stores Near You' : 'Available Stores'}</h2><Link to={catalogPath} className="qc-home-view-all text-sm text-brand-600">View All</Link></div>
         <Rail className="qc-store-grid">{data.stores.map(store=><Link to={catalogPath} className="qc-store-card" key={store.id}>
           {store.image && <img src={store.image} alt={store.name}/>}
           <b>{store.name}</b>
