@@ -341,7 +341,7 @@ export default function Header({ componentEnabled = () => true }) {
           </span>
         </button>}
 
-        {componentEnabled('quick-commerce-search') && <div ref={boxRef} className="qc-header-search flex-1 relative min-w-0">
+        {componentEnabled('quick-commerce-search') && <div ref={boxRef} className={'qc-header-search flex-1 relative min-w-0' + (isScrolledDown ? ' is-mobile-sticky' : '')}>
           <form onSubmit={submit} className="flex items-center gap-2">
             <button type="submit" className="qc-search-submit-icon" aria-label="Search products">
               <Search size={20} />
