@@ -87,7 +87,7 @@ function Rail({ children, className = '' }) {
   );
 }
 
-function ProductGridCarousel({ products, rows = 3 }) {
+function ProductGridCarousel({ products, rows = 2 }) {
   const ref = useRef(null);
   const pages = [];
   const pageSize = rows * 3;
