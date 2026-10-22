@@ -81,14 +81,19 @@ export async function request(path, options = {}) {
   const response = await fetch(`${API}${path}`, { ...options, headers })
   const responseText = await response.text()
   let data = {}
+  let invalidJson = false
   try {
     data = responseText ? JSON.parse(responseText) : {}
   } catch {
-    data = {}
+    invalidJson = true
   }
   if (!response.ok) {
+    if (invalidJson) throw new Error(`Request failed (${response.status} ${response.statusText}).`)
     const detail = data.message || responseText.trim().slice(0, 180)
     throw new Error(detail || `Request failed (${response.status} ${response.statusText}).`)
+  }
+  if (invalidJson) {
+    throw new Error(`The API returned an invalid response for ${path}. Check that the backend is running and the API proxy is configured.`)
   }
   return data
 }
