@@ -1,0 +1,1 @@
+import{j as m}from"./index-BIHzYHAp.js";import o from"./QuickCommerceAdminHome-BeBkrC0M.js";import"./ViewableImage-TQ9-tKn3.js";import"./orderStatus-D93FR1bg.js";import"./calendar-DILqiGjp.js";import"./triangle-alert-yaFoQ37l.js";import"./clock-D-8svqFu.js";import"./PieChart-BSXcuxAh.js";function c(){return m.jsx(o,{moduleName:"E-Commerce"})}export{c as default};

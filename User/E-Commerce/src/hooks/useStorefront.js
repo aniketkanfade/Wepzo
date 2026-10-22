@@ -1,19 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { ADMIN_PREVIEW, BUILDER_PREVIEW, imageOf, request, storageKey, WEBSITE_ID } from '../lib/storefront'
-
-const deliveryAddressStorageKey = customer => {
-  const customerId = customer?._id || customer?.id || customer?.phone || 'guest'
-  return storageKey(`wepzo-delivery-address:${customerId}`)
-}
-
-const readSavedDeliveryAddress = customer => {
-  try {
-    const saved = JSON.parse(localStorage.getItem(deliveryAddressStorageKey(customer)) || 'null')
-    return saved && typeof saved.address === 'string' && saved.address.trim() ? saved : null
-  } catch {
-    return null
-  }
-}
+import { ADMIN_PREVIEW, BUILDER_PREVIEW, imageOf, request, WEBSITE_ID } from '../lib/storefront'
 
 function loadCheckoutScript(src, globalName) {
   if (window[globalName]) return Promise.resolve(true)
@@ -50,44 +36,101 @@ export default function useStorefront() {
   const [selectedModule, setSelectedModule] = useState('')
   const [query, setQuery] = useState('')
   const [sort, setSort] = useState('')
-  const [cart, setCart] = useState(() => JSON.parse(localStorage.getItem(storageKey('wepzo-cart')) || '[]'))
-  const [favorites, setFavorites] = useState(() => {
-    try {
-      const storedFavorites = JSON.parse(localStorage.getItem(storageKey('wepzo-favorites')) || '[]')
-      return Array.isArray(storedFavorites)
-        ? [...new Set(storedFavorites.filter(id => id != null && String(id).trim()).map(String))]
-        : []
-    } catch {
-      return []
-    }
-  })
+  const [cart, setCart] = useState([])
+  const [favorites, setFavorites] = useState([])
   const [favoriteCatalog, setFavoriteCatalog] = useState([])
   const [favoriteCatalogLoading, setFavoriteCatalogLoading] = useState(false)
   const [selected, setSelected] = useState(null)
   const [locationOpen, setLocationOpen] = useState(false)
   const [addressOpen, setAddressOpen] = useState(false)
-  const [location, setLocation] = useState(() => JSON.parse(localStorage.getItem(storageKey('wepzo-location')) || '{"pincode":""}'))
+  const [location, setLocation] = useState({ pincode: '' })
   const [serviceArea, setServiceArea] = useState(null)
   const [authOpen, setAuthOpen] = useState(false)
   const [authMode, setAuthMode] = useState('login')
-  const [customer, setCustomer] = useState(() => JSON.parse(localStorage.getItem(storageKey('wepzo-shop-customer')) || 'null'))
+  const [customer, setCustomer] = useState(null)
   const [message, setMessage] = useState('')
   const [checkout, setCheckout] = useState(() => currentPageFromPath() === 'checkout')
-  const [address, setAddress] = useState(() => readSavedDeliveryAddress(customer)?.address || '')
-  const [addressDetails, setAddressDetails] = useState(() => readSavedDeliveryAddress(customer))
-  const [phone, setPhone] = useState(() => readSavedDeliveryAddress(customer)?.phone || '')
+  const [address, setAddress] = useState('')
+  const [addressDetails, setAddressDetails] = useState(null)
+  const [phone, setPhone] = useState('')
   const [checkoutAfterLogin, setCheckoutAfterLogin] = useState(false)
   const [busy, setBusy] = useState(false)
   const [paymentWindowOpen, setPaymentWindowOpen] = useState(false)
   const [quote, setQuote] = useState(null)
   const [couponCode, setCouponCode] = useState('')
   const [paymentMethod, setPaymentMethod] = useState('COD')
-  const [pendingPaymentOrder, setPendingPaymentOrder] = useState(() => {
-    try { return JSON.parse(localStorage.getItem(storageKey('wepzo-pending-payment-order')) || 'null') } catch { return null }
-  })
-  const [cookieAccepted, setCookieAccepted] = useState(() => localStorage.getItem(storageKey('wepzo-cookie-consent')) === 'accepted')
+  const [pendingPaymentOrder, setPendingPaymentOrder] = useState(null)
+  const [cookieAccepted, setCookieAccepted] = useState(false)
+  const [shopperStateReady, setShopperStateReady] = useState(false)
+  const [shopperPersistenceEnabled, setShopperPersistenceEnabled] = useState(false)
+  const [shopperStateError, setShopperStateError] = useState('')
 
   const business = home?.business || {}
+
+  useEffect(() => {
+    let active = true
+    const loadShopperState = async () => {
+      try {
+        const [state, auth] = await Promise.all([
+          request('/shop/state'),
+          request('/shop/auth/me').then(result => result.user || null).catch(error => {
+            if (error.status === 401) return null
+            throw error
+          }),
+        ])
+        if (!active) return
+        const nextLocation = state.location?.current && typeof state.location.current === 'object'
+          ? state.location.current
+          : { pincode: '' }
+        const savedAddress = state.location?.checkoutAddress && typeof state.location.checkoutAddress === 'object'
+          ? state.location.checkoutAddress
+          : null
+        setCart(Array.isArray(state.cart?.items) ? state.cart.items : [])
+        setFavorites([...new Set((Array.isArray(state.wishlist?.items) ? state.wishlist.items : [])
+          .filter(id => id != null && String(id).trim()).map(String))])
+        setLocation(nextLocation)
+        setPendingPaymentOrder(state.cart?.pendingPaymentOrder || null)
+        setCouponCode(String(state.cart?.couponCode || ''))
+        setAddressDetails(savedAddress)
+        setAddress(String(savedAddress?.address || ''))
+        setPhone(String(savedAddress?.phone || auth?.phone || ''))
+        setCookieAccepted(state.cookieAccepted === true)
+        setCustomer(auth)
+        setShopperStateError('')
+        setShopperPersistenceEnabled(true)
+      } catch (stateError) {
+        if (active) setShopperStateError(stateError.message || 'Store data could not be loaded from the server.')
+      } finally {
+        if (active) setShopperStateReady(true)
+      }
+    }
+    loadShopperState()
+    return () => { active = false }
+  }, [])
+
+  useEffect(() => {
+    if (!shopperStateReady || !shopperPersistenceEnabled) return undefined
+    const timer = window.setTimeout(() => {
+      request('/shop/state', {
+        method: 'PUT',
+        body: JSON.stringify({ state: {
+          cart: { items: cart, couponCode, pendingPaymentOrder },
+          wishlist: { items: favorites },
+          location: {
+            current: location,
+            saved: [],
+            checkoutAddress: address || phone ? { ...(addressDetails || {}), address, phone } : addressDetails,
+            gps: null,
+            pickup: null,
+          },
+          cookieAccepted,
+        } }),
+      }).then(() => setShopperStateError('')).catch(error => {
+        setShopperStateError(error.message || 'Store data could not be saved to the server.')
+      })
+    }, 250)
+    return () => window.clearTimeout(timer)
+  }, [shopperStateReady, shopperPersistenceEnabled, cart, couponCode, pendingPaymentOrder, favorites, location, address, phone, addressDetails, cookieAccepted])
 
   const checkServiceArea = useCallback(async (pincode, state = '') => {
     const pin = String(pincode || '').trim()
@@ -176,7 +219,6 @@ export default function useStorefront() {
         if (!result.verified) throw new Error('Payment could not be verified.')
         setCart([])
         setPendingPaymentOrder(null)
-        localStorage.removeItem(storageKey('wepzo-pending-payment-order'))
         setCheckout(false)
         navigatePage('orders')
         setMessage(`Payment received. Order ${result.order?.orderNo || ''} is confirmed.`)
@@ -226,8 +268,6 @@ export default function useStorefront() {
   }, [sort, selectedModule])
 
   useEffect(() => { load() }, [load])
-  useEffect(() => { localStorage.setItem(storageKey('wepzo-cart'), JSON.stringify(cart)) }, [cart])
-  useEffect(() => { localStorage.setItem(storageKey('wepzo-favorites'), JSON.stringify(favorites)) }, [favorites])
   useEffect(() => {
     if (!favorites.length) {
       setFavoriteCatalog([])
@@ -248,7 +288,6 @@ export default function useStorefront() {
     if (location.pincode || !home?.pincode) return
     const next = { ...location, city: home.city || '', pincode: home.pincode }
     setLocation(next)
-    localStorage.setItem(storageKey('wepzo-location'), JSON.stringify(next))
   }, [home?.city, home?.pincode, location])
   useEffect(() => {
     if (!location.pincode) {
@@ -276,13 +315,6 @@ export default function useStorefront() {
       ? imageOf({ image: business.favicon })
       : String(business.businessName || 'WEPZO').trim().toLowerCase() === 'wepzo' ? '/wepzo-favicon.svg' : '/favicon.ico'
   }, [business.businessName, business.favicon])
-  useEffect(() => {
-    const savedAddress = readSavedDeliveryAddress(customer)
-    setAddress(savedAddress?.address || '')
-    setAddressDetails(savedAddress)
-    setPhone(savedAddress?.phone || customer?.phone || '')
-  }, [customer?._id, customer?.id, customer?.phone])
-
   const modules = useMemo(() => (home?.modules || []).filter(item => item.status !== false && item.slug), [home])
   const categories = useMemo(() => {
     if (!selectedModule) return []
@@ -327,7 +359,6 @@ export default function useStorefront() {
 
   const discardPendingPaymentOrder = () => {
     setPendingPaymentOrder(null)
-    localStorage.removeItem(storageKey('wepzo-pending-payment-order'))
   }
 
   const changeQty = (product, amount) => {
@@ -415,15 +446,13 @@ export default function useStorefront() {
         method: 'POST',
         body: JSON.stringify({ name: form.get('name'), email: form.get('email'), phone: form.get('phone'), password: form.get('password') }),
       })
-      localStorage.setItem(storageKey('wepzo-shop-token'), result.token)
-      localStorage.setItem(storageKey('wepzo-shop-customer'), JSON.stringify(result.user))
       setCustomer(result.user)
       setAuthOpen(false)
       setMessage(`Welcome ${result.user.name}`)
       if (checkoutAfterLogin) {
         setCheckoutAfterLogin(false)
         setCheckout(true)
-        const savedAddress = readSavedDeliveryAddress(result.user)
+        const savedAddress = addressDetails
         if (savedAddress) {
           setAddress(savedAddress.address)
           setAddressDetails(savedAddress)
@@ -443,9 +472,7 @@ export default function useStorefront() {
   }
 
   const signOut = () => {
-    localStorage.removeItem(storageKey('wepzo-shop-token'))
-    localStorage.removeItem(storageKey('wepzo-shop-customer'))
-    localStorage.removeItem(storageKey('wepzo-pending-payment-order'))
+    request('/shop/auth/logout', { method: 'POST' }).catch(error => setMessage(error.message))
     setPendingPaymentOrder(null)
     setCustomer(null)
     setMessage('You have been signed out.')
@@ -465,7 +492,7 @@ export default function useStorefront() {
       setAuthOpen(true)
       return
     }
-    const savedAddress = readSavedDeliveryAddress(customer)
+    const savedAddress = addressDetails
     if (savedAddress) {
       setAddress(savedAddress.address)
       setAddressDetails(savedAddress)
@@ -491,7 +518,6 @@ export default function useStorefront() {
     setAddress(details.address)
     setAddressDetails(details)
     setPhone(details.phone)
-    localStorage.setItem(deliveryAddressStorageKey(customer), JSON.stringify(details))
     const nextLocation = {
       ...location,
       pincode: details.pincode,
@@ -499,7 +525,6 @@ export default function useStorefront() {
       serviceZone: details.serviceArea.zone?.name || '',
     }
     setLocation(nextLocation)
-    localStorage.setItem(storageKey('wepzo-location'), JSON.stringify(nextLocation))
     setAddressOpen(false)
     calculateQuote(details.pincode, details.state)
   }
@@ -518,7 +543,6 @@ export default function useStorefront() {
       serviceZone: serviceAreaResult.zone?.name || '',
     }
     setLocation(nextLocation)
-    localStorage.setItem(storageKey('wepzo-location'), JSON.stringify(nextLocation))
     return { ...details, serviceArea: serviceAreaResult }
   }
 
@@ -545,7 +569,6 @@ export default function useStorefront() {
       if (paymentMethod === 'ONLINE') {
         const retryOrder = { _id: order._id, orderNo: order.orderNo, payment: 'ONLINE' }
         setPendingPaymentOrder(retryOrder)
-        localStorage.setItem(storageKey('wepzo-pending-payment-order'), JSON.stringify(retryOrder))
         const payment = await request('/shop/payments/initiate', {
           method: 'POST',
           body: JSON.stringify({ orderId: order._id, returnUrl: checkoutReturnUrl() }),
@@ -566,7 +589,6 @@ export default function useStorefront() {
                 setCart([])
                 setPendingPaymentOrder(null)
                 setPaymentWindowOpen(false)
-                localStorage.removeItem(storageKey('wepzo-pending-payment-order'))
                 setCheckout(false)
                 navigatePage('orders')
                 setMessage(`Payment received. Order ${order.orderNo} is confirmed.`)
@@ -607,7 +629,7 @@ export default function useStorefront() {
   }
 
   return {
-    home, products, loading, error, load, business, builderComponents, selectedComponentData,
+    home, products, loading: loading || !shopperStateReady, error: shopperStateError || error, load, business, builderComponents, selectedComponentData,
     category, setCategory, subCategory, setSubCategory, childCategory, setChildCategory,
     subCategories, childCategories, selectedModule, setSelectedModule, query, setQuery, sort, setSort,
     cart, setCart, clearCart, favorites, favoriteCatalog, favoriteCatalogLoading, setFavorites, selected, setSelected, openProduct, closeProduct, goHome, goToModule,

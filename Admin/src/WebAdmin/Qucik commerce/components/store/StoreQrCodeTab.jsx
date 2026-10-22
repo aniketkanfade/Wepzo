@@ -1,8 +1,6 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import QRCode from 'qrcode';
-import html2canvas from 'html2canvas';
-import { jsPDF } from 'jspdf';
 import api from '../../../../api/axios';
 import {
   ArrowLeft, Printer, Share2, Download, Link2, RotateCcw, Check,
@@ -327,6 +325,7 @@ export default function StoreQrCodeTab({ store, phone, address, ownerName }) {
 
   const captureCard = async () => {
     if (!cardRef.current) return null;
+    const { default: html2canvas } = await import('html2canvas');
     return html2canvas(cardRef.current, {
       scale: 2,
       useCORS: true,
@@ -374,6 +373,7 @@ export default function StoreQrCodeTab({ store, phone, address, ownerName }) {
       const canvas = await captureCard();
       if (!canvas) return;
       const imgData = canvas.toDataURL('image/png');
+      const { jsPDF } = await import('jspdf');
       const pdf = new jsPDF({
         orientation: canvas.width > canvas.height ? 'landscape' : 'portrait',
         unit: 'px',

@@ -16,8 +16,7 @@ import { useWishlist } from './store/wishlist';
 import { useLocationStore } from './store/location';
 import { useAuthStore } from './store/auth';
 import CartDrawer from './components/CartDrawer';
-import { readQcToken, shop } from './api';
-import { clearLegacyShopStorage, mergeLegacyShopState, readLegacyShopState } from './legacyShopStorage';
+import { shop } from './api';
 import { getWebsiteContext, setWebsiteContext } from './websiteContext';
 
 function UnavailableFeature() {
@@ -90,20 +89,7 @@ export default function App() {
 
     const loadShopperData = async () => {
       try {
-        const legacy = readLegacyShopState();
-        const savedState = await shop.state();
-        const state = mergeLegacyShopState(savedState, legacy.state);
-        await shop.saveState(state);
-
-        if (legacy.auth?.token) {
-          shop.setToken(legacy.auth.token);
-          try {
-            await shop.establishSession();
-          } catch (error) {
-            if (error.response?.status !== 401) throw error;
-            shop.setToken(null);
-          }
-        }
+        const state = await shop.state();
         const session = await shop.me().then(result => result.user).catch(error => {
           if (error.response?.status !== 401) throw error;
           return null;
@@ -112,8 +98,7 @@ export default function App() {
         useCart.getState().replace(state.cart);
         useWishlist.getState().replace(state.wishlist?.items);
         useLocationStore.getState().replace(state.location);
-        useAuthStore.getState().setSession(readQcToken(), session);
-        clearLegacyShopStorage();
+        useAuthStore.getState().setSession(null, session);
         ready = true;
         setShopDataError('');
         const unsubscribers = [
@@ -186,6 +171,32 @@ export default function App() {
       '--product-card-hover-background': business.themeColors?.productCardHoverBackground || '#fff7ed',
       '--product-card-hover-text': business.themeColors?.productCardHoverText || business.themeColors?.headerText || '#172744',
       '--product-card-hover-border': business.themeColors?.productCardHoverBorder || '#f2c9ad',
+      '--storefront-product-border-radius': `${Math.max(0, Math.min(40, Number(business.themeColors?.storefrontCardStyles?.product?.borderRadius ?? 12)))}px`,
+      '--storefront-product-border-width': `${Math.max(0, Math.min(8, Number(business.themeColors?.storefrontCardStyles?.product?.borderWidth ?? 1)))}px`,
+      '--storefront-product-border-color': business.themeColors?.storefrontCardStyles?.product?.borderColor || '#e2e8f0',
+      '--storefront-product-background': business.themeColors?.storefrontCardStyles?.product?.backgroundColor || business.themeColors?.productCardBackground || business.themeColors?.surfaceBackground || '#fff',
+      '--storefront-category-border-radius': `${Math.max(0, Math.min(40, Number(business.themeColors?.storefrontCardStyles?.category?.borderRadius ?? 12)))}px`,
+      '--storefront-category-border-width': `${Math.max(0, Math.min(8, Number(business.themeColors?.storefrontCardStyles?.category?.borderWidth ?? 1)))}px`,
+      '--storefront-category-border-color': business.themeColors?.storefrontCardStyles?.category?.borderColor || '#e2e8f0',
+      '--storefront-category-background': business.themeColors?.storefrontCardStyles?.category?.backgroundColor || business.themeColors?.surfaceBackground || '#fff',
+      '--storefront-promo-border-radius': `${Math.max(0, Math.min(40, Number(business.themeColors?.storefrontCardStyles?.promo?.borderRadius ?? 12)))}px`,
+      '--storefront-promo-border-width': `${Math.max(0, Math.min(8, Number(business.themeColors?.storefrontCardStyles?.promo?.borderWidth ?? 1)))}px`,
+      '--storefront-promo-border-color': business.themeColors?.storefrontCardStyles?.promo?.borderColor || '#e2e8f0',
+      '--storefront-promo-background': business.themeColors?.storefrontCardStyles?.promo?.backgroundColor || business.themeColors?.surfaceBackground || '#fff',
+      '--storefront-account-border-radius': `${Math.max(0, Math.min(40, Number(business.themeColors?.storefrontCardStyles?.account?.borderRadius ?? 12)))}px`,
+      '--storefront-account-border-width': `${Math.max(0, Math.min(8, Number(business.themeColors?.storefrontCardStyles?.account?.borderWidth ?? 1)))}px`,
+      '--storefront-account-border-color': business.themeColors?.storefrontCardStyles?.account?.borderColor || '#e2e8f0',
+      '--storefront-account-background': business.themeColors?.storefrontCardStyles?.account?.backgroundColor || business.themeColors?.surfaceBackground || '#fff',
+      ...Object.fromEntries(['header', 'cart', 'profile', 'order', 'support', 'button'].flatMap(type => {
+        const style = business.themeColors?.storefrontCardStyles?.[type] || {};
+        return [
+          [`--storefront-${type}-background`, style.backgroundColor || (type === 'header' ? business.themeColors?.headerBackground : type === 'product' ? business.themeColors?.productCardBackground : type === 'button' ? business.themeColors?.buttonBackground : business.themeColors?.surfaceBackground) || '#ffffff'],
+          ...(type === 'button' ? [['--storefront-button-text-color', style.textColor || business.themeColors?.buttonText || '#ffffff']] : []),
+          [`--storefront-${type}-border-radius`, `${Math.max(0, Math.min(40, Number(style.borderRadius ?? (type === 'button' ? 6 : 12))))}px`],
+          [`--storefront-${type}-border-width`, `${Math.max(0, Math.min(8, Number(style.borderWidth ?? (type === 'button' ? 0 : 1))))}px`],
+          [`--storefront-${type}-border-color`, style.borderColor || '#e2e8f0'],
+        ];
+      })),
       '--button-hover-background': business.themeColors?.buttonHoverBackground || business.themeColors?.buttonBackground || business.primaryColor || '#f4510b',
       '--button-hover-text': business.themeColors?.buttonHoverText || business.themeColors?.buttonText || '#ffffff',
     }}>

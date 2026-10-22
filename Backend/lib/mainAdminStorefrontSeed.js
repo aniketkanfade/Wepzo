@@ -389,16 +389,10 @@ function addMainAdminRecords(store, website) {
       image: 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=1200&h=520&fit=crop', cta: 'Shop Now', priority: 4,
     },
   ]
-<<<<<<< HEAD
-  bannerSeeds.forEach(({ seedKey, ...banner }) => {
-    if (store.banners.some(item => String(item.websiteId || '') === websiteId && item.mainAdminSeedKey === seedKey)) return
-    store.banners.push({ _id: uuidv4(), status: 'Active', mainAdminSeedKey: seedKey, link: '#collection', ...banner, ...scoped })
-=======
   bannerSeeds.forEach(banner => {
     if (store.banners.some(item => String(item.websiteId || '') === websiteId
       && (item.mainAdminSeedKey === banner.seedKey || item.seedKey === banner.seedKey))) return
     store.banners.push({ _id: uuidv4(), status: 'Active', link: '#collection', ...banner, mainAdminSeedKey: banner.seedKey, ...scoped })
->>>>>>> 60ab641a6dd29e4a6267f01dc5119f9bf84e318f
     changed = true
   })
   const promotionSeeds = [

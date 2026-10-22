@@ -23,8 +23,6 @@ export default function CustomerAuth({ customer, onClose, onSignedIn, onSignedOu
         method: 'POST',
         body: JSON.stringify(credentials),
       })
-      localStorage.setItem('wepzo-shop-token', result.token)
-      localStorage.setItem('wepzo-shop-customer', JSON.stringify(result.user))
       onSignedIn(result.user)
     } catch (requestError) {
       setError(requestError.message)
@@ -33,10 +31,13 @@ export default function CustomerAuth({ customer, onClose, onSignedIn, onSignedOu
     }
   }
 
-  const signOut = () => {
-    localStorage.removeItem('wepzo-shop-token')
-    localStorage.removeItem('wepzo-shop-customer')
-    onSignedOut()
+  const signOut = async () => {
+    try {
+      await marketingRequest('/shop/auth/logout', { method: 'POST' })
+      onSignedOut()
+    } catch (requestError) {
+      setError(requestError.message || 'Could not sign out from this website.')
+    }
   }
 
   return <div className="auth-backdrop" role="presentation" onMouseDown={event => event.target === event.currentTarget && onClose()}>

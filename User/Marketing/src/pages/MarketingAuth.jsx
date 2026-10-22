@@ -28,10 +28,9 @@ export default function MarketingAuth({ register = false }) {
       if (user?.role !== 'website_user' || !['marketing', 'promotion', 'promotions'].includes(moduleSlug)) {
         throw new Error('This account is not registered for the Marketing module. Choose Marketing when creating your Wepzo account.')
       }
-      localStorage.setItem('token', result.token)
-      localStorage.setItem('user', JSON.stringify(user))
+      if (!result.token) throw new Error('Backend login did not return a session token.')
+      window.sessionStorage.setItem('wepzo_marketing_session_token', result.token)
       window.dispatchEvent(new Event('wepzo-auth-changed'))
-      if (user.websiteId) localStorage.setItem('wepzo-website-id', user.websiteId)
       window.location.hash = '/app/dashboard'
     } catch (requestError) {
       const networkFailure = requestError instanceof TypeError || /failed to fetch|networkerror/i.test(requestError.message || '')

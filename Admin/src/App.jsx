@@ -1,102 +1,102 @@
-import { useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import { Link, Navigate, Route, Routes } from 'react-router-dom';
 import api from './api/axios';
 import { useAuthStore } from './store/useStore';
-import Login from './pages/Login';
-import Register from './pages/Register';
-import ComponentsPage from './pages/ComponentsPage';
-import PlansPage from './pages/PlansPage';
-import UsersPage from './pages/UsersPage';
-import UserDetailPage from './pages/UserDetailPage';
-import PublishedWebsitePage from './pages/PublishedWebsitePage';
-import CustomersPage from './WebAdmin/Qucik commerce/CustomersPage';
-import StoreListPage from './WebAdmin/Qucik commerce/StoreListPage';
-import StoreNewRequestsPage from './WebAdmin/Qucik commerce/StoreNewRequestsPage';
-import StoreFormPage from './WebAdmin/Qucik commerce/StoreFormPage';
-import StoreViewPage from './WebAdmin/Qucik commerce/StoreViewPage';
-import StoreRecommendedPage from './WebAdmin/Qucik commerce/StoreRecommendedPage';
-import StoreBulkImportPage from './WebAdmin/Qucik commerce/StoreBulkImportPage';
-import StoreBulkExportPage from './WebAdmin/Qucik commerce/StoreBulkExportPage';
-import PromotionModulePage from './WebAdmin/Marketing/PromotionModulePage';
-import RolesPage from './pages/RolesPage';
-import CategoriesPage from './WebAdmin/Qucik commerce/CategoriesPage';
-import SubCategoriesPage from './WebAdmin/Qucik commerce/SubCategoriesPage';
-import ChildCategoriesPage from './WebAdmin/Qucik commerce/ChildCategoriesPage';
-import CategorySpecificationsPage from './WebAdmin/Qucik commerce/CategorySpecificationsPage';
-import CategoryVariantsPage from './WebAdmin/Qucik commerce/CategoryVariantsPage';
-import CategoryBulkImportPage from './WebAdmin/Qucik commerce/CategoryBulkImportPage';
-import CategoryBulkExportPage from './WebAdmin/Qucik commerce/CategoryBulkExportPage';
-import AttributesPage from './WebAdmin/Qucik commerce/AttributesPage';
-import UnitsPage from './WebAdmin/Qucik commerce/UnitsPage';
-import BrandsPage from './WebAdmin/Qucik commerce/BrandsPage';
-import ProductAddPage from './WebAdmin/Qucik commerce/ProductAddPage';
-import ProductListPage from './WebAdmin/Qucik commerce/ProductListPage';
-import ProductViewPage from './WebAdmin/Qucik commerce/ProductViewPage';
-import ProductLowStockPage from './WebAdmin/Qucik commerce/ProductLowStockPage';
-import ProductGalleryPage from './WebAdmin/Qucik commerce/ProductGalleryPage';
-import ProductRequestPage from './WebAdmin/Qucik commerce/ProductRequestPage';
-import ProductReviewPage from './WebAdmin/Qucik commerce/ProductReviewPage';
-import ProductBarcodePage from './WebAdmin/Qucik commerce/ProductBarcodePage';
-import ProductBulkImportPage from './WebAdmin/Qucik commerce/ProductBulkImportPage';
-import ProductBulkExportPage from './WebAdmin/Qucik commerce/ProductBulkExportPage';
-import StoreSingleOrdersPage from './WebAdmin/Qucik commerce/StoreSingleOrdersPage';
-import QuickCommerceOrders from './WebAdmin/Qucik commerce/QuickCommerceOrdersPage';
-import ECommerceDashboardPage from './WebAdmin/E-Commerce/ECommerceDashboardPage';
-import MarketingDashboardPage from './WebAdmin/Marketing/MarketingDashboardPage';
-import MarketingContentPage from './WebAdmin/Marketing/MarketingContentPage';
-import MarketingWebsiteContentPage from './WebAdmin/Marketing/MarketingWebsiteContentPage';
-import MarketingInquiriesPage from './WebAdmin/Marketing/MarketingInquiriesPage';
-import MarketingUsersPage from './WebAdmin/Marketing/MarketingUsersPage';
-import MarketingSubscriptionsPage from './WebAdmin/Marketing/MarketingSubscriptionsPage';
-import MarketingUserAccountsPage from './WebAdmin/Marketing/MarketingUserAccountsPage';
-import MarketingSocialApisPage from './WebAdmin/Marketing/MarketingSocialApisPage';
-import InformationWebDashboardPage from './WebAdmin/informastion web/InformationWebDashboardPage';
-import WebPageContentPage from './WebAdmin/informastion web/WebPageContentPage';
-import OrderDetailPage from './WebAdmin/Qucik commerce/OrderDetailPage';
-import RefundsPage from './WebAdmin/Qucik commerce/RefundsPage';
-import RefundDetailPage from './WebAdmin/Qucik commerce/RefundDetailPage';
-import FlashSalesPage from './WebAdmin/Qucik commerce/FlashSalesPage';
-import FlashSaleFormPage from './WebAdmin/Qucik commerce/FlashSaleFormPage';
+const Login = lazy(() => import('./pages/Login'));
+const Register = lazy(() => import('./pages/Register'));
+const ComponentsPage = lazy(() => import('./pages/ComponentsPage'));
+const PlansPage = lazy(() => import('./pages/PlansPage'));
+const UsersPage = lazy(() => import('./pages/UsersPage'));
+const UserDetailPage = lazy(() => import('./pages/UserDetailPage'));
+const PublishedWebsitePage = lazy(() => import('./pages/PublishedWebsitePage'));
+const CustomersPage = lazy(() => import('./WebAdmin/Qucik commerce/CustomersPage'));
+const StoreListPage = lazy(() => import('./WebAdmin/Qucik commerce/StoreListPage'));
+const StoreNewRequestsPage = lazy(() => import('./WebAdmin/Qucik commerce/StoreNewRequestsPage'));
+const StoreFormPage = lazy(() => import('./WebAdmin/Qucik commerce/StoreFormPage'));
+const StoreViewPage = lazy(() => import('./WebAdmin/Qucik commerce/StoreViewPage'));
+const StoreRecommendedPage = lazy(() => import('./WebAdmin/Qucik commerce/StoreRecommendedPage'));
+const StoreBulkImportPage = lazy(() => import('./WebAdmin/Qucik commerce/StoreBulkImportPage'));
+const StoreBulkExportPage = lazy(() => import('./WebAdmin/Qucik commerce/StoreBulkExportPage'));
+const PromotionModulePage = lazy(() => import('./WebAdmin/Marketing/PromotionModulePage'));
+const RolesPage = lazy(() => import('./pages/RolesPage'));
+const CategoriesPage = lazy(() => import('./WebAdmin/Qucik commerce/CategoriesPage'));
+const SubCategoriesPage = lazy(() => import('./WebAdmin/Qucik commerce/SubCategoriesPage'));
+const ChildCategoriesPage = lazy(() => import('./WebAdmin/Qucik commerce/ChildCategoriesPage'));
+const CategorySpecificationsPage = lazy(() => import('./WebAdmin/Qucik commerce/CategorySpecificationsPage'));
+const CategoryVariantsPage = lazy(() => import('./WebAdmin/Qucik commerce/CategoryVariantsPage'));
+const CategoryBulkImportPage = lazy(() => import('./WebAdmin/Qucik commerce/CategoryBulkImportPage'));
+const CategoryBulkExportPage = lazy(() => import('./WebAdmin/Qucik commerce/CategoryBulkExportPage'));
+const AttributesPage = lazy(() => import('./WebAdmin/Qucik commerce/AttributesPage'));
+const UnitsPage = lazy(() => import('./WebAdmin/Qucik commerce/UnitsPage'));
+const BrandsPage = lazy(() => import('./WebAdmin/Qucik commerce/BrandsPage'));
+const ProductAddPage = lazy(() => import('./WebAdmin/Qucik commerce/ProductAddPage'));
+const ProductListPage = lazy(() => import('./WebAdmin/Qucik commerce/ProductListPage'));
+const ProductViewPage = lazy(() => import('./WebAdmin/Qucik commerce/ProductViewPage'));
+const ProductLowStockPage = lazy(() => import('./WebAdmin/Qucik commerce/ProductLowStockPage'));
+const ProductGalleryPage = lazy(() => import('./WebAdmin/Qucik commerce/ProductGalleryPage'));
+const ProductRequestPage = lazy(() => import('./WebAdmin/Qucik commerce/ProductRequestPage'));
+const ProductReviewPage = lazy(() => import('./WebAdmin/Qucik commerce/ProductReviewPage'));
+const ProductBarcodePage = lazy(() => import('./WebAdmin/Qucik commerce/ProductBarcodePage'));
+const ProductBulkImportPage = lazy(() => import('./WebAdmin/Qucik commerce/ProductBulkImportPage'));
+const ProductBulkExportPage = lazy(() => import('./WebAdmin/Qucik commerce/ProductBulkExportPage'));
+const StoreSingleOrdersPage = lazy(() => import('./WebAdmin/Qucik commerce/StoreSingleOrdersPage'));
+const QuickCommerceOrders = lazy(() => import('./WebAdmin/Qucik commerce/QuickCommerceOrdersPage'));
+const ECommerceDashboardPage = lazy(() => import('./WebAdmin/E-Commerce/ECommerceDashboardPage'));
+const MarketingDashboardPage = lazy(() => import('./WebAdmin/Marketing/MarketingDashboardPage'));
+const MarketingContentPage = lazy(() => import('./WebAdmin/Marketing/MarketingContentPage'));
+const MarketingWebsiteContentPage = lazy(() => import('./WebAdmin/Marketing/MarketingWebsiteContentPage'));
+const MarketingInquiriesPage = lazy(() => import('./WebAdmin/Marketing/MarketingInquiriesPage'));
+const MarketingUsersPage = lazy(() => import('./WebAdmin/Marketing/MarketingUsersPage'));
+const MarketingSubscriptionsPage = lazy(() => import('./WebAdmin/Marketing/MarketingSubscriptionsPage'));
+const MarketingUserAccountsPage = lazy(() => import('./WebAdmin/Marketing/MarketingUserAccountsPage'));
+const MarketingSocialApisPage = lazy(() => import('./WebAdmin/Marketing/MarketingSocialApisPage'));
+const InformationWebDashboardPage = lazy(() => import('./WebAdmin/informastion web/InformationWebDashboardPage'));
+const WebPageContentPage = lazy(() => import('./WebAdmin/informastion web/WebPageContentPage'));
+const OrderDetailPage = lazy(() => import('./WebAdmin/Qucik commerce/OrderDetailPage'));
+const RefundsPage = lazy(() => import('./WebAdmin/Qucik commerce/RefundsPage'));
+const RefundDetailPage = lazy(() => import('./WebAdmin/Qucik commerce/RefundDetailPage'));
+const FlashSalesPage = lazy(() => import('./WebAdmin/Qucik commerce/FlashSalesPage'));
+const FlashSaleFormPage = lazy(() => import('./WebAdmin/Qucik commerce/FlashSaleFormPage'));
 import Layout from './WebAdmin/Qucik commerce/components/Layout';
 import WebsiteBuilder from './WebAdmin/Qucik commerce/components/WebsiteBuilder';
-import SettingsBusinessPage from './pages/settings/SettingsBusinessPage';
-import ThirdPartySettingsPage from './pages/settings/ThirdPartySettingsPage';
-import BusinessSettingsLayout from './pages/settings/BusinessSettingsLayout';
-import SettingsEmployeeRolesPage from './pages/settings/SettingsEmployeeRolesPage';
-import SettingsEmployeesPage from './pages/settings/SettingsEmployeesPage';
-import SettingsEmployeesHomePage from './pages/settings/employees/SettingsEmployeesHomePage';
-import SettingsEmployeeAddPage from './pages/settings/employees/SettingsEmployeeAddPage';
-import SettingsEmployeeProfilePage from './pages/settings/employees/SettingsEmployeeProfilePage';
-import SettingsEmployeeStatusPage from './pages/settings/employees/SettingsEmployeeStatusPage';
-import SettingsEmployeeLoginPage from './pages/settings/employees/SettingsEmployeeLoginPage';
-import SettingsEmployeeLoginHistoryPage from './pages/settings/employees/SettingsEmployeeLoginHistoryPage';
-import SettingsAccessPage from './pages/settings/SettingsAccessPage';
-import SettingsZonesPage from './pages/settings/SettingsZonesPage';
-import SettingsZoneConnectPage from './pages/settings/SettingsZoneConnectPage';
-import SettingsZoneSearchChargePage from './pages/settings/SettingsZoneSearchChargePage';
-import MainModulesPage from './WebAdmin/Qucik commerce/MainModulesPage';
-import WebsiteModulesPage from './pages/settings/WebsiteModulesPage';
-import WebsiteAccessPage from './pages/settings/WebsiteAccessPage';
-import WebsiteSubscriptionPlansPage from './pages/settings/WebsiteSubscriptionPlansPage';
-import WebsiteSubscriptionPage from './pages/WebsiteSubscriptionPage';
-import WebsiteDashboardPage from './pages/WebsiteDashboardPage';
-import WebsiteRenewalPage from './pages/WebsiteRenewalPage';
-import WelcomePage from './pages/WelcomePage';
-import OnDomainPage from './pages/OnDomainPage';
-import SubdomainPage from './pages/SubdomainPage';
-import WelcomePageAdmin from './pages/settings/WelcomePageAdmin';
-import OnDomainAdminPage from './pages/settings/OnDomainAdminPage';
-import SettingsTaxPage from './pages/settings/SettingsTaxPage';
-import SettingsHubPage from './pages/settings/SettingsHubPage';
-import SettingsGenericPage from './pages/settings/SettingsGenericPage';
-import SettingsDeliveryPage from './pages/settings/SettingsDeliveryPage';
-import SettingsLogsPage from './pages/settings/SettingsLogsPage';
-import SettingsUserManagementPage from './pages/settings/SettingsUserManagementPage';
-import QuickCommerceAdminHome from './WebAdmin/Qucik commerce/QuickCommerceAdminHome';
-import StoreSingleAdminHome from './WebAdmin/Qucik commerce/StoreSingleAdminHome';
-import StoreSingleCatalogPage from './WebAdmin/Qucik commerce/StoreSingleCatalogPage';
-import StoreSingleSettingsPage from './WebAdmin/Qucik commerce/StoreSingleSettingsPage';
-import QuickCommerceZonesPage from './WebAdmin/Qucik commerce/QuickCommerceZonesPage';
+const SettingsBusinessPage = lazy(() => import('./pages/settings/SettingsBusinessPage'));
+const ThirdPartySettingsPage = lazy(() => import('./pages/settings/ThirdPartySettingsPage'));
+const BusinessSettingsLayout = lazy(() => import('./pages/settings/BusinessSettingsLayout'));
+const SettingsEmployeeRolesPage = lazy(() => import('./pages/settings/SettingsEmployeeRolesPage'));
+const SettingsEmployeesPage = lazy(() => import('./pages/settings/SettingsEmployeesPage'));
+const SettingsEmployeesHomePage = lazy(() => import('./pages/settings/employees/SettingsEmployeesHomePage'));
+const SettingsEmployeeAddPage = lazy(() => import('./pages/settings/employees/SettingsEmployeeAddPage'));
+const SettingsEmployeeProfilePage = lazy(() => import('./pages/settings/employees/SettingsEmployeeProfilePage'));
+const SettingsEmployeeStatusPage = lazy(() => import('./pages/settings/employees/SettingsEmployeeStatusPage'));
+const SettingsEmployeeLoginPage = lazy(() => import('./pages/settings/employees/SettingsEmployeeLoginPage'));
+const SettingsEmployeeLoginHistoryPage = lazy(() => import('./pages/settings/employees/SettingsEmployeeLoginHistoryPage'));
+const SettingsAccessPage = lazy(() => import('./pages/settings/SettingsAccessPage'));
+const SettingsZonesPage = lazy(() => import('./pages/settings/SettingsZonesPage'));
+const SettingsZoneConnectPage = lazy(() => import('./pages/settings/SettingsZoneConnectPage'));
+const SettingsZoneSearchChargePage = lazy(() => import('./pages/settings/SettingsZoneSearchChargePage'));
+const MainModulesPage = lazy(() => import('./WebAdmin/Qucik commerce/MainModulesPage'));
+const WebsiteModulesPage = lazy(() => import('./pages/settings/WebsiteModulesPage'));
+const WebsiteAccessPage = lazy(() => import('./pages/settings/WebsiteAccessPage'));
+const WebsiteSubscriptionPlansPage = lazy(() => import('./pages/settings/WebsiteSubscriptionPlansPage'));
+const WebsiteSubscriptionPage = lazy(() => import('./pages/WebsiteSubscriptionPage'));
+const WebsiteDashboardPage = lazy(() => import('./pages/WebsiteDashboardPage'));
+const WebsiteRenewalPage = lazy(() => import('./pages/WebsiteRenewalPage'));
+const WelcomePage = lazy(() => import('./pages/WelcomePage'));
+const OnDomainPage = lazy(() => import('./pages/OnDomainPage'));
+const SubdomainPage = lazy(() => import('./pages/SubdomainPage'));
+const WelcomePageAdmin = lazy(() => import('./pages/settings/WelcomePageAdmin'));
+const OnDomainAdminPage = lazy(() => import('./pages/settings/OnDomainAdminPage'));
+const SettingsTaxPage = lazy(() => import('./pages/settings/SettingsTaxPage'));
+const SettingsHubPage = lazy(() => import('./pages/settings/SettingsHubPage'));
+const SettingsGenericPage = lazy(() => import('./pages/settings/SettingsGenericPage'));
+const SettingsDeliveryPage = lazy(() => import('./pages/settings/SettingsDeliveryPage'));
+const SettingsLogsPage = lazy(() => import('./pages/settings/SettingsLogsPage'));
+const SettingsUserManagementPage = lazy(() => import('./pages/settings/SettingsUserManagementPage'));
+const QuickCommerceAdminHome = lazy(() => import('./WebAdmin/Qucik commerce/QuickCommerceAdminHome'));
+const StoreSingleAdminHome = lazy(() => import('./WebAdmin/Qucik commerce/StoreSingleAdminHome'));
+const StoreSingleCatalogPage = lazy(() => import('./WebAdmin/Qucik commerce/StoreSingleCatalogPage'));
+const StoreSingleSettingsPage = lazy(() => import('./WebAdmin/Qucik commerce/StoreSingleSettingsPage'));
+const QuickCommerceZonesPage = lazy(() => import('./WebAdmin/Qucik commerce/QuickCommerceZonesPage'));
 
 function PrivateRoute({ children }) {
   const { token } = useAuthStore();
@@ -140,7 +140,8 @@ function PaidWebsiteRoute({ children }) {
 
 export default function App() {
   return (
-    <Routes>
+    <Suspense fallback={<div className="flex min-h-screen items-center justify-center text-sm text-slate-500">Loading page...</div>}>
+      <Routes>
       <Route path="/login" element={<Login />} />
       <Route path="/register" element={<Register />} />
       <Route path="/published-websites/:websiteId" element={<PublishedWebsitePage />} />
@@ -280,6 +281,7 @@ export default function App() {
         <Route path="settings/employees" element={<SettingsEmployeesHomePage />} />
         <Route path="settings/access/:type" element={<SettingsAccessPage />} />
       </Route>
-    </Routes>
+      </Routes>
+    </Suspense>
   );
 }

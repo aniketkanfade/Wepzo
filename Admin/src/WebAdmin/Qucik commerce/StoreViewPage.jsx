@@ -1,22 +1,20 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { lazy, useState, useEffect, useCallback, useMemo } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import {
   Loader2, Store, MapPin, Mail, Phone, Flag, User, Crown, FileText,
   Banknote, Wallet, PiggyBank, Landmark, ExternalLink, Package,
   Star, Receipt, MessageCircle, Database, ArrowRightLeft,
 } from 'lucide-react';
-import { MapContainer, TileLayer, Marker } from 'react-leaflet';
-import L from 'leaflet';
-import 'leaflet/dist/leaflet.css';
 import api from '../../api/axios';
 import { useModuleStore } from '../../store/useStore';
 import { getAdminModuleKey, getAdminModuleLabel } from '../../constants/adminModules';
 import { ORDER_STATUS_STYLE } from '../../constants/orderStatus';
-import StoreItemsTab from './components/store/StoreItemsTab';
-import StoreQrCodeTab from './components/store/StoreQrCodeTab';
-import StoreOrdersTab from './components/store/StoreOrdersTab';
-import StoreDiscountsTab from './components/store/StoreDiscountsTab';
-import StoreSettingsTab from './components/store/StoreSettingsTab';
+const StoreMiniMap = lazy(() => import('./components/store/StoreMiniMap'));
+const StoreItemsTab = lazy(() => import('./components/store/StoreItemsTab'));
+const StoreQrCodeTab = lazy(() => import('./components/store/StoreQrCodeTab'));
+const StoreOrdersTab = lazy(() => import('./components/store/StoreOrdersTab'));
+const StoreDiscountsTab = lazy(() => import('./components/store/StoreDiscountsTab'));
+const StoreSettingsTab = lazy(() => import('./components/store/StoreSettingsTab'));
 
 const TABS = [
   'Overview', 'Orders', 'Items', 'Reviews', 'Discounts', 'Transactions',
@@ -87,24 +85,6 @@ function StatusBadge({ status }) {
     <span className={`inline-block px-2 py-0.5 rounded text-xs font-semibold ${cls}`}>
       {status}
     </span>
-  );
-}
-
-function StoreMiniMap({ lat, lng }) {
-  if (!lat || !lng) {
-    return (
-      <div className="h-full min-h-[200px] bg-gray-100 rounded-lg flex items-center justify-center text-sm text-gray-400">
-        Map unavailable
-      </div>
-    );
-  }
-  return (
-    <div className="h-full min-h-[200px] rounded-lg overflow-hidden border border-gray-200">
-      <MapContainer center={[lat, lng]} zoom={15} className="h-full w-full" scrollWheelZoom={false} dragging>
-        <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" attribution="&copy; OSM" />
-        <Marker position={[lat, lng]} icon={pinIcon} />
-      </MapContainer>
-    </div>
   );
 }
 

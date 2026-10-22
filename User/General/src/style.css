@@ -129,3 +129,22 @@ img { display: block; max-width: 100%; }
 .service-icon, .caption-icon, .contact-detail > span { background-color: var(--search-bg, #eff5ff); color: var(--search-button, var(--brand)); }
 .menu-toggle { background-color: var(--search-bg, #fff); }
 .menu-toggle span { background-color: var(--header-text, #24344b); }
+.service-card,.project-card,.value-card,.industry-card,.testimonial-card,.mission-grid article,.process-row { border-style: solid; border-width: var(--storefront-product-border-width, 1px); border-color: var(--storefront-product-border-color, #e2e8f0); border-radius: var(--storefront-product-border-radius, 12px); }
+.service-detail-card,.image-card { border-style: solid; border-width: var(--storefront-promo-border-width, 1px); border-color: var(--storefront-promo-border-color, #e2e8f0); border-radius: var(--storefront-promo-border-radius, 12px); }
+.job-card,.contact-form,.faq-item { border-style: solid; border-width: var(--storefront-account-border-width, 1px); border-color: var(--storefront-account-border-color, #e2e8f0); border-radius: var(--storefront-account-border-radius, 12px); }
+.cart-card,.cart-panel { border-style: solid; border-width: var(--storefront-cart-border-width, 1px); border-color: var(--storefront-cart-border-color, #e2e8f0); border-radius: var(--storefront-cart-border-radius, 12px); }
+.profile-card { border-style: solid; border-width: var(--storefront-profile-border-width, 1px); border-color: var(--storefront-profile-border-color, #e2e8f0); border-radius: var(--storefront-profile-border-radius, 12px); }
+.order-card { border-style: solid; border-width: var(--storefront-order-border-width, 1px); border-color: var(--storefront-order-border-color, #e2e8f0); border-radius: var(--storefront-order-border-radius, 12px); }
+.support-card { border-style: solid; border-width: var(--storefront-support-border-width, 1px); border-color: var(--storefront-support-border-color, #e2e8f0); border-radius: var(--storefront-support-border-radius, 12px); }
+.button { border-style: solid; border-width: var(--storefront-button-border-width, 0px); border-color: var(--storefront-button-border-color, #e2e8f0); border-radius: var(--storefront-button-border-radius, 6px); }
+.web-page-app .site-header { border-style: solid; border-width: var(--storefront-header-border-width, 1px); border-color: var(--storefront-header-border-color, #e2e8f0); border-radius: var(--storefront-header-border-radius, 12px); }
+.web-page-app .site-header { background-color: var(--storefront-header-background,var(--header-bg,#fff)); }
+.web-page-app .service-card,.web-page-app .project-card,.web-page-app .value-card,.web-page-app .industry-card,.web-page-app .testimonial-card,.web-page-app .mission-grid article,.web-page-app .process-row { background-color: var(--storefront-product-background,var(--surface-bg,#fff)); }
+.web-page-app .service-detail-card,.web-page-app .image-card { background-color: var(--storefront-promo-background,var(--surface-bg,#fff)); }
+.web-page-app .job-card,.web-page-app .contact-form,.web-page-app .faq-item { background-color: var(--storefront-account-background,var(--surface-bg,#fff)); }
+.web-page-app .cart-card,.web-page-app .cart-panel { background-color: var(--storefront-cart-background,var(--surface-bg,#fff)); }
+.web-page-app .profile-card { background-color: var(--storefront-profile-background,var(--surface-bg,#fff)); }
+.web-page-app .order-card { background-color: var(--storefront-order-background,var(--surface-bg,#fff)); }
+.web-page-app .support-card { background-color: var(--storefront-support-background,var(--surface-bg,#fff)); }
+.web-page-app .button { background-color: var(--storefront-button-background,var(--button-background,#304ca3)); }
+.web-page-app .button { color: var(--storefront-button-text-color,var(--button-text,#fff)); }

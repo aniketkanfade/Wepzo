@@ -770,3 +770,68 @@ body { min-width: 320px; overflow-x: clip; }
   .storefront > .header { position: sticky; top: 0; z-index: 45; }
   .storefront > .nav { position: sticky; top: 101px; z-index: 44; }
 }
+
+.storefront .product-card,
+.storefront .deal-card,
+.storefront .best-card {
+  border-style: solid !important;
+  border-width: var(--storefront-product-border-width, 1px) !important;
+  border-color: var(--storefront-product-border-color, #e2e8f0) !important;
+  border-radius: var(--storefront-product-border-radius, 12px) !important;
+}
+
+.storefront .category-tile {
+  border-style: solid !important;
+  border-width: var(--storefront-category-border-width, 1px) !important;
+  border-color: var(--storefront-category-border-color, #e2e8f0) !important;
+  border-radius: var(--storefront-category-border-radius, 12px) !important;
+}
+
+.storefront .promo,
+.storefront .promotion-banner {
+  border-style: solid !important;
+  border-width: var(--storefront-promo-border-width, 1px) !important;
+  border-color: var(--storefront-promo-border-color, #e2e8f0) !important;
+  border-radius: var(--storefront-promo-border-radius, 12px) !important;
+}
+
+.storefront .cart-page-card,
+.storefront .profile-card,
+.storefront .support-card,
+.storefront .order-card {
+  border-style: solid !important;
+  border-width: var(--storefront-account-border-width, 1px) !important;
+  border-color: var(--storefront-account-border-color, #e2e8f0) !important;
+  border-radius: var(--storefront-account-border-radius, 12px) !important;
+}
+
+.storefront .cart-page-card,
+.storefront .cart-line {
+  border-width: var(--storefront-cart-border-width, 1px) !important;
+  border-color: var(--storefront-cart-border-color, #e2e8f0) !important;
+  border-radius: var(--storefront-cart-border-radius, 12px) !important;
+}
+.storefront .profile-card { border-width: var(--storefront-profile-border-width, 1px) !important; border-color: var(--storefront-profile-border-color, #e2e8f0) !important; border-radius: var(--storefront-profile-border-radius, 12px) !important; }
+.storefront .order-card { border-width: var(--storefront-order-border-width, 1px) !important; border-color: var(--storefront-order-border-color, #e2e8f0) !important; border-radius: var(--storefront-order-border-radius, 12px) !important; }
+.storefront .support-card { border-width: var(--storefront-support-border-width, 1px) !important; border-color: var(--storefront-support-border-color, #e2e8f0) !important; border-radius: var(--storefront-support-border-radius, 12px) !important; }
+.storefront .button,
+.storefront .add-button,
+.storefront .product-image-add,
+.storefront .best-card-bottom button,
+.storefront .button-orange { border-style: solid !important; border-width: var(--storefront-button-border-width, 0px) !important; border-color: var(--storefront-button-border-color, #e2e8f0) !important; border-radius: var(--storefront-button-border-radius, 6px) !important; }
+
+.storefront .product-card:hover {
+  border-color: var(--product-card-hover-border, #f2c9ad) !important;
+}
+.storefront .header { border-style: solid; border-width: var(--storefront-header-border-width, 1px); border-color: var(--storefront-header-border-color, #e2e8f0); border-radius: var(--storefront-header-border-radius, 12px); }
+.storefront .header { background-color: var(--storefront-header-background, var(--header-background, #fff)) !important; }
+.storefront .product-card,.storefront .deal-card,.storefront .best-card { background-color: var(--storefront-product-background, var(--product-card-background, #fff)) !important; }
+.storefront .category-tile { background-color: var(--storefront-category-background, var(--surface-background, #fff)) !important; }
+.storefront .promo,.storefront .promotion-banner { background-color: var(--storefront-promo-background, var(--surface-background, #fff)) !important; }
+.storefront .profile-card,.storefront .support-card,.storefront .order-card { background-color: var(--storefront-account-background, var(--surface-background, #fff)) !important; }
+.storefront .cart-page-card,.storefront .cart-line { background-color: var(--storefront-cart-background, var(--surface-background, #fff)) !important; }
+.storefront .profile-card { background-color: var(--storefront-profile-background, var(--surface-background, #fff)) !important; }
+.storefront .order-card { background-color: var(--storefront-order-background, var(--surface-background, #fff)) !important; }
+.storefront .support-card { background-color: var(--storefront-support-background, var(--surface-background, #fff)) !important; }
+.storefront .button-orange,.storefront .add-button,.storefront .product-image-add { background-color: var(--storefront-button-background, var(--button-background, #304ca3)) !important; }
+.storefront .button-orange,.storefront .add-button,.storefront .product-image-add { color: var(--storefront-button-text-color, var(--button-text, #fff)) !important; }

@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { imageOf, storageKey } from '../lib/storefront'
+import { imageOf } from '../lib/storefront'
 
 export function Toast({ message, clear }) {
   useEffect(() => {
@@ -20,10 +20,7 @@ export function CookieNotice({ business, accepted, enabled, accept }) {
   if (!enabled || !business.cookiesText || accepted) return null
   return <aside className="cookie-notice" role="dialog" aria-label="Cookie notice">
     <p>{business.cookiesText}</p>
-    <button onClick={() => {
-      localStorage.setItem(storageKey('wepzo-cookie-consent'), 'accepted')
-      accept()
-    }}>Accept</button>
+    <button onClick={accept}>Accept</button>
   </aside>
 }
 

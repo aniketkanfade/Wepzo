@@ -13,12 +13,9 @@ const { promisify } = require('util');
 const { sendEmail, sendTestEmail } = require('../lib/smtpTransport');
 const { sendSmsTest } = require('../lib/smsGateway');
 const { v4: uuidv4 } = require('uuid');
-const { store, schedulePersist } = require('../lib/memoryStore');
+const { store, schedulePersist, persistNowStrict } = require('../lib/memoryStore');
 const BusinessSettings = require('../models/BusinessSettings');
-<<<<<<< HEAD
-=======
 const ShopperState = require('../models/ShopperState');
->>>>>>> 60ab641a6dd29e4a6267f01dc5119f9bf84e318f
 const WEB_PAGE_DEFAULT_CONTENT = require('../../shared/webPageDefaults.json');
 const {
   attachStoreRef, syncData, recomputeStoreCounts, cascadeDeleteStore,
@@ -81,8 +78,8 @@ const router = express.Router();
 const SERVER_WEBSITE_MODULE = String(process.env.WEBSITE_MODULE || '').trim().toLowerCase();
 const marketingOAuthStates = new Map();
 const marketingOAuthProviders = {
-  instagram: { provider: 'meta', env: 'META', scopes: ['public_profile', 'pages_show_list', 'pages_read_engagement', 'pages_manage_posts', 'read_insights', 'instagram_basic', 'instagram_content_publish', 'instagram_manage_insights'] },
-  facebook: { provider: 'meta', env: 'META', scopes: ['public_profile', 'pages_show_list', 'pages_read_engagement', 'pages_manage_posts', 'read_insights'] },
+  instagram: { provider: 'meta', env: 'META', scopes: ['public_profile', 'pages_show_list', 'pages_read_engagement', 'pages_manage_posts', 'instagram_basic', 'instagram_content_publish', 'instagram_manage_insights'] },
+  facebook: { provider: 'meta', env: 'META', scopes: ['public_profile', 'pages_show_list', 'pages_read_engagement', 'pages_manage_posts'] },
   'meta-business': { provider: 'meta', env: 'META', scopes: ['public_profile', 'business_management', 'ads_read'] },
   youtube: { provider: 'google', env: 'GOOGLE', scopes: ['https://www.googleapis.com/auth/youtube.upload', 'https://www.googleapis.com/auth/youtube.readonly', 'https://www.googleapis.com/auth/yt-analytics.readonly', 'openid', 'profile'] },
   'google-ads': { provider: 'google', env: 'GOOGLE', scopes: ['https://www.googleapis.com/auth/adwords', 'openid', 'profile'] },
@@ -492,7 +489,25 @@ const stripAdminTranslatedNames = (item = {}) => {
 };
 
 router.use((req, res, next) => {
-  if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method)) {
+  if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method) || req.path === '/shop/state') return next();
+  const originalEnd = res.end.bind(res);
+  let persistenceStarted = false;
+  res.end = (...args) => {
+    if (persistenceStarted || res.statusCode < 200 || res.statusCode >= 400) return originalEnd(...args);
+    persistenceStarted = true;
+    persistNowStrict().then(() => originalEnd(...args)).catch(error => {
+      console.error('MongoDB platform data save failed:', error.message);
+      if (res.headersSent) return originalEnd(...args);
+      const body = JSON.stringify({ message: 'The change could not be saved to the server database.' });
+      res.statusCode = 503;
+      res.removeHeader('Content-Length');
+      res.setHeader('Content-Type', 'application/json; charset=utf-8');
+      res.setHeader('Content-Length', Buffer.byteLength(body));
+      originalEnd(body, 'utf8');
+    });
+    return res;
+  };
+  if (mongoose.connection.readyState !== 1) {
     res.on('finish', () => {
       if (res.statusCode >= 200 && res.statusCode < 400) schedulePersist();
     });
@@ -565,6 +580,15 @@ function websiteBuilderType(module) {
 function readBearer(req) {
   const raw = req.header('Authorization') || req.header('authorization') || '';
   return raw.replace(/^Bearer\s+/i, '').trim();
+}
+
+function readPlatformToken(req) {
+  const bearer = readBearer(req);
+  if (bearer) return bearer;
+  const cookie = String(req.headers.cookie || '').split(';').map(value => value.trim())
+    .find(value => value.startsWith('wepzo_admin_session='));
+  if (!cookie) return '';
+  try { return decodeURIComponent(cookie.slice('wepzo_admin_session='.length)); } catch { return ''; }
 }
 
 function readShopToken(req) {
@@ -674,7 +698,7 @@ const LOGIN_AGAIN = 'Login again — session expire ho gayi';
 
 const auth = (req, res, next) => {
   try {
-    const t = readBearer(req);
+    const t = readPlatformToken(req);
     if (!t) return res.status(401).json({ message: 'No token' });
     const decoded = verifyAnySecret(t);
     const user = store.users.find(u => u._id === decoded.id);
@@ -928,6 +952,7 @@ function websiteContextForRequest(req, { requirePublished = false } = {}) {
       moduleSlug,
       module: requestedModule || null,
       isMainWebsite: true,
+      allowSharedCatalog: true,
     };
   }
   const requestHost = normalizeWebsiteHost(req.get('X-Forwarded-Host') || req.get('Origin') || req.get('Host') || req.hostname);
@@ -962,6 +987,7 @@ function websiteContextForRequest(req, { requirePublished = false } = {}) {
     moduleSlug,
     module: requestedModule || null,
     isMainWebsite: adminPreviewRequested,
+    allowSharedCatalog: adminPreviewRequested,
   };
   const website = requestedWebsiteId
     ? (store.websites || []).find(item => String(item._id) === requestedWebsiteId)
@@ -969,9 +995,7 @@ function websiteContextForRequest(req, { requirePublished = false } = {}) {
   if (!website || ((requirePublished || hostWebsite) && website.status !== 'published')) {
     return { error: { status: 404, message: 'Published website not found' } };
   }
-  const websiteOwner = adminPreviewRequested
-    ? (store.users || []).find(user => String(user._id) === String(website.userId))
-    : null;
+  const websiteOwner = (store.users || []).find(user => String(user._id) === String(website.userId)) || null;
   if (adminPreviewRequested && (websiteOwner?.role !== 'main_admin' || website.status !== 'published')) {
     return { error: { status: 403, message: 'Admin preview is only available for a published Main Admin website.' } };
   }
@@ -1001,12 +1025,13 @@ function websiteContextForRequest(req, { requirePublished = false } = {}) {
     module,
     isMainWebsite: (!!mainWebsiteHost && String(website._id) === String(mainEcommerceWebsite?._id || ''))
       || (adminPreviewRequested && websiteOwner?.role === 'main_admin'),
+    allowSharedCatalog: websiteOwner?.role === 'main_admin',
   };
 }
 
-function belongsToWebsite(item, websiteId) {
+function belongsToWebsite(item, websiteId, allowShared = false) {
   return websiteId
-    ? !item?.websiteId || String(item.websiteId) === String(websiteId)
+    ? (!item?.websiteId && allowShared) || String(item?.websiteId || '') === String(websiteId)
     : !item?.websiteId;
 }
 
@@ -1025,6 +1050,9 @@ function shopAuth(req, res, next) {
     if (decoded.websiteId && !req.get('X-Website-Id')) req.headers['x-website-id'] = decoded.websiteId;
     const websiteContext = websiteContextForRequest(req, { requirePublished: !!requestedWebsiteId });
     if (websiteContext.error) return res.status(websiteContext.error.status).json({ message: websiteContext.error.message });
+    if (decoded.websiteModuleId && websiteContext.moduleId && String(decoded.websiteModuleId) !== String(websiteContext.moduleId)) {
+      return res.status(403).json({ message: 'Customer account is linked to another website module', code: 'WRONG_WEBSITE_MODULE' });
+    }
     req.websiteContext = websiteContext;
     const user = findShopCustomer(decoded);
     if (!user) return res.status(401).json({ message: LOGIN_AGAIN, code: 'STALE_TOKEN' });
@@ -1193,7 +1221,10 @@ router.post('/auth/login', async (req, res) => {
   });
 });
 
-router.get('/auth/me', auth, (req, res) => res.json({ user: req.user }));
+router.get('/auth/me', auth, (req, res) => {
+  const { password, passwordHash, ...safeUser } = req.user;
+  res.json({ user: safeUser });
+});
 
 router.get('/dashboard', auth, (req, res) => {
   syncData(store);
@@ -1622,7 +1653,7 @@ function quickCommerceCatalogForLocation(latValue, lngValue, websiteId = '', web
   const lat = Number(latValue);
   const lng = Number(lngValue);
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) return { zone: null, stores: [], storeIds: new Set(), products: [] };
-  const zones = (store.deliveryZones || []).filter(zone => belongsToWebsite(zone, websiteId)
+  const zones = (store.deliveryZones || []).filter(zone => belongsToWebsite(zone, websiteId, websiteContext?.allowSharedCatalog)
     && zone.status !== false
     && isShopWebsiteRecord(zone, websiteContext)
     && isQuickCommerceWebsiteRecord(zone)
@@ -1633,7 +1664,7 @@ function quickCommerceCatalogForLocation(latValue, lngValue, websiteId = '', web
   const zone = zones.filter(containsLocation)
     .sort((a, b) => (Number(a.radiusKm) || Infinity) - (Number(b.radiusKm) || Infinity))[0] || null;
   if (!zone) return { zone: null, stores: [], storeIds: new Set(), products: [] };
-  const stores = (store.stores || []).filter(item => belongsToWebsite(item, websiteId)
+  const stores = (store.stores || []).filter(item => belongsToWebsite(item, websiteId, websiteContext?.allowSharedCatalog)
     && isShopWebsiteRecord(item, websiteContext)
     && isQuickCommerceWebsiteRecord(item)
     && item.status === 'active'
@@ -1651,14 +1682,14 @@ function quickCommerceCatalogForLocation(latValue, lngValue, websiteId = '', web
 }
 
 function quickCommerceDefaultCatalog(websiteId = '', websiteContext = null) {
-  const zone = (store.deliveryZones || []).find(item => belongsToWebsite(item, websiteId)
+  const zone = (store.deliveryZones || []).find(item => belongsToWebsite(item, websiteId, websiteContext?.allowSharedCatalog)
     && (item.isDefault === true || String(item.isDefault).toLowerCase() === 'true')
     && item.status !== false
     && isShopWebsiteRecord(item, websiteContext)
     && isQuickCommerceWebsiteRecord(item)
     && !isEcommerceDeliveryZone(item));
   if (!zone) return { zone: null, stores: [], storeIds: new Set(), products: [] };
-  const stores = (store.stores || []).filter(item => belongsToWebsite(item, websiteId)
+  const stores = (store.stores || []).filter(item => belongsToWebsite(item, websiteId, websiteContext?.allowSharedCatalog)
     && isShopWebsiteRecord(item, websiteContext)
     && isQuickCommerceWebsiteRecord(item)
     && item.status === 'active'
@@ -4518,18 +4549,11 @@ router.put('/settings/payment-gateway', auth, (req, res) => {
 
 router.get('/settings/business', auth, async (req, res) => {
   const scope = businessSettingsScope(req);
-<<<<<<< HEAD
-  if (mongoose.connection.readyState === 1) {
-    try {
-      const record = await BusinessSettings.findOne({ scope }).lean();
-      if (record?.settings) return res.json(businessSettingsResponse(record.settings));
-=======
   if (process.env.MONGODB_URI) {
     try {
       await ensureBusinessSettingsDatabase();
       const record = await BusinessSettings.findOne({ scope }).lean();
       if (record?.settings) return res.json(businessSettingsResponse(applyBusinessSettingsWebsiteName(record.settings, req)));
->>>>>>> 60ab641a6dd29e4a6267f01dc5119f9bf84e318f
       const legacySettings = businessSettingsForRequest(req);
       if (Object.keys(legacySettings).length) {
         await BusinessSettings.updateOne({ scope }, { $setOnInsert: { settings: legacySettings } }, { upsert: true });
@@ -4537,17 +4561,12 @@ router.get('/settings/business', auth, async (req, res) => {
       return res.json(businessSettingsResponse(legacySettings));
     } catch (error) {
       console.error('MongoDB business settings read failed:', error.message);
-<<<<<<< HEAD
-    }
-  }
-=======
       return res.status(error.status || 503).json({ message: error.message || 'Business settings could not be loaded from MongoDB.' });
     }
   }
   if (process.env.NODE_ENV === 'production') {
     return res.status(503).json({ message: 'Business settings cannot be saved reliably because the backend MongoDB connection is not configured.' });
   }
->>>>>>> 60ab641a6dd29e4a6267f01dc5119f9bf84e318f
   res.json(businessSettingsResponse(businessSettingsForRequest(req)));
 });
 
@@ -4597,17 +4616,9 @@ router.put('/settings/business', auth, async (req, res) => {
       return res.status(400).json({ message: 'Choose Razorpay, PhonePe, or Cashfree.' });
     }
   }
-<<<<<<< HEAD
-  if (process.env.MONGODB_URI && mongoose.connection.readyState !== 1) {
-    return res.status(503).json({ message: 'MongoDB is configured but not connected; business settings were not saved.' });
-  }
-  if (mongoose.connection.readyState === 1) {
-    try {
-=======
   if (process.env.MONGODB_URI) {
     try {
       await ensureBusinessSettingsDatabase();
->>>>>>> 60ab641a6dd29e4a6267f01dc5119f9bf84e318f
       await BusinessSettings.findOneAndUpdate(
         { scope },
         { $set: { settings: updated } },
@@ -4617,11 +4628,8 @@ router.put('/settings/business', auth, async (req, res) => {
       console.error('MongoDB business settings write failed:', error.message);
       return res.status(503).json({ message: 'Business settings could not be saved to MongoDB.' });
     }
-<<<<<<< HEAD
-=======
   } else if (process.env.NODE_ENV === 'production') {
     return res.status(503).json({ message: 'Business settings cannot be saved reliably because the backend MongoDB connection is not configured.' });
->>>>>>> 60ab641a6dd29e4a6267f01dc5119f9bf84e318f
   }
   store.businessSettingsByModule[scope] = updated;
   if (info.isQuickCommerce) store.businessSettings = updated;
@@ -6492,6 +6500,7 @@ async function sendShopOrderNotifications(order) {
     moduleId: order.websiteModuleId || '',
     moduleSlug,
     isMainWebsite: order.websiteIsMain === true,
+    allowSharedCatalog: order.websiteAllowsSharedCatalog === true,
   };
   const settings = await shopBusinessSettings(websiteContext, moduleSlug);
   if (settings.notifyOrderPlaced === false || String(settings.notifyOrderPlaced).toLowerCase() === 'false'
@@ -6753,7 +6762,7 @@ function finalizeShopPayment(order, paymentId) {
   order.paidAt = order.paidAt || new Date().toISOString();
   if (!wasPaid && order.bill?.couponCode) {
     const coupon = (store.coupons || []).find(item =>
-      belongsToWebsite(item, order.websiteId || '')
+      belongsToWebsite(item, order.websiteId || '', order.websiteAllowsSharedCatalog === true)
       && isShopWebsiteRecord(item, { websiteId: order.websiteId || '', moduleSlug: order.websiteModuleSlug })
       && String(item.code || '').trim().toUpperCase() === order.bill.couponCode
     );
@@ -7849,7 +7858,7 @@ function shopVariants(p) {
 function shopModuleSlug(product, websiteContext = null) {
   const category = String(product?.mainCategory || '').trim().toLowerCase();
   const websiteId = String(websiteContext?.websiteId || product?.websiteId || '');
-  const matchesWebsite = item => belongsToWebsite(item, websiteId) && isShopWebsiteRecord(item, websiteContext);
+  const matchesWebsite = item => belongsToWebsite(item, websiteId, websiteContext?.allowSharedCatalog) && isShopWebsiteRecord(item, websiteContext);
   const legacyCategoryModules = {
     groceries: 'grocery', 'grocery & staples': 'grocery', 'fruits & vegetables': 'grocery',
     'dairy & bakery': 'grocery', 'snacks & beverages': 'grocery', 'home care': 'grocery',
@@ -7918,7 +7927,7 @@ function qcCatalog(websiteId = '', websiteContext = null) {
   const seen = new Set();
   const out = [];
   const push = (p) => {
-    if (!belongsToWebsite(p, websiteId) || !isShopWebsiteRecord(p, websiteContext)) return;
+    if (!belongsToWebsite(p, websiteId, websiteContext?.allowSharedCatalog) || !isShopWebsiteRecord(p, websiteContext)) return;
     if (!shouldListOnQuickCommerce(p)) return;
     const key = p._id || `pid-${p.productId}-${p.name}`;
     if (seen.has(key)) return;
@@ -8110,17 +8119,17 @@ async function shopQuoteFor(body, websiteId = '', contextOverride = null, custom
   const quickCommerceStorefront = isQuickCommerceStorefront(websiteContext);
   const websiteStore = {
     ...store,
-    stores: websiteId ? (store.stores || []).filter(item => belongsToWebsite(item, websiteId)) : (store.stores || []),
+    stores: websiteId ? (store.stores || []).filter(item => belongsToWebsite(item, websiteId, websiteContext?.allowSharedCatalog)) : (store.stores || []),
     deliveryZones: ecommerceStorefront
       ? (store.deliveryZones || []).filter(item =>
-        belongsToWebsite(item, websiteId) && isShopWebsiteRecord(item, websiteContext)
+        belongsToWebsite(item, websiteId, websiteContext?.allowSharedCatalog) && isShopWebsiteRecord(item, websiteContext)
       )
       : quickCommerceStorefront
-        ? (store.deliveryZones || []).filter(item => belongsToWebsite(item, websiteId)
+        ? (store.deliveryZones || []).filter(item => belongsToWebsite(item, websiteId, websiteContext?.allowSharedCatalog)
           && isShopWebsiteRecord(item, websiteContext)
           && isQuickCommerceWebsiteRecord(item)
           && !isEcommerceDeliveryZone(item))
-        : websiteId ? (store.deliveryZones || []).filter(item => belongsToWebsite(item, websiteId)) : (store.deliveryZones || []),
+        : websiteId ? (store.deliveryZones || []).filter(item => belongsToWebsite(item, websiteId, websiteContext?.allowSharedCatalog)) : (store.deliveryZones || []),
   };
   const { details, itemsTotal } = buildShopLines(body.items, websiteId, websiteContext);
   const firstStore = details[0]?.store;
@@ -8159,7 +8168,7 @@ async function shopQuoteFor(body, websiteId = '', contextOverride = null, custom
     result.quote = applyShopTax(result.quote, settings);
     return result;
   }
-  const coupon = (store.coupons || []).find(item => belongsToWebsite(item, websiteId) && isShopWebsiteRecord(item, websiteContext) && String(item.code || '').trim().toUpperCase() === couponCode);
+  const coupon = (store.coupons || []).find(item => belongsToWebsite(item, websiteId, websiteContext?.allowSharedCatalog) && isShopWebsiteRecord(item, websiteContext) && String(item.code || '').trim().toUpperCase() === couponCode);
   if (!coupon) {
     result.quote = applyShopTax({ ...result.quote, couponError: 'Coupon code not found' }, settings);
     return result;
@@ -8269,8 +8278,9 @@ router.get('/shop/state', async (req, res) => {
   const websiteContext = websiteContextForRequest(req);
   if (websiteContext.error) return res.status(websiteContext.error.status).json({ message: websiteContext.error.message });
   const sessionId = shopperStateSession(req, res);
+  const stateScope = { websiteId: websiteContext.websiteId || '', websiteModuleId: websiteContext.moduleId || '', sessionId };
   try {
-    const record = await ShopperState.findOne({ websiteId: websiteContext.websiteId || '', sessionId }).lean();
+    const record = await ShopperState.findOne(stateScope).lean();
     return res.json(record?.state || emptyShopperState());
   } catch (error) {
     return res.status(503).json({ message: error.message || 'Shopper data could not be loaded from MongoDB.' });
@@ -8284,6 +8294,7 @@ router.put('/shop/state', async (req, res) => {
   const websiteContext = websiteContextForRequest(req);
   if (websiteContext.error) return res.status(websiteContext.error.status).json({ message: websiteContext.error.message });
   const sessionId = shopperStateSession(req, res);
+  const stateScope = { websiteId: websiteContext.websiteId || '', websiteModuleId: websiteContext.moduleId || '', sessionId };
   const state = req.body?.state;
   if (!state || typeof state !== 'object' || Array.isArray(state)
     || Buffer.byteLength(JSON.stringify(state), 'utf8') > 200_000) {
@@ -8302,13 +8313,19 @@ router.put('/shop/state', async (req, res) => {
       location: {
         current: state.location?.current || null,
         saved: Array.isArray(state.location?.saved) ? state.location.saved.slice(0, 50) : [],
+        checkoutAddress: state.location?.checkoutAddress && typeof state.location.checkoutAddress === 'object'
+          ? Object.fromEntries(['address', 'fullName', 'name', 'house', 'street', 'landmark', 'city', 'state', 'addressType', 'phone', 'pincode']
+            .filter(key => state.location.checkoutAddress[key] != null)
+            .map(key => [key, String(state.location.checkoutAddress[key]).slice(0, 500)]))
+          : null,
         gps: state.location?.gps || null,
         pickup: state.location?.pickup || null,
       },
+      cookieAccepted: state.cookieAccepted === true,
     };
     await ShopperState.findOneAndUpdate(
-      { websiteId: websiteContext.websiteId || '', sessionId },
-      { $set: { state: normalized } },
+      stateScope,
+      { $set: { state: normalized }, $setOnInsert: stateScope },
       { upsert: true, new: true, runValidators: true },
     );
     return res.json({ ok: true });
@@ -8379,7 +8396,7 @@ router.get('/shop/service-area', (req, res) => {
     item.status !== false
     && String(item.status || '').toLowerCase() !== 'inactive'
     && isEcommerceDeliveryZone(item)
-    && belongsToWebsite(item, websiteContext.websiteId)
+    && belongsToWebsite(item, websiteContext.websiteId, websiteContext.allowSharedCatalog)
     && isShopWebsiteRecord(item, websiteContext)
   );
   const zone = zones.find(item => item.scope === 'country')
@@ -8402,7 +8419,7 @@ router.get('/shop/location-details', (req, res) => {
   }
   const zones = (store.deliveryZones || []).filter(item =>
     isEcommerceDeliveryZone(item)
-    && belongsToWebsite(item, websiteContext.websiteId)
+    && belongsToWebsite(item, websiteContext.websiteId, websiteContext.allowSharedCatalog)
     && isShopWebsiteRecord(item, websiteContext)
   );
   for (const zone of zones) {
@@ -8428,7 +8445,7 @@ router.get('/shop/coupons', shopAuthIfPresent, (req, res) => {
   const websiteContext = websiteContextForRequest(req);
   if (websiteContext.error) return res.status(websiteContext.error.status).json({ message: websiteContext.error.message });
   const coupons = (store.coupons || []).filter(coupon =>
-    belongsToWebsite(coupon, websiteContext.websiteId)
+    belongsToWebsite(coupon, websiteContext.websiteId, websiteContext.allowSharedCatalog)
     && isShopWebsiteRecord(coupon, websiteContext)
     && !couponAvailability(coupon)
     && !couponCustomerError(coupon, req.customer)
@@ -8474,7 +8491,7 @@ router.get('/shop/home', async (req, res) => {
   const ecommerceStorefront = websiteModuleSlug === 'e-commerce';
   const quickCommerceStorefront = isQuickCommerceStorefront(websiteContext);
   const catalog = ecommerceStorefront
-    ? { stores: (store.stores || []).filter(item => belongsToWebsite(item, websiteId) && isShopWebsiteRecord(item, websiteContext) && item.status === 'active') }
+    ? { stores: (store.stores || []).filter(item => belongsToWebsite(item, websiteId, websiteContext.allowSharedCatalog) && isShopWebsiteRecord(item, websiteContext) && item.status === 'active') }
     : quickCommerceStorefront
       ? quickCommerceCatalogForRequest(req.query.lat, req.query.lng, websiteId, websiteContext)
       : quickCommerceCatalogForLocation(req.query.lat, req.query.lng, websiteId);
@@ -8483,8 +8500,8 @@ router.get('/shop/home', async (req, res) => {
   const homeCatalog = quickCommerceStorefront ? catalog.products : qcCatalog(websiteId, websiteContext);
   const storefrontStats = {
     ...store,
-    orders: (store.orders || []).filter(order => belongsToWebsite(order, websiteId) && isShopWebsiteRecord(order, websiteContext)),
-    productReviews: (store.productReviews || []).filter(review => belongsToWebsite(review, websiteId) && isShopWebsiteRecord(review, websiteContext)),
+    orders: (store.orders || []).filter(order => belongsToWebsite(order, websiteId, websiteContext.allowSharedCatalog) && isShopWebsiteRecord(order, websiteContext)),
+    productReviews: (store.productReviews || []).filter(review => belongsToWebsite(review, websiteId, websiteContext.allowSharedCatalog) && isShopWebsiteRecord(review, websiteContext)),
   };
   const list = homeCatalog
     .filter(product => !requestedModule || shopModuleSlug(product, websiteContext) === requestedModule)
@@ -8494,12 +8511,12 @@ router.get('/shop/home', async (req, res) => {
     });
   const moduleSlugsWithProducts = new Set(list.map(product => String(product.moduleSlug || '').trim().toLowerCase()).filter(Boolean));
   const modulesWithProducts = (store.systemModules || [])
-    .filter(module => belongsToWebsite(module, websiteId) && module.status !== false && module.status !== 'false' && module.status !== 'inactive' && isShopWebsiteRecord(module, websiteContext))
+    .filter(module => belongsToWebsite(module, websiteId, websiteContext.allowSharedCatalog) && module.status !== false && module.status !== 'false' && module.status !== 'inactive' && isShopWebsiteRecord(module, websiteContext))
     .map(({ _id, name, slug, image }) => ({ _id, name, slug, image: image || '' }))
     .filter(module => moduleSlugsWithProducts.has(String(module.slug || '').trim().toLowerCase()));
-  const activeBrands = (store.brands || []).filter(b => belongsToWebsite(b, websiteId) && isShopWebsiteRecord(b, websiteContext) && b.status !== false && !['inactive', 'false', 'disabled'].includes(String(b.status || '').trim().toLowerCase()));
+  const activeBrands = (store.brands || []).filter(b => belongsToWebsite(b, websiteId, websiteContext.allowSharedCatalog) && isShopWebsiteRecord(b, websiteContext) && b.status !== false && !['inactive', 'false', 'disabled'].includes(String(b.status || '').trim().toLowerCase()));
   const homeBanners = (store.banners || [])
-    .filter(banner => belongsToWebsite(banner, websiteId)
+    .filter(banner => belongsToWebsite(banner, websiteId, websiteContext.allowSharedCatalog)
       && isShopWebsiteRecord(banner, websiteContext)
       && String(banner.status || '').toLowerCase() === 'active'
       && ['home top', 'home hero', 'home'].includes(String(banner.placement || '').trim().toLowerCase())
@@ -8535,7 +8552,7 @@ router.get('/shop/home', async (req, res) => {
     modules: item.modules || [],
   });
   const eligibleBanners = (placementNames) => (store.banners || [])
-    .filter(banner => belongsToWebsite(banner, websiteId)
+    .filter(banner => belongsToWebsite(banner, websiteId, websiteContext.allowSharedCatalog)
       && isShopWebsiteRecord(banner, websiteContext)
       && String(banner.status || '').toLowerCase() === 'active'
       && placementNames.includes(String(banner.placement || '').trim().toLowerCase())
@@ -8630,12 +8647,12 @@ router.get('/shop/home', async (req, res) => {
     promotionalBanners,
     storefrontBanners,
     categoryBanners,
-    categories: (store.categories || []).filter(category => belongsToWebsite(category, websiteId) && isShopWebsiteRecord(category, websiteContext) && category.status !== false),
-    subCategories: (store.subCategories || []).filter(category => belongsToWebsite(category, websiteId) && isShopWebsiteRecord(category, websiteContext) && category.status !== false),
-    childCategories: (store.childCategories || []).filter(category => belongsToWebsite(category, websiteId) && isShopWebsiteRecord(category, websiteContext) && category.status !== false),
+    categories: (store.categories || []).filter(category => belongsToWebsite(category, websiteId, websiteContext.allowSharedCatalog) && isShopWebsiteRecord(category, websiteContext) && category.status !== false),
+    subCategories: (store.subCategories || []).filter(category => belongsToWebsite(category, websiteId, websiteContext.allowSharedCatalog) && isShopWebsiteRecord(category, websiteContext) && category.status !== false),
+    childCategories: (store.childCategories || []).filter(category => belongsToWebsite(category, websiteId, websiteContext.allowSharedCatalog) && isShopWebsiteRecord(category, websiteContext) && category.status !== false),
     modules: modulesWithProducts,
     flashSales: (store.flashSales || [])
-      .filter(sale => belongsToWebsite(sale, websiteId)
+      .filter(sale => belongsToWebsite(sale, websiteId, websiteContext.allowSharedCatalog)
         && isShopWebsiteRecord(sale, websiteContext)
         && ['active', 'scheduled'].includes(String(sale.status || '').toLowerCase()))
       .map(sale => ({
@@ -8699,7 +8716,7 @@ router.get('/shop/products/:id', (req, res) => {
   const related = products
     .filter(product => product._id !== item._id && product.mainCategory === item.mainCategory)
     .slice(0, 6);
-  const approvedRatings = (store.productReviews || []).filter(review => belongsToWebsite(review, websiteContext.websiteId) && isShopWebsiteRecord(review, websiteContext) && (() => {
+  const approvedRatings = (store.productReviews || []).filter(review => belongsToWebsite(review, websiteContext.websiteId, websiteContext.allowSharedCatalog) && isShopWebsiteRecord(review, websiteContext) && (() => {
     if (String(review.status || '').toLowerCase() !== 'approved') return false;
     const sameId = review.productId && String(review.productId) === String(item._id);
     const sameName = String(review.productName || '').trim().toLowerCase() === String(item.name || '').trim().toLowerCase();
@@ -8784,6 +8801,7 @@ router.post('/shop/orders', shopAuth, async (req, res) => {
     store: firstStore,
     storeId: storeRef?.storeId,
     websiteIsMain: req.websiteContext?.isMainWebsite === true,
+    websiteAllowsSharedCatalog: req.websiteContext?.allowSharedCatalog === true,
     moduleSlug: quote.moduleSlug || details[0]?.moduleSlug || 'grocery',
     pickupRadiusKm: quote.pickupRadiusKm ?? null,
     dropRadiusKm: quote.dropRadiusKm ?? null,
@@ -8842,7 +8860,7 @@ router.post('/shop/orders', shopAuth, async (req, res) => {
   }
   if (quote.couponCode && paymentMethod !== 'ONLINE') {
     const couponContext = { websiteId: req.customer.websiteId || '', moduleSlug: req.customer.websiteModuleSlug || 'quick-commerce' };
-    const coupon = store.coupons.find(item => belongsToWebsite(item, couponContext.websiteId) && isShopWebsiteRecord(item, couponContext) && String(item.code || '').trim().toUpperCase() === quote.couponCode);
+    const coupon = store.coupons.find(item => belongsToWebsite(item, couponContext.websiteId, couponContext.allowSharedCatalog) && isShopWebsiteRecord(item, couponContext) && String(item.code || '').trim().toUpperCase() === quote.couponCode);
     if (coupon) coupon.usedCount = (Number(coupon.usedCount) || 0) + 1;
   }
   res.status(201).json(order);

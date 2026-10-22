@@ -54,9 +54,7 @@ export default function StorefrontPage() {
   } = store
 
   const mainAdminWebsite = home?.isMainWebsite === true
-  const [productInteractions, setProductInteractions] = useState(() => {
-    try { return JSON.parse(localStorage.getItem('wepzo-category-product-interactions') || '{}') } catch { return {} }
-  })
+  const [productInteractions, setProductInteractions] = useState({})
   const showDefaultStorefront = mainAdminWebsite || selectedComponentData.length === 0
   const hasComponent = (...slugs) => selectedComponentData.some(component => slugs.includes(String(component.slug || '').toLowerCase()))
   const hasComponentType = (...types) => selectedComponentData.some(component => types.includes(String(component.type || '').toLowerCase().replace(/-/g, '_')))
@@ -91,7 +89,6 @@ export default function StorefrontPage() {
         const moduleSlug = String(product.moduleSlug || product.module?.slug || product.module || '').toLowerCase()
         const next = { ...productInteractions, [id]: { views: (Number(productInteractions[id]?.views) || 0) + 1, lastViewed: Date.now(), categoryPath, moduleSlug } }
         setProductInteractions(next)
-        try { localStorage.setItem('wepzo-category-product-interactions', JSON.stringify(next)) } catch { /* recommendations still work for this session */ }
       }
       openProduct(product)
     },
@@ -185,6 +182,26 @@ export default function StorefrontPage() {
     '--product-card-background': themeColors.productCardBackground || themeColors.surfaceBackground || '#ffffff',
     '--product-card-mobile-background': themeColors.productCardMobileBackground || themeColors.productCardBackground || themeColors.surfaceBackground || '#ffffff',
     '--product-card-text': themeColors.productCardText || '#1f2937',
+    ...Object.entries({
+      header: ['.header', '#e2e8f0'],
+      product: ['.product-card, .deal-card, .best-card', '#e2e8f0'],
+      category: ['.category-tile', '#e2e8f0'],
+      promo: ['.promo, .promotion-banner', '#e2e8f0'],
+      account: ['.cart-page-card, .profile-card, .support-card, .order-card', '#e2e8f0'],
+      cart: ['.cart-page-card, .cart-line', '#e2e8f0'],
+      profile: ['.profile-card', '#e2e8f0'],
+      order: ['.order-card', '#e2e8f0'],
+      support: ['.support-card', '#e2e8f0'],
+      button: ['.button, .add-button, .product-image-add, .best-card-bottom button, .button-orange', '#e2e8f0'],
+    }).reduce((vars, [type]) => {
+      const style = themeColors.storefrontCardStyles?.[type] || {}
+      vars[`--storefront-${type}-background`] = style.backgroundColor || (type === 'header' ? themeColors.headerBackground : type === 'product' ? themeColors.productCardBackground : type === 'button' ? themeColors.buttonBackground : themeColors.surfaceBackground) || '#ffffff'
+      if (type === 'button') vars['--storefront-button-text-color'] = style.textColor || themeColors.buttonText || '#ffffff'
+      vars[`--storefront-${type}-border-color`] = style.borderColor || '#e2e8f0'
+      vars[`--storefront-${type}-border-width`] = `${Math.max(0, Math.min(8, Number(style.borderWidth ?? 1)))}px`
+      vars[`--storefront-${type}-border-radius`] = `${Math.max(0, Math.min(40, Number(style.borderRadius ?? 12)))}px`
+      return vars
+    }, {}),
     '--product-card-hover-background': themeColors.productCardHoverBackground || '#fff7ed',
     '--product-card-hover-text': themeColors.productCardHoverText || '#172744',
     '--product-card-hover-border': themeColors.productCardHoverBorder || '#f2c9ad',
@@ -225,10 +242,7 @@ export default function StorefrontPage() {
             visible={showCategories && Boolean(selectedModule)}
           />
           {showDeals && !selectedModule && <FlashDealsSection {...productSectionProps} sales={home?.flashSales} products={products} />}
-<<<<<<< HEAD
-=======
           {!selectedModule && <PromotionBanners banners={homeMidBanners} />}
->>>>>>> 60ab641a6dd29e4a6267f01dc5119f9bf84e318f
           {showCategoryRecommendations && <CategoryRecommendationsSection
             {...productSectionProps} products={recommendationProducts} categoryLabel={recommendationScope}
             moduleSlug={selectedModule} interactions={productInteractions}
@@ -250,10 +264,6 @@ export default function StorefrontPage() {
                 <PromotionBanners banners={storefrontBanners} />
               </>
             : (showProductGrid || selectedModule) && <>
-<<<<<<< HEAD
-              {!selectedModule && <PromotionBanners banners={homeMidBanners} />}
-=======
->>>>>>> 60ab641a6dd29e4a6267f01dc5119f9bf84e318f
               <ProductGridSection {...productSectionProps} products={shown} prefix="catalog" />
               {!selectedModule && <PromotionBanners banners={storefrontBanners} />}
             </>}

@@ -3,12 +3,11 @@ const express = require('express');
 const cors = require('cors');
 const mongoose = require('mongoose');
 const path = require('path');
-const { seedMemory, loadPersistedFromMongo } = require('./lib/memoryStore');
+const { loadPersistedFromMongo } = require('./lib/memoryStore');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
 const WEBSITE_MODULE = String(process.env.WEBSITE_MODULE || '').trim().toLowerCase();
-const IS_PRODUCTION = process.env.NODE_ENV === 'production' || process.env.RENDER === 'true';
 
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
@@ -53,31 +52,22 @@ async function startWithMongo() {
   app.use('/api/export', exportRoutes);
 }
 
-async function startWithMemory() {
-  await seedMemory();
+async function bootstrap() {
+  if (!process.env.MONGODB_URI) throw new Error('MONGODB_URI is required; local-file storage is disabled.');
+  try {
+    await mongoose.connect(process.env.MONGODB_URI, { serverSelectionTimeoutMS: 10000 });
+  } catch (error) {
+    throw new Error(`MongoDB connection failed: ${error.message}`);
+  }
+  console.log('MongoDB connected');
+  await require('./models/PlatformData').createIndexes();
+  await loadPersistedFromMongo();
+  await require('./models/ShopperState').syncIndexes();
+
+  app.use('/api/website-auth', require('./routes/websiteAuth'));
   const memoryApi = require('./routes/memoryApi');
   app.use('/api', memoryApi);
-}
-
-async function bootstrap() {
-  await startWithMemory();
-
-  if (process.env.MONGODB_URI) {
-    try {
-      await mongoose.connect(process.env.MONGODB_URI, { serverSelectionTimeoutMS: 10000 });
-      console.log('MongoDB connected');
-      await loadPersistedFromMongo();
-      await startWithMongo();
-    } catch (error) {
-      if (IS_PRODUCTION) throw error;
-      console.error('MongoDB connection failed; database-backed settings will be unavailable:', error.message);
-    }
-  } else {
-    if (IS_PRODUCTION) {
-      throw new Error('MONGODB_URI is required in production; the backend will not start with local-file storage.');
-    }
-    console.warn('MONGODB_URI is not configured; running in development file-storage mode.');
-  }
+  await startWithMongo();
 
   app.listen(PORT, '0.0.0.0', () => console.log(`Server listening on port ${PORT} (all network interfaces)`));
 }

@@ -93,7 +93,68 @@ const PERSIST_KEYS = [
   'marketingOAuth',
   'socialTokenEncryptionKey',
   'advertisements', 'deliveryMen', 'systemModules', 'websiteModules', 'websiteModuleCatalogSeeded', 'websiteModuleContentSeeded', 'websites', 'mainAdminStorefrontSeededFor',
+  'importHistory', 'exportHistory', 'storeImportHistory', 'storeExportHistory', 'categorySpecifications', 'categoryVariants',
+  'salesOverview', 'orderStatus', 'stats',
 ];
+
+const trackedProxyCache = new WeakMap();
+const trackedProxyTargets = new WeakMap();
+const dirtyPersistKeys = new Set(PERSIST_KEYS);
+const persistKeyRevisions = new Map(PERSIST_KEYS.map(key => [key, 1]));
+
+function markPersistKeyDirty(key) {
+  dirtyPersistKeys.add(key);
+  persistKeyRevisions.set(key, (persistKeyRevisions.get(key) || 0) + 1);
+}
+
+function trackPersistentValue(key, value) {
+  if (!value || typeof value !== 'object') return value;
+  if (trackedProxyTargets.has(value)) value = trackedProxyTargets.get(value);
+  const prototype = Object.getPrototypeOf(value);
+  if (!Array.isArray(value) && prototype !== Object.prototype && prototype !== null) return value;
+  let proxiesForKey = trackedProxyCache.get(value);
+  if (!proxiesForKey) {
+    proxiesForKey = new Map();
+    trackedProxyCache.set(value, proxiesForKey);
+  }
+  if (proxiesForKey.has(key)) return proxiesForKey.get(key);
+  const proxy = new Proxy(value, {
+    get(target, property, receiver) {
+      return trackPersistentValue(key, Reflect.get(target, property, receiver));
+    },
+    set(target, property, nextValue) {
+      const rawValue = trackedProxyTargets.has(nextValue) ? trackedProxyTargets.get(nextValue) : nextValue;
+      if (!Object.is(target[property], rawValue)) {
+        Reflect.set(target, property, trackPersistentValue(key, rawValue), target);
+        markPersistKeyDirty(key);
+      }
+      return true;
+    },
+    deleteProperty(target, property) {
+      if (!Object.prototype.hasOwnProperty.call(target, property)) return true;
+      const deleted = Reflect.deleteProperty(target, property);
+      if (deleted) markPersistKeyDirty(key);
+      return deleted;
+    },
+  });
+  proxiesForKey.set(key, proxy);
+  trackedProxyTargets.set(proxy, value);
+  return proxy;
+}
+
+PERSIST_KEYS.forEach(key => {
+  let value = trackPersistentValue(key, store[key]);
+  Object.defineProperty(store, key, {
+    configurable: true,
+    enumerable: true,
+    get: () => value,
+    set: nextValue => {
+      const rawValue = trackedProxyTargets.has(nextValue) ? trackedProxyTargets.get(nextValue) : nextValue;
+      value = trackPersistentValue(key, rawValue);
+      markPersistKeyDirty(key);
+    },
+  });
+});
 
 function collectionHasData(val) {
   if (Array.isArray(val)) return val.length > 0;
@@ -102,7 +163,7 @@ function collectionHasData(val) {
   return val != null && val !== '';
 }
 
-function loadPersisted() {
+function loadMigrationSnapshot() {
   try {
     if (!fs.existsSync(PERSIST_PATH)) return null;
     return JSON.parse(fs.readFileSync(PERSIST_PATH, 'utf8'));
@@ -156,30 +217,76 @@ function applyPersisted(data) {
 let persistTimer = null;
 let mongoPersistQueue = Promise.resolve();
 
-function persistedSnapshot() {
-  const payload = {};
-  PERSIST_KEYS.forEach((key) => {
-    if (store[key] !== undefined) payload[key] = store[key];
+async function persistMongoKey(key, value) {
+  const manifestId = `platform-key:${key}`;
+  const previous = await PlatformData.findById(manifestId).select('generation').lean();
+  const generation = uuidv4();
+  if (Array.isArray(value)) {
+    const operations = value.map((item, index) => ({
+      updateOne: {
+        filter: { _id: `platform-row:${key}:${generation}:${index}` },
+        update: { $set: { key, generation, index, kind: 'row', value: item } },
+        upsert: true,
+      },
+    }));
+    for (let offset = 0; offset < operations.length; offset += 500) {
+      await PlatformData.bulkWrite(operations.slice(offset, offset + 500), { ordered: true });
+    }
+    await PlatformData.findByIdAndUpdate(manifestId, {
+      $set: { key, generation, kind: 'array', count: value.length },
+      $unset: { value: 1 },
+    }, { upsert: true, new: true });
+  } else {
+    await PlatformData.findByIdAndUpdate(manifestId, {
+      $set: { key, generation, kind: 'value', value },
+      $unset: { count: 1 },
+    }, { upsert: true, new: true });
+  }
+  if (previous?.generation) {
+    PlatformData.deleteMany({ key, generation: previous.generation }).catch(error => {
+      console.warn(`Could not remove old MongoDB platform data for ${key}:`, error.message);
+    });
+  }
+}
+
+function clearDirtyPersistKey(key, revision) {
+  if (persistKeyRevisions.get(key) === revision) dirtyPersistKeys.delete(key);
+}
+
+function queueMongoPersist(keys, values, revisions) {
+  mongoPersistQueue = mongoPersistQueue.catch(() => {}).then(async () => {
+    for (const key of keys) {
+      await persistMongoKey(key, values[key]);
+      clearDirtyPersistKey(key, revisions[key]);
+    }
   });
-  return payload;
+  return mongoPersistQueue;
 }
 
 function persistNow() {
-  const payload = persistedSnapshot();
   if (mongoose.connection.readyState === 1) {
-    mongoPersistQueue = mongoPersistQueue
-      .then(() => PlatformData.findByIdAndUpdate('primary', { $set: { data: payload } }, { upsert: true, new: true }))
-      .catch(err => { console.error('MongoDB platform data save failed:', err.message); });
-    return mongoPersistQueue;
+    return persistNowStrict().catch(err => {
+      console.error('MongoDB platform data save failed:', err.message);
+      return false;
+    });
   }
-  if (process.env.NODE_ENV === 'production' || process.env.RENDER === 'true') return;
-  try {
-    const dir = path.dirname(PERSIST_PATH);
-    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(PERSIST_PATH, JSON.stringify(payload));
-  } catch (err) {
-    console.warn('Persist failed:', err.message);
+  console.error('MongoDB is disconnected; platform changes cannot be saved.');
+  return Promise.resolve(false);
+}
+
+function persistNowStrict() {
+  if (mongoose.connection.readyState === 1) {
+    const keys = [...dirtyPersistKeys];
+    if (!keys.length) return mongoPersistQueue;
+    const values = {};
+    const revisions = {};
+    keys.forEach(key => {
+      values[key] = JSON.parse(JSON.stringify(store[key]));
+      revisions[key] = persistKeyRevisions.get(key) || 0;
+    });
+    return queueMongoPersist(keys, values, revisions);
   }
+  return Promise.reject(new Error('MongoDB is required to save platform data.'));
 }
 
 async function loadPersistedFromMongo() {
@@ -187,30 +294,60 @@ async function loadPersistedFromMongo() {
     throw new Error('MongoDB must be connected before loading platform data.');
   }
   const { ensureStarterCatalogs } = require('./starterCatalogSeed');
-  const record = await PlatformData.findById('primary').lean();
-  if (record?.data && Object.keys(record.data).length > 0) {
-    applyPersisted(record.data);
-    removeBundledProductFixtures();
-    if (ensureStarterCatalogs(store)) {
-      await PlatformData.findByIdAndUpdate(
-        'primary',
-        { $set: { data: persistedSnapshot() } },
-        { upsert: true, new: true },
-      );
+  const [legacyRecord, manifests] = await Promise.all([
+    PlatformData.findById('primary').lean(),
+    PlatformData.find({ _id: /^platform-key:/ }).lean(),
+  ]);
+  const hasLegacySnapshot = legacyRecord?.data && Object.keys(legacyRecord.data).length > 0;
+  const hasStructuredData = manifests.length > 0;
+  let persisted = hasLegacySnapshot ? { ...legacyRecord.data } : {};
+
+  for (const manifest of manifests) {
+    const key = manifest.key || String(manifest._id).slice('platform-key:'.length);
+    if (!PERSIST_KEYS.includes(key)) continue;
+    if (manifest.kind === 'array') {
+      const rows = await PlatformData.find({ key, generation: manifest.generation, kind: 'row' })
+        .sort({ index: 1 })
+        .lean();
+      if (rows.length !== Number(manifest.count || 0)) {
+        throw new Error(`MongoDB platform data is incomplete for ${key}: expected ${manifest.count}, found ${rows.length}.`);
+      }
+      persisted[key] = rows.map(row => row.value);
+    } else if (manifest.kind === 'value') {
+      persisted[key] = manifest.value;
     }
+  }
+
+  const existing = hasLegacySnapshot || hasStructuredData ? persisted : loadMigrationSnapshot();
+  if (!existing) {
+    await seedMemory();
     return;
   }
-  const existing = loadPersisted();
-  if (existing) {
-    applyPersisted(existing);
-    removeBundledProductFixtures();
+  const importingLocalSnapshot = !hasLegacySnapshot && !hasStructuredData && Boolean(existing);
+
+  // Structured records override legacy snapshot values. Keep every key dirty while
+  // migrating an old snapshot so it can be removed only after the new format saves.
+  if (hasStructuredData && !hasLegacySnapshot) dirtyPersistKeys.clear();
+  applyPersisted(existing);
+  if (hasStructuredData && !hasLegacySnapshot) {
+    dirtyPersistKeys.clear();
+    const storedKeys = new Set(manifests.map(item => item.key || String(item._id).slice('platform-key:'.length)));
+    PERSIST_KEYS.filter(key => !storedKeys.has(key)).forEach(markPersistKeyDirty);
   }
+  backfillWebsiteIdsFromStores();
+  removeBundledProductFixtures();
   ensureStarterCatalogs(store);
-  await PlatformData.findByIdAndUpdate(
-    'primary',
-    { $set: { data: persistedSnapshot() } },
-    { upsert: true, new: true },
-  );
+  ensureQuickCommerceCatalog();
+  ensureWebsiteModuleCatalog();
+  ensureWebsiteModuleContent();
+  const { ensureMainAdminStorefront } = require('./mainAdminStorefrontSeed');
+  ensureMainAdminStorefront(store);
+  await persistNowStrict();
+  if (hasLegacySnapshot) await PlatformData.deleteOne({ _id: 'primary' });
+  if (importingLocalSnapshot) {
+    fs.unlinkSync(PERSIST_PATH);
+    console.log('Imported local migration snapshot into MongoDB and removed the local file.');
+  }
 }
 
 function schedulePersist() {
@@ -239,6 +376,42 @@ function removeBundledProductFixtures() {
   if (keptProducts.length === products.length) return;
   store.productItems = keptProducts;
   schedulePersist();
+}
+
+function backfillWebsiteIdsFromStores() {
+  const storesById = new Map();
+  (store.stores || []).forEach(storeRecord => {
+    for (const id of [storeRecord._id, storeRecord.storeId].filter(value => value != null && value !== '')) {
+      storesById.set(String(id), storeRecord);
+    }
+  });
+
+  ['productItems', 'orders'].forEach(key => {
+    (store[key] || []).forEach(record => {
+      if (record.websiteId) return;
+      const linkedStore = storesById.get(String(record.storeId || ''));
+      if (!linkedStore?.websiteId) return;
+      record.websiteId = String(linkedStore.websiteId);
+      record.websiteModuleId = record.websiteModuleId || linkedStore.websiteModuleId || '';
+      record.websiteModuleSlug = record.websiteModuleSlug || linkedStore.websiteModuleSlug || '';
+      if (!record.commerceType && linkedStore.commerceType) record.commerceType = linkedStore.commerceType;
+    });
+  });
+
+  (store.customers || []).forEach(customer => {
+    if (customer.websiteId) return;
+    const email = String(customer.email || '').trim().toLowerCase();
+    const relatedOrders = (store.orders || []).filter(order =>
+      (customer._id && String(order.customerId || '') === String(customer._id))
+      || (email && String(order.customerEmail || '').trim().toLowerCase() === email)
+    );
+    const websiteIds = [...new Set(relatedOrders.map(order => String(order.websiteId || '')).filter(Boolean))];
+    if (websiteIds.length !== 1) return;
+    const relatedOrder = relatedOrders.find(order => String(order.websiteId || '') === websiteIds[0]);
+    customer.websiteId = websiteIds[0];
+    customer.websiteModuleId = customer.websiteModuleId || relatedOrder?.websiteModuleId || '';
+    customer.websiteModuleSlug = customer.websiteModuleSlug || relatedOrder?.websiteModuleSlug || '';
+  });
 }
 
 function ensureQuickCommerceCatalog() {
@@ -408,19 +581,6 @@ function ensureWebsiteModuleContent() {
   persistNow();
 }
 async function seedMemory() {
-  const persisted = loadPersisted();
-  if (persisted) {
-    applyPersisted(persisted);
-    removeBundledProductFixtures();
-    ensureQuickCommerceCatalog();
-    ensureWebsiteModuleCatalog();
-    ensureWebsiteModuleContent();
-    const { ensureMainAdminStorefront } = require('./mainAdminStorefrontSeed');
-    if (ensureMainAdminStorefront(store)) persistNow();
-    console.log('Memory store loaded from wepzo-store.json');
-    return;
-  }
-
   const hash = await bcrypt.hash('admin123', 12);
   adminId = uuidv4();
   store.users.push({
@@ -778,13 +938,12 @@ async function seedMemory() {
     { _id: uuidv4(), fileName: 'categories_all_2025-05-31.csv', exportType: 'All Data', totalRecords: 13, exportedBy: 'Admin', date: 'May 31, 2025 09:00 AM', status: 'Completed', dataType: 'categories' },
   ];
 
-  applyPersisted(persisted);
   ensureWebsiteModuleCatalog();
   ensureWebsiteModuleContent();
   const { ensureMainAdminStorefront } = require('./mainAdminStorefrontSeed');
   ensureMainAdminStorefront(store);
-  persistNow();
+  await persistNowStrict();
   console.log('Memory store seeded. Login: admin@wepzo.com / admin123');
 }
 
-module.exports = { store, seedMemory, schedulePersist, persistNow, loadPersistedFromMongo, PERSIST_PATH };
+module.exports = { store, seedMemory, schedulePersist, persistNow, persistNowStrict, loadPersistedFromMongo };

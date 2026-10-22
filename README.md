@@ -91,18 +91,16 @@ The Admin selects an API URL from the active website module. By default, all mod
 | Marketing | `VITE_MARKETING_API_URL` |
 | Information Web | `VITE_INFORMATION_WEB_API_URL` |
 
-Use `VITE_API_URL` as the shared fallback URL. Local development may run separate servers with unique `PORT`, matching `WEBSITE_MODULE`, and unique `DATA_FILE`, for example from `Backend/`:
-
-Production requires `MONGODB_URI`: the backend imports the existing local data snapshot into MongoDB on first connection, then stores platform changes there and will not start in production without MongoDB. The Quick Commerce storefront proxies `/api` to the backend through `User/quick-commerce/vercel.json`; shopper cart, favorites, and location state are also saved in MongoDB, and customer sessions use an HTTP-only cookie.
+Use `VITE_API_URL` as the shared fallback URL. The backend requires `MONGODB_URI` in every environment and does not start with local-file storage. On first connection to an empty database, it imports `Backend/data/wepzo-store.json` once and deletes that migration snapshot only after MongoDB confirms the import. Platform changes and shopper state are then stored in MongoDB. The Quick Commerce storefront proxies `/api` to the backend through `User/quick-commerce/vercel.json`, and customer sessions use an HTTP-only cookie.
 
 ```powershell
 $env:PORT="5101"
 $env:WEBSITE_MODULE="ecommerce"
-$env:DATA_FILE="data/quick-commerce.json"
+$env:MONGODB_URI="your MongoDB connection string"
 npm start
 ```
 
-Start one instance per module using unique ports and data files; use `e-commerce`, `store-singlepage-web`, `marketing`, or `general` for the other module names. `WEBSITE_MODULE` locks the API to its module even if the client sends another module header. If independent servers use MongoDB-backed routes, give each a `MONGODB_URI` for a separate database. Leave these settings unset to keep the current single-server behavior.
+Use `e-commerce`, `store-singlepage-web`, `marketing`, or `general` for `WEBSITE_MODULE` when running a module-specific instance. `WEBSITE_MODULE` locks the API to its module even if the client sends another module header. Configure the same MongoDB database for instances that should share platform data.
 
 ## Tech Stack
 

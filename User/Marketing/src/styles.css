@@ -354,3 +354,23 @@ button { font: inherit; }
 .site-footer p,
 .site-footer .brand,
 .site-footer > a:last-child { color: var(--footer-text, inherit); }
+.marketing-promotions .promotion-card,.marketing-promotions .promotion-coupon { border-style: solid; border-width: var(--storefront-promo-border-width, 1px); border-color: var(--storefront-promo-border-color, #e2e8f0); border-radius: var(--storefront-promo-border-radius, 15px); }
+.service-card,.plan-card,.feature-grid article,.testimonial-grid article { border-style: solid; border-width: var(--storefront-product-border-width, 1px); border-color: var(--storefront-product-border-color, #e2e8f0); border-radius: var(--storefront-product-border-radius, 12px); }
+.brand-list,.brand-list span { border-style: solid; border-width: var(--storefront-category-border-width, 1px); border-color: var(--storefront-category-border-color, #e2e8f0); border-radius: var(--storefront-category-border-radius, 10px); }
+.ws-card,.ws-metric,.ws-account-card { border-style: solid; border-width: var(--storefront-account-border-width, 1px); border-color: var(--storefront-account-border-color, #e2e8f0); border-radius: var(--storefront-account-border-radius, 13px); }
+.marketing-promotions .cart-card { border-style: solid; border-width: var(--storefront-cart-border-width, 1px); border-color: var(--storefront-cart-border-color, #e2e8f0); border-radius: var(--storefront-cart-border-radius, 12px); }
+.header-profile,.ws-profile { border-style: solid; border-width: var(--storefront-profile-border-width, 1px); border-color: var(--storefront-profile-border-color, #e2e8f0); border-radius: var(--storefront-profile-border-radius, 12px); }
+.ws-order-card { border-style: solid; border-width: var(--storefront-order-border-width, 1px); border-color: var(--storefront-order-border-color, #e2e8f0); border-radius: var(--storefront-order-border-radius, 12px); }
+.ws-support-card { border-style: solid; border-width: var(--storefront-support-border-width, 1px); border-color: var(--storefront-support-border-color, #e2e8f0); border-radius: var(--storefront-support-border-radius, 12px); }
+.button,.promotion-link,.promotion-coupon button,.pricing-toggle button { border-style: solid; border-width: var(--storefront-button-border-width, 0px); border-color: var(--storefront-button-border-color, #e2e8f0); border-radius: var(--storefront-button-border-radius, 6px); }
+.site-header { border-style: solid; border-width: var(--storefront-header-border-width, 1px); border-color: var(--storefront-header-border-color, #e2e8f0); border-radius: var(--storefront-header-border-radius, 12px); }
+.site-header { background-color: var(--storefront-header-background,var(--header-background,#fff)); }
+.service-card,.plan-card,.feature-grid article,.testimonial-grid article { background-color: var(--storefront-product-background,var(--surface-background,#fff)); }
+.brand-list,.brand-list span { background-color: var(--storefront-category-background,var(--surface-background,#fff)); }
+.ws-card,.ws-metric,.ws-account-card { background-color: var(--storefront-account-background,var(--surface-background,#fff)); }
+.marketing-promotions .cart-card { background-color: var(--storefront-cart-background,var(--surface-background,#fff)); }
+.header-profile,.ws-profile { background-color: var(--storefront-profile-background,var(--surface-background,#fff)); }
+.ws-order-card { background-color: var(--storefront-order-background,var(--surface-background,#fff)); }
+.ws-support-card { background-color: var(--storefront-support-background,var(--surface-background,#fff)); }
+.button,.promotion-link,.promotion-coupon button,.pricing-toggle button { background-color: var(--storefront-button-background,var(--button-background,#304ca3)); }
+.button,.button-primary,.promotion-link,.promotion-coupon button,.pricing-toggle button { color: var(--storefront-button-text-color,var(--button-text,#fff)); }

@@ -220,6 +220,32 @@ export default function App() {
     '--button-text': theme.buttonText || '#ffffff', '--footer-bg': theme.footerBackground || '#111f32',
     '--footer-text': theme.footerText || '#ffffff', '--page-bg': theme.pageBackground || '#ffffff',
     '--surface-bg': theme.surfaceBackground || '#ffffff',
+    '--storefront-product-border-radius': `${Math.max(0, Math.min(40, Number(theme.storefrontCardStyles?.product?.borderRadius ?? 12)))}px`,
+    '--storefront-product-border-width': `${Math.max(0, Math.min(8, Number(theme.storefrontCardStyles?.product?.borderWidth ?? 1)))}px`,
+    '--storefront-product-border-color': theme.storefrontCardStyles?.product?.borderColor || '#e2e8f0',
+    '--storefront-product-background': theme.storefrontCardStyles?.product?.backgroundColor || theme.productCardBackground || theme.surfaceBackground || '#fff',
+    '--storefront-category-border-radius': `${Math.max(0, Math.min(40, Number(theme.storefrontCardStyles?.category?.borderRadius ?? 12)))}px`,
+    '--storefront-category-border-width': `${Math.max(0, Math.min(8, Number(theme.storefrontCardStyles?.category?.borderWidth ?? 1)))}px`,
+    '--storefront-category-border-color': theme.storefrontCardStyles?.category?.borderColor || '#e2e8f0',
+    '--storefront-category-background': theme.storefrontCardStyles?.category?.backgroundColor || theme.surfaceBackground || '#fff',
+    '--storefront-promo-border-radius': `${Math.max(0, Math.min(40, Number(theme.storefrontCardStyles?.promo?.borderRadius ?? 12)))}px`,
+    '--storefront-promo-border-width': `${Math.max(0, Math.min(8, Number(theme.storefrontCardStyles?.promo?.borderWidth ?? 1)))}px`,
+    '--storefront-promo-border-color': theme.storefrontCardStyles?.promo?.borderColor || '#e2e8f0',
+    '--storefront-promo-background': theme.storefrontCardStyles?.promo?.backgroundColor || theme.surfaceBackground || '#fff',
+    '--storefront-account-border-radius': `${Math.max(0, Math.min(40, Number(theme.storefrontCardStyles?.account?.borderRadius ?? 12)))}px`,
+    '--storefront-account-border-width': `${Math.max(0, Math.min(8, Number(theme.storefrontCardStyles?.account?.borderWidth ?? 1)))}px`,
+    '--storefront-account-border-color': theme.storefrontCardStyles?.account?.borderColor || '#e2e8f0',
+    '--storefront-account-background': theme.storefrontCardStyles?.account?.backgroundColor || theme.surfaceBackground || '#fff',
+    ...Object.fromEntries(['header', 'cart', 'profile', 'order', 'support', 'button'].flatMap(type => {
+      const style = theme.storefrontCardStyles?.[type] || {}
+      return [
+        [`--storefront-${type}-background`, style.backgroundColor || (type === 'header' ? theme.headerBackground : type === 'product' ? theme.productCardBackground : type === 'button' ? theme.buttonBackground : theme.surfaceBackground) || '#ffffff'],
+        ...(type === 'button' ? [['--storefront-button-text-color', style.textColor || theme.buttonText || '#ffffff']] : []),
+        [`--storefront-${type}-border-radius`, `${Math.max(0, Math.min(40, Number(style.borderRadius ?? (type === 'button' ? 6 : 12))))}px`],
+        [`--storefront-${type}-border-width`, `${Math.max(0, Math.min(8, Number(style.borderWidth ?? (type === 'button' ? 0 : 1))))}px`],
+        [`--storefront-${type}-border-color`, style.borderColor || '#e2e8f0'],
+      ]
+    })),
   }}>
     <Header content={content} route={route} businessLogo={theme.businessLogo}/>
     <main>{page}</main>

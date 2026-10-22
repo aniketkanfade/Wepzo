@@ -1,5 +1,4 @@
 import { useState } from 'react'
-import { storageKey } from '../lib/storefront'
 
 export default function LocationModal({ open, onClose, location, setLocation, setMessage, checkServiceArea }) {
   const [saving, setSaving] = useState(false)
@@ -27,7 +26,6 @@ export default function LocationModal({ open, onClose, location, setLocation, se
         serviceZone: serviceArea.zone?.name || '',
       }
       setLocation(savedLocation)
-      localStorage.setItem(storageKey('wepzo-location'), JSON.stringify(savedLocation))
       onClose()
       setMessage(serviceArea.message)
     } catch (error) {
@@ -40,7 +38,6 @@ export default function LocationModal({ open, onClose, location, setLocation, se
   const useCurrentLocation = () => navigator.geolocation?.getCurrentPosition(position => {
     const next = { ...location, lat: position.coords.latitude, lng: position.coords.longitude }
     setLocation(next)
-    localStorage.setItem(storageKey('wepzo-location'), JSON.stringify(next))
     onClose()
     setMessage('Current location saved.')
   }, () => setMessage('Could not get your location. Please enter coordinates below.'))

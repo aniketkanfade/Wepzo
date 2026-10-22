@@ -1,39 +1,20 @@
-import React, { useEffect, useState } from 'react'
+import React, { useState } from 'react'
 import Brand from './Brand.jsx'
-import { useBranding } from '../BrandingContext.jsx'
+import { clearMarketingSession, useBranding } from '../BrandingContext.jsx'
 
-function readUser() {
-  try { return localStorage.getItem('token') ? JSON.parse(localStorage.getItem('user') || 'null') : null } catch { return null }
-}
-
-export default function Header() {
+export default function Header({ user = null }) {
   const [menuOpen, setMenuOpen] = useState(false)
   const [profileOpen, setProfileOpen] = useState(false)
-  const [user, setUser] = useState(readUser)
   const { siteContent } = useBranding()
   const headerContent = siteContent?.header || {}
   const links = [[headerContent.homeLabel || 'Home', '#home'], ...((headerContent.links || []).map(link => [link.label, link.href]))]
 
-  useEffect(() => {
-    const refresh = () => setUser(readUser())
-    window.addEventListener('storage', refresh)
-    window.addEventListener('wepzo-auth-changed', refresh)
-    window.addEventListener('hashchange', refresh)
-    return () => {
-      window.removeEventListener('storage', refresh)
-      window.removeEventListener('wepzo-auth-changed', refresh)
-      window.removeEventListener('hashchange', refresh)
-    }
-  }, [])
-
   if (headerContent.enabled === false) return null
 
-  const logout = () => {
-    localStorage.removeItem('token')
-    localStorage.removeItem('user')
-    localStorage.removeItem('wepzo-website-id')
-    setUser(null)
+  const logout = async () => {
+    clearMarketingSession()
     setProfileOpen(false)
+    window.dispatchEvent(new Event('wepzo-auth-changed'))
     window.location.hash = '/'
   }
 

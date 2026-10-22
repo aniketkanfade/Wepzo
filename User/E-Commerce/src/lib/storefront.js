@@ -3,14 +3,8 @@ const params = new URLSearchParams(window.location.search)
 export const API = (import.meta.env.VITE_E_COMMERCE_API_URL || import.meta.env.VITE_API_URL || '/api').replace(/\/$/, '')
 export const BUILDER_PREVIEW = params.get('builderPreview') === '1'
 export const ADMIN_PREVIEW = params.get('adminPreview') === '1'
-export const WEBSITE_ID = (ADMIN_PREVIEW
-  ? params.get('websiteId')
-  : import.meta.env.VITE_WEBSITE_ID || params.get('websiteId')) || ''
-export const WEBSITE_MODULE_ID = (ADMIN_PREVIEW
-  ? params.get('moduleId')
-  : import.meta.env.VITE_WEBSITE_MODULE_ID || params.get('moduleId')) || ''
-
-export const storageKey = key => `${key}:${WEBSITE_ID || window.location.hostname}`
+export const WEBSITE_ID = (params.get('websiteId') || import.meta.env.VITE_WEBSITE_ID) || ''
+export const WEBSITE_MODULE_ID = (params.get('websiteModuleId') || params.get('moduleId') || import.meta.env.VITE_WEBSITE_MODULE_ID) || ''
 
 export const KNOWN_COMPONENTS = new Set([
   'logo', 'quick-commerce-header', 'quick-commerce-location', 'quick-commerce-search', 'quick-commerce-categories',
@@ -78,13 +72,11 @@ export async function request(path, options = {}) {
     ...(WEBSITE_MODULE_ID ? { 'X-Website-Module-Id': WEBSITE_MODULE_ID } : {}),
     ...(options.headers || {}),
   }
-  const token = localStorage.getItem(storageKey('wepzo-shop-token'))
-  if (token) headers.Authorization = `Bearer ${token}`
   const method = String(options.method || 'GET').toUpperCase()
   let response
   for (let attempt = 0; ; attempt += 1) {
     try {
-      response = await fetch(`${API}${path}`, { ...options, headers })
+      response = await fetch(`${API}${path}`, { ...options, headers, credentials: 'include' })
     } catch (error) {
       if (method !== 'GET' || attempt >= getRetryDelays.length) throw error
       await new Promise(resolve => window.setTimeout(resolve, getRetryDelays[attempt]))
@@ -104,7 +96,9 @@ export async function request(path, options = {}) {
   if (!response.ok) {
     if (invalidJson) throw new Error(`Request failed (${response.status} ${response.statusText}).`)
     const detail = data.message || responseText.trim().slice(0, 180)
-    throw new Error(detail || `Request failed (${response.status} ${response.statusText}).`)
+    const error = new Error(detail || `Request failed (${response.status} ${response.statusText}).`)
+    error.status = response.status
+    throw error
   }
   if (invalidJson) {
     throw new Error(`The API returned an invalid response for ${path}. Check that the backend is running and the API proxy is configured.`)

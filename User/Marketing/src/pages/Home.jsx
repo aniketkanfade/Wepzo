@@ -8,11 +8,11 @@ import HowItWorks from '../components/HowItWorks.jsx'
 import MarketingPromotions from '../components/MarketingPromotions.jsx'
 import Footer from '../components/Footer.jsx'
 
-function Pricing() {
+function Pricing({ user }) {
   const [yearly, setYearly] = useState(false)
   const { siteContent } = useBranding()
   const content = siteContent?.pricing || {}
-  const hasAccount = Boolean(localStorage.getItem('token'))
+  const hasAccount = Boolean(user)
   if (content.enabled === false) return null
   return <section className="marketing-section pricing-section" id="pricing"><div className="section-heading"><span>{content.eyebrow}</span><h2>{content.title}</h2><p>{content.description}</p><div className="pricing-toggle"><button className={!yearly?'selected':''} onClick={()=>setYearly(false)}>{content.monthlyLabel}</button><button className={yearly?'selected':''} onClick={()=>setYearly(true)}>{content.yearlyLabel} <i>{content.savingsLabel}</i></button></div></div><div className="plan-grid">{(content.plans || []).map(plan => <article className={`plan-card${plan.featured ? ' featured' : ''}`} key={plan.name}>{plan.featured&&<span className="popular-badge">{content.popularLabel}</span>}<h3>{plan.name}</h3><p>{plan.detail}</p><strong>₹{Number(yearly?plan.yearly:plan.monthly).toLocaleString('en-IN')}<small> / {yearly?content.yearUnit:content.monthUnit}</small></strong><ul>{(plan.features || []).map((feature,index) => <li key={`${feature}-${index}`}>✓ &nbsp;{feature}</li>)}</ul><a className={`button ${plan.featured ? 'button-primary' : 'button-outline'}`} href={hasAccount?'#/app/subscription':'#/register'}>{hasAccount?content.manageLabel:content.chooseLabel} {plan.name} <span>→</span></a></article>)}</div><p className="pricing-footnote">{content.footnote}</p></section>
 }
@@ -71,10 +71,10 @@ function FinalCta() {
   return <section className="final-cta"><div><span>{content.eyebrow}</span><h2>{String(content.title || '').split('\n').map((line,index)=><React.Fragment key={`${line}-${index}`}>{index > 0 && <br/>}{line}</React.Fragment>)}</h2><p>{content.description}</p></div><a className="button button-primary button-large" href={content.href}>{content.button} <span>→</span></a></section>
 }
 
-export default function Home() {
-  return <><Header />
+export default function Home({ user }) {
+  return <><Header user={user} />
   <main><Hero /><MarketingPromotions />
   <FeatureHighlights /><ServiceCards /><HowItWorks />
-  <Pricing /><TestimonialsAndFaq /><About /><Contact /><FinalCta />
+  <Pricing user={user} /><TestimonialsAndFaq /><About /><Contact /><FinalCta />
   <TrustedBrands /></main><Footer /></>
 }

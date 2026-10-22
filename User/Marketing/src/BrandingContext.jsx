@@ -5,29 +5,35 @@ const BrandingContext = createContext({ businessName: 'Wepzo', businessLogo: '',
 const API = (import.meta.env.VITE_MARKETING_API_URL || import.meta.env.VITE_API_URL || '/api').replace(/\/$/, '')
 const routeQuery = window.location.hash.includes('?') ? window.location.hash.slice(window.location.hash.indexOf('?') + 1) : ''
 const params = new URLSearchParams(`${window.location.search.replace(/^\?/, '')}&${routeQuery}`)
-const explicitWebsiteId = import.meta.env.VITE_WEBSITE_ID || params.get('websiteId') || params.get('tenantId') || ''
-const websiteId = explicitWebsiteId || localStorage.getItem('wepzo-website-id') || ''
-const moduleId = import.meta.env.VITE_WEBSITE_MODULE_ID || params.get('websiteModuleId') || params.get('moduleId') || ''
-if (websiteId) localStorage.setItem('wepzo-website-id', websiteId)
+const explicitWebsiteId = params.get('websiteId') || params.get('tenantId') || import.meta.env.VITE_WEBSITE_ID || ''
+const moduleId = params.get('websiteModuleId') || params.get('moduleId') || import.meta.env.VITE_WEBSITE_MODULE_ID || ''
+const MARKETING_TOKEN_KEY = 'wepzo_marketing_session_token'
+
+export function clearMarketingSession() {
+  window.sessionStorage.removeItem(MARKETING_TOKEN_KEY)
+}
 
 export async function marketingRequest(path, options = {}) {
+  const sessionToken = window.sessionStorage.getItem(MARKETING_TOKEN_KEY)
   const headers = {
     'Content-Type': 'application/json',
     'X-Website-Module': 'marketing',
-    ...(websiteId ? { 'X-Website-Id': websiteId } : {}),
+    ...(explicitWebsiteId ? { 'X-Website-Id': explicitWebsiteId } : {}),
     ...(moduleId ? { 'X-Website-Module-Id': moduleId } : {}),
+    ...(sessionToken ? { Authorization: `Bearer ${sessionToken}` } : {}),
     ...(options.headers || {}),
   }
-  const token = localStorage.getItem('token')
-  if (token) headers.Authorization = `Bearer ${token}`
-  const response = await fetch(`${API}${path}`, { ...options, headers, cache: options.cache || 'no-store' })
+  const response = await fetch(`${API}${path}`, { ...options, headers, credentials: 'include', cache: options.cache || 'no-store' })
   const data = await response.json().catch(() => ({}))
-  if (!response.ok) throw new Error(data.message || 'Request failed. Please try again.')
+  if (!response.ok) {
+    const error = new Error(data.message || 'Request failed. Please try again.')
+    error.status = response.status
+    throw error
+  }
   return data
 }
 
-// Public website data resolves its tenant from this site's URL/host. Do not
-// reuse a website ID left in localStorage by a different logged-in tenant.
+// Public website data resolves its tenant from this site's URL/host.
 export async function marketingPublicRequest(path, options = {}) {
   const headers = {
     'Content-Type': 'application/json',
@@ -36,7 +42,7 @@ export async function marketingPublicRequest(path, options = {}) {
     ...(moduleId ? { 'X-Website-Module-Id': moduleId } : {}),
     ...(options.headers || {}),
   }
-  const response = await fetch(`${API}${path}`, { ...options, headers, cache: options.cache || 'no-store' })
+  const response = await fetch(`${API}${path}`, { ...options, headers, credentials: 'include', cache: options.cache || 'no-store' })
   const data = await response.json().catch(() => ({}))
   if (!response.ok) throw new Error(data.message || 'Request failed. Please try again.')
   return data
@@ -48,7 +54,7 @@ export function BrandingProvider({ children }) {
   useEffect(() => {
     let active = true
     const headers = { 'X-Website-Module': 'marketing', ...(explicitWebsiteId ? { 'X-Website-Id': explicitWebsiteId } : {}), ...(moduleId ? { 'X-Website-Module-Id': moduleId } : {}) }
-    fetch(`${API}/shop/home`, { headers })
+    fetch(`${API}/shop/home`, { headers, credentials: 'include' })
       .then(response => response.ok ? response.json() : null)
       .then(data => {
         if (active && data?.business) setBranding(current => ({
@@ -100,6 +106,16 @@ export function BrandingProvider({ children }) {
     root.style.setProperty('--footer-text', theme.footerText || '#ffffff')
     root.style.setProperty('--page-background', theme.pageBackground || '#ffffff')
     root.style.setProperty('--surface-background', theme.surfaceBackground || '#ffffff')
+    const cardStyles = theme.storefrontCardStyles || {}
+    for (const [type, fallback] of [['header', 12], ['product', 12], ['category', 12], ['promo', 12], ['account', 12], ['cart', 12], ['profile', 12], ['order', 12], ['support', 12], ['button', 6]]) {
+      const radius = Math.max(0, Math.min(40, Number(cardStyles[type]?.borderRadius ?? fallback)))
+      const width = Math.max(0, Math.min(8, Number(cardStyles[type]?.borderWidth ?? (type === 'button' ? 0 : 1))))
+      root.style.setProperty(`--storefront-${type}-border-radius`, `${radius}px`)
+      root.style.setProperty(`--storefront-${type}-border-width`, `${width}px`)
+      root.style.setProperty(`--storefront-${type}-border-color`, cardStyles[type]?.borderColor || '#e2e8f0')
+      root.style.setProperty(`--storefront-${type}-background`, cardStyles[type]?.backgroundColor || (type === 'header' ? theme.headerBackground : type === 'product' ? theme.productCardBackground : type === 'button' ? theme.buttonBackground : theme.surfaceBackground) || '#ffffff')
+      if (type === 'button') root.style.setProperty('--storefront-button-text-color', cardStyles[type]?.textColor || theme.buttonText || '#ffffff')
+    }
   }, [branding.primaryColor, branding.themeColors, branding.siteContent?.brand?.primaryColor])
 
   return <BrandingContext.Provider value={branding}>{children}</BrandingContext.Provider>
