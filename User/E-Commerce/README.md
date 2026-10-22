@@ -20,7 +20,7 @@ Optionally add `&moduleId=YOUR_WEBSITE_MODULE_ID` to check the module assignment
 
 ## Environment variables
 
-Production builds use the Render backend configured in `.env.production`. For local development, copy `.env.example` to `.env.local` and set the website ID for a fixed storefront. `VITE_E_COMMERCE_API_URL` chooses this module's API, with `VITE_API_URL` as the shared fallback. `VITE_API_PROXY_TARGET` can proxy `/api` to a backend origin when needed.
+Production builds use the same-origin `/api` URL configured in `.env.production`; Vercel proxies those requests to the Render backend. For local development, copy `.env.example` to `.env.local` and set the website ID for a fixed storefront. `VITE_E_COMMERCE_API_URL` chooses this module's API, with `VITE_API_URL` as the shared fallback. `VITE_API_PROXY_TARGET` can proxy `/api` to a backend origin when needed.
 
 ## Connected backend routes
 
