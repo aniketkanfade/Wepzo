@@ -1,5 +1,5 @@
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { ChevronDown, ChevronRight, Heart, Search, ShoppingCart, User, MapPin, Home, Mic, ClipboardList, Wallet, Tag, Award, Gift, Truck, LogOut } from 'lucide-react';
+import { ChevronDown, ChevronRight, Heart, Search, ShoppingCart, User, MapPin, Home, Mic, ClipboardList, Wallet, Tag, Award, Gift, Truck, Zap, LogOut } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { useCart } from '../store/cart';
 import { useLocationStore } from '../store/location';
@@ -319,6 +319,10 @@ export default function Header({ componentEnabled = () => true }) {
           <span className="qc-location-delivery inline-flex items-center gap-1 font-bold text-sm leading-tight">
             <Truck size={14} aria-hidden="true" />
             {etaLabel}
+          </span>
+          <span className="qc-location-mobile-eta hidden items-center gap-1 font-bold" aria-label={etaLabel}>
+            <Zap size={13} aria-hidden="true" />
+            {mins != null ? `${mins} mins` : 'Time unavailable'}
           </span>
           <span className="qc-location-line inline-flex items-start gap-1 text-sm text-slate-700 leading-snug">
             <MapPin size={14} className="shrink-0 mt-0.5 text-violet-600" />

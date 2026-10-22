@@ -913,6 +913,22 @@
     line-height: 1.1;
   }
 
+  .qc-header-location .qc-location-delivery {
+    display: none;
+  }
+
+  .qc-header-location .qc-location-mobile-eta {
+    display: inline-flex;
+    color: #111827;
+    font-size: 11px;
+    line-height: 1.1;
+  }
+
+  .qc-header-location .qc-location-mobile-eta svg {
+    color: #111827;
+    stroke-width: 2.5;
+  }
+
   .qc-header-location > span:last-child {
     align-items: center;
     color: #102b5d;
@@ -932,8 +948,8 @@
     flex: 0 0 auto;
     padding: 2px 5px;
     border-radius: 999px;
-    background: color-mix(in srgb, var(--brand-color, #f4510b) 12%, white);
-    color: var(--brand-color, #f4510b);
+    background: #111827;
+    color: #fff;
     font-size: 9px;
     font-weight: 750;
     line-height: 1.25;
