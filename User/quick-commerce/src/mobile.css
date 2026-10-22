@@ -875,15 +875,20 @@
   }
 
   .qc-header-main {
-    grid-template-columns: minmax(0, .85fr) minmax(0, 1.15fr);
-    grid-template-rows: 36px;
-    column-gap: 6px;
-    row-gap: 0;
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto auto auto;
+    column-gap: 0;
+    row-gap: 7px;
     padding: 8px 10px;
   }
 
   .qc-header-logo {
-    display: none !important;
+    display: flex !important;
+    grid-column: 1;
+    grid-row: 1;
+    justify-self: end;
+    min-height: 28px;
   }
 
   .qc-header-brand-image {
@@ -893,12 +898,12 @@
 
   .qc-header-location {
     grid-column: 1;
-    grid-row: 1;
+    grid-row: 2;
     justify-self: stretch;
     max-width: 100% !important;
     height: 100%;
-    border-left: 1px solid #dfe3eb !important;
-    padding: 0 0 0 7px !important;
+    border-left: 0 !important;
+    padding: 0 !important;
   }
 
   .qc-header-location > span:first-child {
@@ -935,8 +940,8 @@
   }
 
   .qc-header-search {
-    grid-column: 2;
-    grid-row: 1;
+    grid-column: 1;
+    grid-row: 3;
     width: 100%;
     min-width: 0;
   }
@@ -1008,9 +1013,9 @@
     width: 28px;
     height: 28px;
     flex-basis: 28px;
-    border-radius: 8px;
-    background: var(--search-button, #304ca3) !important;
-    color: #fff !important;
+    border-radius: 50%;
+    background: transparent !important;
+    color: #172744 !important;
   }
 
   .qc-header-search .qc-search-tool-mic svg {
@@ -1021,7 +1026,7 @@
   .qc-header-cats.is-module-nav {
     justify-content: flex-start;
     gap: 7px;
-    padding: 8px 12px 10px;
+    padding: 5px 12px 8px;
     overflow-x: auto;
     overflow-y: hidden;
     border-bottom: 0;
@@ -1039,33 +1044,33 @@
   .qc-header-cats.is-module-nav .qc-header-module {
     position: relative;
     display: flex;
-    flex: 0 0 65px;
-    min-width: 65px;
+    flex: 0 0 58px;
+    min-width: 58px;
     max-width: none;
     flex-direction: column;
     align-items: center;
     justify-content: flex-start;
-    gap: 4px;
-    padding: 4px 3px 7px;
+    gap: 3px;
+    padding: 3px 2px 5px;
     border: 1px solid rgb(255 255 255 / 80%);
-    border-radius: 14px;
+    border-radius: 11px;
     background: linear-gradient(145deg, #fff9f2, #fff0e3 58%, #ffe5d1);
     color: #17202c;
     font-size: 10px;
     font-weight: 600;
     line-height: 1.15;
     text-align: center;
-    box-shadow: 0 2px 7px rgb(39 53 76 / 6%);
+    box-shadow: none;
   }
 
   .qc-header-cats.is-module-nav .qc-header-module img {
     display: block;
-    width: 52px;
-    height: 52px;
+    width: 38px;
+    height: 38px;
     flex: 0 0 auto;
     aspect-ratio: 1 / 1;
     object-fit: contain;
-    border-radius: 11px;
+    border-radius: 8px;
     background: transparent;
     mix-blend-mode: normal;
     transform: none;
@@ -1133,8 +1138,9 @@
 
 @media (max-width: 360px) {
   .qc-header-main {
-    grid-template-columns: minmax(0, .85fr) minmax(0, 1.15fr);
-    column-gap: 5px;
+    grid-template-columns: minmax(0, 1fr);
+    column-gap: 0;
+    row-gap: 6px;
     padding-right: 8px;
     padding-left: 8px;
   }

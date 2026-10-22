@@ -339,7 +339,7 @@ export default function Header({ componentEnabled = () => true }) {
             <button type="button" disabled={imageSearching} onClick={() => imageInputRef.current?.click()} aria-label="Search using an image" title="Search using an image" className="qc-search-tool h-10 w-9 shrink-0 rounded-lg text-slate-600 hover:bg-slate-100 flex items-center justify-center disabled:opacity-50">
               <img src={googleLensIcon} alt="" className="h-6 w-6" />
             </button>
-            <button type="button" onClick={startVoiceSearch} aria-label="Search by voice" title="Search by voice" className="qc-search-tool qc-search-tool-mic h-10 w-9 shrink-0 rounded-lg text-white hover:brightness-95 flex items-center justify-center" style={{ backgroundColor: 'var(--search-button, #304ca3)', color: '#fff' }}>
+            <button type="button" onClick={startVoiceSearch} aria-label="Search by voice" title="Search by voice" className="qc-search-tool qc-search-tool-mic h-10 w-9 shrink-0 rounded-lg text-white hover:brightness-95 flex items-center justify-center">
               <Mic size={19} />
             </button>
           </form>
