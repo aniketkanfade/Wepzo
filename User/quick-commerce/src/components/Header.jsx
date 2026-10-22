@@ -82,7 +82,9 @@ export default function Header({ componentEnabled = () => true }) {
     const onScroll = () => {
       const currentY = window.scrollY;
       const delta = currentY - previousY;
-      if (currentY < 24) {
+      if (window.matchMedia('(max-width: 640px)').matches) {
+        setIsScrolledDown(currentY >= 24);
+      } else if (currentY < 24) {
         directionDistance = 0;
         setIsScrolledDown(false);
       } else if (delta > 0) {
