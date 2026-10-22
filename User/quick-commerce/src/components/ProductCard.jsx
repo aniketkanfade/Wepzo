@@ -27,6 +27,8 @@ export default function ProductCard({ product, compact, showWishlistRemove = fal
   if (!product) return null;
   const name = formatCardLabel(product.name);
   const unit = formatCardLabel(product.unit);
+  const hasDiscount = Number(product.mrp) > Number(product.price);
+  const savings = hasDiscount ? Number(product.mrp) - Number(product.price) : 0;
   const cardControl = cartItem ? <div className="qc-card-quantity" aria-label={`${cartItem.qty} ${name} in cart`}>
     <button type="button" aria-label={`Decrease ${name} quantity`} onClick={() => setQty(cartKey, cartItem.qty - 1)}>-</button>
     <span>{cartItem.qty}</span>
@@ -56,9 +58,12 @@ export default function ProductCard({ product, compact, showWishlistRemove = fal
           <div className="qc-product-card-prices flex min-w-0 flex-col items-start gap-0.5">
             <span className="qc-product-unit qc-product-unit-desktop">{unit}</span>
             <div className="qc-product-card-price-line">
-              {product.mrp > product.price && <span className="text-[11px] text-slate-400 line-through">{formatMoney(product.mrp, business)}</span>}
+              <span className="qc-product-mrp text-[11px] text-slate-400 line-through">{hasDiscount ? formatMoney(product.mrp, business) : ''}</span>
               <span className="qc-product-price font-bold text-slate-900 text-sm">{formatMoney(product.price, business)}</span>
             </div>
+            <span className="qc-product-savings" aria-hidden={!hasDiscount} style={hasDiscount ? undefined : { visibility: 'hidden' }}>
+              {hasDiscount ? `Save ${formatMoney(savings, business)} off` : '\u00a0'}
+            </span>
           </div>
         </div>
       </div>
