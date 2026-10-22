@@ -189,7 +189,7 @@ function createMainAdminWebsite(store, now) {
     _id: uuidv4(),
     websiteKey: `${owner._id}:${module?._id || MAIN_MODULE_SLUG}`,
     websiteModuleId: module?._id || '',
-    name: 'SOMOO Nagpur',
+    name: 'WEPZO',
     moduleType: MAIN_MODULE_SLUG,
     websiteModuleSlug: MAIN_MODULE_SLUG,
     userId: owner._id,
@@ -532,12 +532,15 @@ function addMainAdminRecords(store, website) {
 
   const settings = store.businessSettingsByModule?.[MAIN_SETTINGS_KEY] || {}
   const defaults = {
-    businessName: 'SOMOO', siteTitle: 'SOMOO', platformName: 'SOMOO',
+    businessName: 'WEPZO', siteTitle: 'WEPZO', platformName: 'WEPZO',
     primaryColor: '#ff4d00', currency: 'INR', currencySymbol: '₹', currencyPosition: 'left',
     city: 'Nagpur', pincode: '440001', country: 'India', timezone: 'Asia/Kolkata',
     supportEmail: 'support@somoo.in', supportPhone: '',
   }
   const mergedSettings = { ...defaults, ...settings }
+  for (const key of ['businessName', 'siteTitle', 'platformName']) {
+    if (String(mergedSettings[key] || '').trim().toUpperCase() === 'SOMOO') mergedSettings[key] = 'WEPZO'
+  }
   if (JSON.stringify(mergedSettings) !== JSON.stringify(settings)) {
     if (!store.businessSettingsByModule || Array.isArray(store.businessSettingsByModule)) store.businessSettingsByModule = {}
     store.businessSettingsByModule[MAIN_SETTINGS_KEY] = mergedSettings
@@ -559,6 +562,10 @@ function ensureMainAdminStorefront(store) {
   if (!website) return false
 
   const websiteId = String(website._id)
+  if (website.name === 'SOMOO Nagpur') {
+    website.name = 'WEPZO'
+    changed = true
+  }
   if (addMainAdminRecords(store, website)) changed = true
   const otherEcommerceWebsites = (store.websites || []).filter(candidate => {
     if (String(candidate._id) === websiteId

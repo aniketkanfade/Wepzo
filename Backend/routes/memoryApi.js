@@ -4293,6 +4293,34 @@ function businessSettingsScope(req) {
   return 'main-module:' + info.moduleSlug;
 }
 
+function businessSettingsWebsiteName(req) {
+  if (req.user?.role !== 'website_user') return '';
+  const website = req.user.websiteId && (store.websites || []).find(item =>
+    String(item._id) === String(req.user.websiteId)
+    && String(item.userId || '') === String(req.user._id || '')
+  );
+  return String(website?.name || '').trim() || `${String(req.user.name || '').trim() || 'My'} Website`;
+}
+
+function applyBusinessSettingsWebsiteName(settings, req) {
+  const result = { ...settings };
+  const websiteName = businessSettingsWebsiteName(req);
+  if (websiteName) {
+    result.businessName = websiteName;
+    result.platformName = websiteName;
+    result.siteTitle = websiteName;
+    return result;
+  }
+  if (req.user?.role === 'main_admin' && businessSettingsModule(req).isEcommerce) {
+    for (const key of ['businessName', 'platformName', 'siteTitle']) {
+      if (!String(result[key] || '').trim() || String(result[key]).trim().toUpperCase() === 'SOMOO') {
+        result[key] = 'WEPZO';
+      }
+    }
+  }
+  return result;
+}
+
 function quickCommerceBusinessSettings() {
   const byModule = store.businessSettingsByModule || {};
   return byModule['quick-commerce'] || byModule.qcommerce || byModule['main-module:qcommerce'] || store.businessSettings || {};
@@ -4373,11 +4401,15 @@ function businessSettingsResponse(settings = {}) {
 function businessSettingsForRequest(req) {
   const scope = businessSettingsScope(req);
   const saved = store.businessSettingsByModule?.[scope];
-  if (saved) return saved;
-  if (req.user.role === 'website_user') return {};
-  const info = businessSettingsModule(req);
-  if (info.isQuickCommerce) return quickCommerceBusinessSettings();
-  return store.businessSettingsByModule?.[info.moduleSlug] || {};
+  let settings = saved;
+  if (!settings && req.user.role === 'website_user') settings = {};
+  if (!settings && req.user.role !== 'website_user') {
+    const info = businessSettingsModule(req);
+    settings = info.isQuickCommerce
+      ? quickCommerceBusinessSettings()
+      : store.businessSettingsByModule?.[info.moduleSlug] || {};
+  }
+  return applyBusinessSettingsWebsiteName(settings || {}, req);
 }
 
 router.get('/settings/payment-gateway', auth, (req, res) => {
@@ -4424,7 +4456,7 @@ router.get('/settings/business', auth, async (req, res) => {
   if (mongoose.connection.readyState === 1) {
     try {
       const record = await BusinessSettings.findOne({ scope }).lean();
-      if (record?.settings) return res.json(businessSettingsResponse(record.settings));
+      if (record?.settings) return res.json(businessSettingsResponse(applyBusinessSettingsWebsiteName(record.settings, req)));
       const legacySettings = businessSettingsForRequest(req);
       if (Object.keys(legacySettings).length) {
         await BusinessSettings.updateOne({ scope }, { $setOnInsert: { settings: legacySettings } }, { upsert: true });
@@ -4469,7 +4501,7 @@ router.put('/settings/business', auth, async (req, res) => {
   } catch (error) {
     return res.status(error.status || 503).json({ message: error.message || 'Payment credentials could not be encrypted.' });
   }
-  const updated = { ...existing, ...incoming };
+  const updated = applyBusinessSettingsWebsiteName({ ...existing, ...incoming }, req);
   const gatewayKeys = ['razorpayEnabled', 'phonepeEnabled', 'cashfreeEnabled', 'paymentGateway'];
   const touchesGatewaySettings = gatewayKeys.some(key => Object.prototype.hasOwnProperty.call(incoming, key))
     || SHOP_PAYMENT_GATEWAY_SECRETS.some(key => Object.prototype.hasOwnProperty.call(incoming, key));

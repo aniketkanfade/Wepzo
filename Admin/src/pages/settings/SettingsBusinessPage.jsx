@@ -6,7 +6,7 @@ import { ArrowLeftRight, Building2, ClipboardList, Headphones, Heart, ImagePlus,
 import api from '../../api/axios';
 import { listBtnNavy, listBtnOutline, LIST_CARD_BORDER } from '../../constants/listTheme';
 import { getAdminModuleKey } from '../../constants/adminModules';
-import { useModuleStore } from '../../store/useStore';
+import { useAuthStore, useModuleStore } from '../../store/useStore';
 import { numericInputValue } from '../../utils/numericInput';
 
 const DEFAULT_FORM = {
@@ -275,7 +275,9 @@ function WebPageThemePreview({ form, viewMode }) {
 }
 
 export default function SettingsBusinessPage({ colorsOnly = false }) {
+  const user = useAuthStore(state => state.user);
   const activeModule = useModuleStore(state => state.activeModule);
+  const isTenant = user?.role === 'website_user';
   const [form, setForm] = useState(DEFAULT_FORM);
   const [previewMode, setPreviewMode] = useState('desktop');
   const [loading, setLoading] = useState(true);
@@ -287,10 +289,7 @@ export default function SettingsBusinessPage({ colorsOnly = false }) {
   const normalizeSettingsError = (error, fallback) => {
     const rawMessage = error?.response?.data?.message || error?.message || '';
     const message = String(rawMessage).trim();
-    if (!message) return fallback;
-    const mongoWarning = /mongo/i.test(message) && /(connect|connected|database)/i.test(message);
-    if (mongoWarning) return '';
-    return message;
+    return message || fallback;
   };
 
   const loadSettings = async () => {
@@ -459,7 +458,7 @@ export default function SettingsBusinessPage({ colorsOnly = false }) {
     <Section title="Basic Information" description="Business identity, contact details, branding, and address.">
       <div className="grid gap-4 lg:grid-cols-[1.4fr_0.8fr]">
         <div className="grid gap-4 sm:grid-cols-2">
-          <label className={labelClass}>Business Name *<input required className={inputClass} value={form.businessName || form.platformName || ''} onChange={event => { set('businessName', event.target.value); set('platformName', event.target.value); }} /></label>
+          <label className={labelClass}>Business Name *{isTenant && <span className="ml-1 font-normal text-slate-500">(from My Website Name)</span>}<input required disabled={isTenant} className={`${inputClass} disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500`} value={form.businessName || form.platformName || ''} onChange={event => { set('businessName', event.target.value); set('platformName', event.target.value); }} /></label>
           <label className={labelClass}>Email *<input required type="email" className={inputClass} value={form.businessEmail || form.supportEmail || ''} onChange={event => { set('businessEmail', event.target.value); set('supportEmail', event.target.value); }} /></label>
           <label className={labelClass}>Phone *<input required type="tel" className={inputClass} value={form.businessPhone || form.supportPhone || ''} onChange={event => { set('businessPhone', event.target.value); set('supportPhone', event.target.value); }} /></label>
           <label className={labelClass}>Country *<select required className={inputClass} value={form.country || 'India'} onChange={event => set('country', event.target.value)}>{['India', 'United States', 'United Kingdom', 'Canada', 'Australia', 'United Arab Emirates'].map(country => <option key={country}>{country}</option>)}</select></label>
