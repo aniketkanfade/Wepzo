@@ -63,6 +63,20 @@
     opacity: 1 !important;
   }
 
+  .qc-category-choice {
+    flex: 0 0 94px;
+    width: 94px;
+    min-width: 94px;
+  }
+
+  .qc-category-choice > span {
+    display: block;
+    width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
   .qc-header {
     position: static !important;
     align-self: stretch;
