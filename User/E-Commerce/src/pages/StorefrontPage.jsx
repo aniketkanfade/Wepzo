@@ -75,12 +75,6 @@ export default function StorefrontPage() {
   const showFooter = showDefaultStorefront || componentEnabled(['quick-commerce-footer'], ['footer'])
   const showProductDetails = showDefaultStorefront || hasComponent('quick-commerce-product-details') || hasComponentType('product_details')
   const savedIds = new Set(favorites.map(String))
-  const categoryTiles = selectedModule
-    ? categories
-    : [...new Set((home?.categories || [])
-      .filter(item => item.status !== false && item.status !== 'false' && item.status !== 'inactive' && item.isActive !== false)
-      .map(item => String(item.name || '').trim())
-      .filter(Boolean))]
   const wishlistProducts = [...new Map([...products, ...favoriteCatalog]
     .filter(product => product && (product._id || product.id))
     .map(product => [String(product._id || product.id), product])).values()]
@@ -220,7 +214,7 @@ export default function StorefrontPage() {
           <HeroSection banners={heroBanners} deals={deals} visible={showHero && !selectedModule} />
           {selectedModule && <PromotionBanners banners={categoryPromotions} />}
           <CategoryGrid
-            categories={childCategory ? [] : subCategory ? childCategories : category ? subCategories : categoryTiles}
+            categories={childCategory ? [] : subCategory ? childCategories : category ? subCategories : categories}
             categoryProduct={categoryProduct}
             onSelect={name => {
               if (subCategory) setChildCategory(name)
@@ -228,9 +222,9 @@ export default function StorefrontPage() {
               else setCategory(name)
               document.getElementById('collection')?.scrollIntoView({ behavior: 'smooth' })
             }}
-            title={selectedModule || category ? '' : 'Shop by Category'}
+            title=""
             onBack={childCategory ? () => setChildCategory('') : subCategory ? () => { setSubCategory(''); setChildCategory('') } : category ? () => setCategory('') : null}
-            visible={showCategories && categoryTiles.length > 0}
+            visible={showCategories && Boolean(selectedModule)}
           />
           {showDeals && !selectedModule && <FlashDealsSection {...productSectionProps} sales={home?.flashSales} products={products} />}
           {!selectedModule && <PromotionBanners banners={homeMidBanners} />}
