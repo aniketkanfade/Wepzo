@@ -37,6 +37,21 @@ const productTaxonomy = [
   ['Beauty & Personal Care', 'Grooming', 'Face Trimmers'],
 ]
 
+const mainCategoryProducts = [
+  { moduleSlug: 'electronics', sku: 'WEPZO-MA-EL-001', name: 'Wireless Bluetooth Headphones', subCategory: 'Audio', childCategory: 'Wireless Headphones', price: 1999, stock: 24, unit: '1 piece', image: 'https://images.unsplash.com/photo-1505740420928-5e560c06d30e?auto=format&fit=crop&w=600&q=80', specs: { Connectivity: 'Bluetooth', Use: 'Music and calls' } },
+  { moduleSlug: 'electronics', sku: 'WEPZO-MA-EL-002', name: '5G Smartphone', subCategory: 'Mobiles', childCategory: 'Android Smartphones', price: 12999, stock: 12, unit: '1 piece', image: 'https://images.unsplash.com/photo-1511707171634-5f897ff02aa9?auto=format&fit=crop&w=600&q=80', specs: { Connectivity: '5G', Display: 'Touchscreen' } },
+  { moduleSlug: 'home-appliances', sku: 'WEPZO-MA-HA-001', name: 'Mixer Grinder', subCategory: 'Kitchen Appliances', childCategory: 'Mixer Grinders', price: 2499, stock: 16, unit: '1 set', image: 'https://images.unsplash.com/photo-1570222094114-d054a817e56b?auto=format&fit=crop&w=600&q=80', specs: { Use: 'Kitchen food preparation', Included: 'Mixer and jars' } },
+  { moduleSlug: 'home-appliances', sku: 'WEPZO-MA-HA-002', name: 'Air Fryer', subCategory: 'Small Appliances', childCategory: 'Air Fryers', price: 4999, stock: 10, unit: '1 piece', image: 'https://images.unsplash.com/photo-1556911220-e15b29be8c8f?auto=format&fit=crop&w=600&q=80', specs: { Use: 'Countertop cooking', Care: 'Follow manufacturer instructions' } },
+  { moduleSlug: 'furniture', sku: 'WEPZO-MA-FU-001', name: 'Ergonomic Office Chair', subCategory: 'Office Furniture', childCategory: 'Office Chairs', price: 4499, stock: 8, unit: '1 piece', image: 'https://images.unsplash.com/photo-1586023492125-27b2c045efd7?auto=format&fit=crop&w=600&q=80', specs: { Use: 'Home or office seating', Assembly: 'Assembly required' } },
+  { moduleSlug: 'furniture', sku: 'WEPZO-MA-FU-002', name: 'Study Desk', subCategory: 'Study Furniture', childCategory: 'Study Desks', price: 5999, stock: 6, unit: '1 piece', image: 'https://images.unsplash.com/photo-1497366754035-f200968a6e72?auto=format&fit=crop&w=600&q=80', specs: { Use: 'Study or work', Assembly: 'Assembly required' } },
+  { moduleSlug: 'fashion', sku: 'WEPZO-MA-FA-001', name: 'Everyday Running Shoes', subCategory: 'Footwear', childCategory: 'Running Shoes', price: 2499, stock: 18, unit: '1 pair', image: 'https://images.unsplash.com/photo-1542291026-7eec264c27ff?auto=format&fit=crop&w=600&q=80', specs: { Use: 'Everyday wear', Closure: 'Lace-up' } },
+  { moduleSlug: 'fashion', sku: 'WEPZO-MA-FA-002', name: 'Cotton Casual Shirt', subCategory: 'Clothing', childCategory: 'Casual Shirts', price: 1299, stock: 20, unit: '1 piece', image: 'https://images.unsplash.com/photo-1598033129183-c4f50c736f10?auto=format&fit=crop&w=600&q=80', specs: { Fabric: 'Cotton', Care: 'Machine wash cold' } },
+  { moduleSlug: 'grocery', sku: 'WEPZO-MA-GR-001', name: 'Basmati Rice', subCategory: 'Rice & Grains', childCategory: 'Basmati Rice', price: 199, stock: 25, unit: '1 kg', image: 'https://images.unsplash.com/photo-1586201375761-83865001e31c?auto=format&fit=crop&w=600&q=80', specs: { 'Pack size': '1 kg', Storage: 'Store in a cool, dry place' } },
+  { moduleSlug: 'grocery', sku: 'WEPZO-MA-GR-002', name: 'Sunflower Cooking Oil', subCategory: 'Cooking Essentials', childCategory: 'Cooking Oil', price: 169, stock: 20, unit: '1 litre', image: 'https://images.unsplash.com/photo-1474979266404-7eaacbcd87c5?auto=format&fit=crop&w=600&q=80', specs: { 'Pack size': '1 litre', Storage: 'Store away from direct sunlight' } },
+  { moduleSlug: 'beauty-personal-care', sku: 'WEPZO-MA-BP-001', name: 'Daily Care Shampoo', subCategory: 'Hair Care', childCategory: 'Shampoo', price: 249, stock: 22, unit: '340 ml', image: 'https://images.unsplash.com/photo-1608571423902-eed4a5ad8108?auto=format&fit=crop&w=600&q=80', specs: { 'Pack size': '340 ml', Use: 'External use only' } },
+  { moduleSlug: 'beauty-personal-care', sku: 'WEPZO-MA-BP-002', name: 'Daily Wear Sunscreen', subCategory: 'Sun Care', childCategory: 'Sunscreen', price: 399, stock: 18, unit: '50 g', image: 'https://images.unsplash.com/photo-1608248543803-ba4f8c70ae0b?auto=format&fit=crop&w=600&q=80', specs: { 'Pack size': '50 g', Use: 'Follow product label directions' } },
+]
+
 function findMainAdminWebsite(store) {
   const mainAdmins = new Set((store.users || []).filter(user => user.role === 'main_admin').map(user => String(user._id)))
   return (store.websites || [])
@@ -252,6 +267,60 @@ function addMainAdminRecords(store, website) {
   store.productItems = store.productItems.filter(item => String(item.websiteId || '') !== websiteId || !item.mainAdminSeedKey)
   if (store.productItems.length !== previousProductCount) changed = true
 
+  let nextProductId = store.productItems.reduce((max, item) => Math.max(max, Number(item.productId) || 0), 0)
+  mainCategoryProducts.forEach(product => {
+    const module = mainModules.find(item => item.slug === product.moduleSlug)
+    if (!module) throw new Error(`Missing E-Commerce module for seeded product ${product.sku}`)
+    const moduleRecord = moduleBySlug.get(module.slug)
+    const hierarchy = ensureHierarchy(module, product.subCategory, product.childCategory)
+    const seedKey = `main-admin-ecommerce-product:${product.sku}`
+    const existing = store.productItems.find(item => item.catalogSeedKey === seedKey
+      || (String(item.websiteId || '') === websiteId && String(item.sku || '') === product.sku))
+    const categoryFields = {
+      ...scoped,
+      store: ecommerceStore.name,
+      storeId: ecommerceStore.storeId,
+      mainCategory: module.name,
+      moduleSlug: module.slug,
+      moduleId: moduleRecord._id,
+      systemModuleId: moduleRecord._id,
+      mainModuleId: moduleRecord._id,
+      categoryId: hierarchy.category._id,
+      mainCategoryId: hierarchy.category._id,
+      subCategory: hierarchy.subCategory.name,
+      subCategoryId: hierarchy.subCategory._id,
+      childCategory: hierarchy.childCategory.name,
+      childCategoryId: hierarchy.childCategory._id,
+    }
+    if (existing) {
+      Object.entries(categoryFields).forEach(([key, value]) => {
+        if (String(existing[key] ?? '') === String(value ?? '')) return
+        existing[key] = value
+        changed = true
+      })
+      return
+    }
+    store.productItems.push({
+      _id: uuidv4(),
+      productId: ++nextProductId,
+      ...product,
+      description: `${product.name}, ${product.unit}. Starter listing: verify current price and stock with the store before fulfilling orders.`,
+      shortDesc: `${product.name} — ${product.unit}`,
+      discount: 0,
+      discountType: 'Percent',
+      status: 'active',
+      lowStockLimit: 3,
+      images: [product.image],
+      tags: ['starter catalog', 'verify price and stock'],
+      catalogSeedKey: seedKey,
+      catalogSource: 'starter-data',
+      verificationStatus: 'unverified-starter',
+      createdAt: new Date().toISOString(),
+      ...categoryFields,
+    })
+    changed = true
+  })
+
   const moduleFromProduct = product => {
     const category = String(product.mainCategory || product.category || '').trim().toLowerCase()
     const name = String(product.name || '').toLowerCase()
@@ -312,8 +381,9 @@ function addMainAdminRecords(store, website) {
     },
   ]
   bannerSeeds.forEach(banner => {
-    if (store.banners.some(item => String(item.websiteId || '') === websiteId && item.mainAdminSeedKey === banner.seedKey)) return
-    store.banners.push({ _id: uuidv4(), status: 'Active', link: '#collection', ...banner, ...scoped })
+    if (store.banners.some(item => String(item.websiteId || '') === websiteId
+      && (item.mainAdminSeedKey === banner.seedKey || item.seedKey === banner.seedKey))) return
+    store.banners.push({ _id: uuidv4(), status: 'Active', link: '#collection', ...banner, mainAdminSeedKey: banner.seedKey, ...scoped })
     changed = true
   })
 
