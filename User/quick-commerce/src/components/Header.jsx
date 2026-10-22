@@ -322,10 +322,10 @@ export default function Header({ componentEnabled = () => true }) {
           </span>
           <span className="qc-location-mobile-eta hidden items-center gap-1 font-bold" aria-label={etaLabel}>
             <Zap size={13} aria-hidden="true" />
-            {mins != null ? `${mins} mins` : 'Time unavailable'}
+            {mins != null ? `${mins} minutes` : 'Time unavailable'}
           </span>
           <span className="qc-location-line inline-flex items-start gap-1 text-sm text-slate-700 leading-snug">
-            <MapPin size={14} className="shrink-0 mt-0.5 text-violet-600" />
+            <MapPin size={14} className="qc-location-pin shrink-0 mt-0.5 text-violet-600" />
             {savedLocationLabel && <span className="qc-location-saved-label">{savedLocationLabel}</span>}
             <span className="qc-location-compact font-medium">{compactPlaceLine}</span>
             <ChevronDown size={14} className="shrink-0 mt-0.5 text-slate-500" />

@@ -946,13 +946,21 @@
 
   .qc-header-location .qc-location-saved-label {
     flex: 0 0 auto;
-    padding: 2px 5px;
-    border-radius: 999px;
-    background: #111827;
-    color: #fff;
+    padding: 0;
+    border-radius: 0;
+    background: transparent;
+    color: #111827;
     font-size: 9px;
     font-weight: 750;
     line-height: 1.25;
+  }
+
+  .qc-header-location .qc-location-saved-label::after {
+    content: '-';
+  }
+
+  .qc-header-location .qc-location-pin {
+    display: none;
   }
 
   .qc-header-location > span:last-child > .qc-location-compact {
