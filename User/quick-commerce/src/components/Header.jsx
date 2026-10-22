@@ -1,5 +1,5 @@
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { ChevronDown, ChevronRight, Heart, Search, ShoppingCart, User, MapPin, Home, Mic, ClipboardList, Wallet, Tag, Award, Gift, Truck, Zap, LogOut } from 'lucide-react';
+import { ChevronDown, Heart, Search, ShoppingCart, User, MapPin, Home, Mic, ClipboardList, Wallet, Tag, Award, Gift, Truck, Zap, LogOut } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { useCart } from '../store/cart';
 import { useLocationStore } from '../store/location';
@@ -363,7 +363,7 @@ export default function Header({ componentEnabled = () => true }) {
           </form>
           {searchNotice && <p role="status" className="absolute left-0 right-0 top-[calc(100%+5px)] z-50 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600 shadow-lg">{searchNotice}</p>}
           {showSuggest && q.trim() && (
-            <div className="absolute left-0 right-14 top-[calc(100%+6px)] z-50 bg-white rounded-xl shadow-xl border border-slate-100 overflow-hidden py-1">
+            <div className="qc-search-suggestions absolute left-0 right-14 top-[calc(100%+6px)] z-50 bg-white rounded-xl shadow-xl border border-slate-100 overflow-hidden py-1">
               {suggests.map(p => (
                 <button
                   key={p.id}
@@ -373,30 +373,17 @@ export default function Header({ componentEnabled = () => true }) {
                     setQ('');
                     navigate(`/p/${p.id}`);
                   }}
-                  className="w-full flex items-center gap-3 px-3 py-2 hover:bg-slate-50 text-left"
+                  className="qc-search-suggestion-item w-full flex items-center gap-2 px-2 py-1 hover:bg-slate-50 text-left"
                 >
-                  <span className="h-10 w-10 rounded-md bg-slate-50 border border-slate-100 overflow-hidden shrink-0">
+                  <span className="qc-search-suggestion-image h-9 w-9 rounded-md bg-slate-50 border border-slate-100 overflow-hidden shrink-0">
                     <img src={p.image} alt="" className="h-full w-full object-contain" />
                   </span>
-                  <span className="text-sm font-bold text-slate-800 line-clamp-1">{p.name}</span>
+                  <span className="qc-search-suggestion-name">{p.name || p.productName || p.title || p.brand || 'Product'}</span>
                 </button>
               ))}
               {suggests.length === 0 && (
                 <p className="px-4 py-3 text-sm text-slate-400">{suggesting ? 'Searching…' : 'No matching products'}</p>
               )}
-              <button
-                type="button"
-                onClick={() => goSearch(q)}
-                className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-violet-50 text-left border-t border-slate-100"
-              >
-                <span className="h-9 w-9 rounded-lg bg-violet-100 text-violet-600 flex items-center justify-center shrink-0">
-                  <Search size={16} />
-                </span>
-                <span className="flex-1 text-sm text-slate-700">
-                  Show all results for <span className="font-semibold">{q.trim()}</span>
-                </span>
-                <ChevronRight size={16} className="text-slate-400" />
-              </button>
             </div>
           )}
         </div>}
