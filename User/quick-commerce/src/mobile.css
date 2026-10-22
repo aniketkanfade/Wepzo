@@ -391,6 +391,10 @@
     scroll-snap-align: start;
   }
 
+  .qc-product-carousel-page-two-rows {
+    grid-template-rows: repeat(2, auto);
+  }
+
   .qc-product-carousel-page > .qc-product-card {
     min-width: 0;
     min-height: 0;

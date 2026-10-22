@@ -87,18 +87,19 @@ function Rail({ children, className = '' }) {
   );
 }
 
-function ProductGridCarousel({ products }) {
+function ProductGridCarousel({ products, rows = 3 }) {
   const ref = useRef(null);
   const pages = [];
-  for (let index = 0; index < products.length; index += 9) {
-    pages.push(products.slice(index, index + 9));
+  const pageSize = rows * 3;
+  for (let index = 0; index < products.length; index += pageSize) {
+    pages.push(products.slice(index, index + pageSize));
   }
 
   return (
     <div className="qc-product-mobile-carousel">
       <div ref={ref} className="qc-product-carousel-track no-scrollbar">
         {pages.map((page, pageIndex) => (
-          <div className="qc-product-carousel-page" key={pageIndex}>
+          <div className={`qc-product-carousel-page${rows === 2 ? ' qc-product-carousel-page-two-rows' : ''}`} key={pageIndex}>
             {page.map(product => <ProductCard key={product.id} product={product} />)}
           </div>
         ))}
@@ -241,7 +242,7 @@ export default function HomePage({ componentEnabled = () => true, builderPreview
         <Rail className="qc-deal-desktop-rail">
           {bestDealProducts.map(p => <ProductCard key={p.id} product={p} compact />)}
         </Rail>
-        <ProductGridCarousel products={dealItems} />
+        <ProductGridCarousel products={dealItems} rows={2} />
       </section>}
 
       {componentEnabled('quick-commerce-product-grid') && (data.bestsellers || []).length > 0 && <section>
