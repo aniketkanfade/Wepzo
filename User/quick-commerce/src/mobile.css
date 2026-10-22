@@ -136,7 +136,7 @@
     font-size: 10px;
   }
 
-  .qc-header-location > span:last-child > span {
+  .qc-header-location > span:last-child > .qc-location-compact {
     max-width: min(28vw, 92px);
     overflow: hidden;
     text-overflow: ellipsis;
@@ -900,6 +900,7 @@
     grid-column: 2;
     grid-row: 1;
     justify-self: stretch;
+    width: 100%;
     max-width: 100% !important;
     height: 100%;
     border-left: 0 !important;
@@ -917,12 +918,28 @@
     color: #102b5d;
     width: 100%;
     min-width: 0;
+    justify-content: flex-start;
     font-size: 10px;
     line-height: 1.1;
     white-space: nowrap;
   }
 
-  .qc-header-location > span:last-child > span {
+  .qc-header-location .qc-location-line {
+    gap: 4px;
+  }
+
+  .qc-header-location .qc-location-saved-label {
+    flex: 0 0 auto;
+    padding: 2px 5px;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--brand-color, #f4510b) 12%, white);
+    color: var(--brand-color, #f4510b);
+    font-size: 9px;
+    font-weight: 750;
+    line-height: 1.25;
+  }
+
+  .qc-header-location > span:last-child > .qc-location-compact {
     flex: 1;
     min-width: 0;
     max-width: 100%;

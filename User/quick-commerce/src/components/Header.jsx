@@ -280,6 +280,10 @@ export default function Header({ componentEnabled = () => true }) {
     && !searchParams.has('category');
   const placeLine = locationSubtitle(current);
   const compactPlaceLine = placeLine;
+  const rawLocationLabel = String(current?.label || '').trim();
+  const savedLocationLabel = /^(home|work|office|other)$/i.test(rawLocationLabel)
+    ? (/^(work|office)$/i.test(rawLocationLabel) ? 'Office' : rawLocationLabel[0].toUpperCase() + rawLocationLabel.slice(1).toLowerCase())
+    : '';
   const storeLat = pickup?.lat ?? 21.1458;
   const storeLng = pickup?.lng ?? 79.0882;
   const km = haversineKm(storeLat, storeLng, current?.lat, current?.lng);
@@ -316,8 +320,9 @@ export default function Header({ componentEnabled = () => true }) {
             <Truck size={14} aria-hidden="true" />
             {etaLabel}
           </span>
-          <span className="inline-flex items-start gap-1 text-sm text-slate-700 leading-snug">
+          <span className="qc-location-line inline-flex items-start gap-1 text-sm text-slate-700 leading-snug">
             <MapPin size={14} className="shrink-0 mt-0.5 text-violet-600" />
+            {savedLocationLabel && <span className="qc-location-saved-label">{savedLocationLabel}</span>}
             <span className="qc-location-compact font-medium">{compactPlaceLine}</span>
             <ChevronDown size={14} className="shrink-0 mt-0.5 text-slate-500" />
           </span>
