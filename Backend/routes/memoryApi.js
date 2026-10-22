@@ -4398,6 +4398,20 @@ function businessSettingsResponse(settings = {}) {
   return response;
 }
 
+async function ensureBusinessSettingsDatabase() {
+  if (mongoose.connection.readyState === 1) return;
+  try {
+    if (mongoose.connection.readyState === 2) {
+      await mongoose.connection.asPromise();
+    } else {
+      await mongoose.connect(process.env.MONGODB_URI, { serverSelectionTimeoutMS: 10000 });
+    }
+  } catch (error) {
+    console.error('MongoDB business settings connection failed:', error.message);
+    throw Object.assign(new Error('Business settings database is unavailable. Check the backend MongoDB connection.'), { status: 503 });
+  }
+}
+
 function businessSettingsForRequest(req) {
   const scope = businessSettingsScope(req);
   const saved = store.businessSettingsByModule?.[scope];
@@ -4453,8 +4467,9 @@ router.put('/settings/payment-gateway', auth, (req, res) => {
 
 router.get('/settings/business', auth, async (req, res) => {
   const scope = businessSettingsScope(req);
-  if (mongoose.connection.readyState === 1) {
+  if (process.env.MONGODB_URI) {
     try {
+      await ensureBusinessSettingsDatabase();
       const record = await BusinessSettings.findOne({ scope }).lean();
       if (record?.settings) return res.json(businessSettingsResponse(applyBusinessSettingsWebsiteName(record.settings, req)));
       const legacySettings = businessSettingsForRequest(req);
@@ -4464,7 +4479,11 @@ router.get('/settings/business', auth, async (req, res) => {
       return res.json(businessSettingsResponse(legacySettings));
     } catch (error) {
       console.error('MongoDB business settings read failed:', error.message);
+      return res.status(error.status || 503).json({ message: error.message || 'Business settings could not be loaded from MongoDB.' });
     }
+  }
+  if (process.env.NODE_ENV === 'production') {
+    return res.status(503).json({ message: 'Business settings cannot be saved reliably because the backend MongoDB connection is not configured.' });
   }
   res.json(businessSettingsResponse(businessSettingsForRequest(req)));
 });
@@ -4515,11 +4534,9 @@ router.put('/settings/business', auth, async (req, res) => {
       return res.status(400).json({ message: 'Choose Razorpay, PhonePe, or Cashfree.' });
     }
   }
-  if (process.env.MONGODB_URI && mongoose.connection.readyState !== 1) {
-    return res.status(503).json({ message: 'MongoDB is configured but not connected; business settings were not saved.' });
-  }
-  if (mongoose.connection.readyState === 1) {
+  if (process.env.MONGODB_URI) {
     try {
+      await ensureBusinessSettingsDatabase();
       await BusinessSettings.findOneAndUpdate(
         { scope },
         { $set: { settings: updated } },
@@ -4529,6 +4546,8 @@ router.put('/settings/business', auth, async (req, res) => {
       console.error('MongoDB business settings write failed:', error.message);
       return res.status(503).json({ message: 'Business settings could not be saved to MongoDB.' });
     }
+  } else if (process.env.NODE_ENV === 'production') {
+    return res.status(503).json({ message: 'Business settings cannot be saved reliably because the backend MongoDB connection is not configured.' });
   }
   store.businessSettingsByModule[scope] = updated;
   if (info.isQuickCommerce) store.businessSettings = updated;
@@ -6382,10 +6401,10 @@ function paymentGatewayRequest(hostname, pathname, method, headers = {}, payload
   });
 }
 
-function shopGatewaySettings(req, { decryptSecrets = false } = {}) {
+async function shopGatewaySettings(req, { decryptSecrets = false } = {}) {
   const websiteContext = req.websiteContext || websiteContextForRequest(req);
   const moduleSlug = normalizeWebsiteModuleSlug(req.customer?.websiteModuleSlug || websiteContext?.moduleSlug || 'e-commerce');
-  const settings = shopBusinessSettings(websiteContext, moduleSlug);
+  const settings = await shopBusinessSettings(websiteContext, moduleSlug);
   if (decryptSecrets) BUSINESS_PAYMENT_SECRETS.forEach(key => { settings[key] = decryptPaymentSecret(settings[key]); });
   return settings;
 }
@@ -6400,7 +6419,7 @@ async function sendShopOrderNotifications(order) {
     moduleSlug,
     isMainWebsite: order.websiteIsMain === true,
   };
-  const settings = shopBusinessSettings(websiteContext, moduleSlug);
+  const settings = await shopBusinessSettings(websiteContext, moduleSlug);
   if (settings.notifyOrderPlaced === false || String(settings.notifyOrderPlaced).toLowerCase() === 'false'
     || settings.emailNotifyEnabled === false || String(settings.emailNotifyEnabled).toLowerCase() === 'false'
     || (settings.mailEnabled !== true && String(settings.mailEnabled).toLowerCase() !== 'true')) {
@@ -7934,7 +7953,7 @@ function calculateShopCoupon(coupon, itemsTotal, storeName, customer) {
   return { discount: Math.min(itemsTotal, Math.round(isPercent ? itemsTotal * amount / 100 : amount)) };
 }
 
-function shopBusinessSettings(websiteContext, moduleSlug) {
+async function shopBusinessSettings(websiteContext, moduleSlug) {
   const websiteId = websiteContext?.websiteId || '';
   const settingsScope = websiteId
     ? websiteContext.isMainWebsite
@@ -7945,9 +7964,19 @@ function shopBusinessSettings(websiteContext, moduleSlug) {
     ...(store.businessSettingsByModule?.[moduleSlug] || store.businessSettingsByModule?.[moduleSlug.replace(/-/g, '')] || store.businessSettings || {}),
     ...(store.businessSettingsByModule?.[settingsScope] || {}),
   };
+  let persistedSettings = null;
+  if (process.env.MONGODB_URI) {
+    await ensureBusinessSettingsDatabase();
+    const record = await BusinessSettings.findOne({ scope: settingsScope }).lean();
+    persistedSettings = record?.settings || null;
+    if (persistedSettings) Object.assign(settings, persistedSettings);
+  }
   if (!websiteId || websiteContext?.isMainWebsite) return settings;
 
-  const tenantSettings = store.businessSettingsByModule?.[settingsScope] || {};
+  const tenantSettings = {
+    ...(store.businessSettingsByModule?.[settingsScope] || {}),
+    ...(persistedSettings || {}),
+  };
   const tenantGatewayKeys = [
     'onlinePaymentEnabled', 'paymentGateway', 'paymentCurrency', 'paymentReturnUrl',
     'razorpayEnabled', 'razorpayKey', 'razorpayKeySecret',
@@ -7991,7 +8020,7 @@ function applyShopTax(quote, settings) {
   };
 }
 
-function shopQuoteFor(body, websiteId = '', contextOverride = null, customer = null) {
+async function shopQuoteFor(body, websiteId = '', contextOverride = null, customer = null) {
   const { quoteDelivery } = require('../lib/shopQuote');
   const website = contextOverride?.website || (websiteId ? (store.websites || []).find(item => String(item._id) === String(websiteId)) : null);
   const websiteContext = contextOverride || {
@@ -8050,7 +8079,7 @@ function shopQuoteFor(body, websiteId = '', contextOverride = null, customer = n
   const taxModuleSlug = normalizeWebsiteModuleSlug(
     websiteContext.website?.websiteModuleSlug || websiteContext.website?.moduleType || websiteContext.moduleSlug || moduleSlug
   );
-  const settings = shopBusinessSettings(websiteContext, taxModuleSlug);
+  const settings = await shopBusinessSettings(websiteContext, taxModuleSlug);
   const couponCode = String(body.couponCode || '').trim().toUpperCase();
   if (!couponCode) {
     result.quote = applyShopTax(result.quote, settings);
@@ -8152,11 +8181,17 @@ router.put('/shop/auth/me', shopAuth, (req, res) => {
   res.json({ user: publicCustomer(req.customer) });
 });
 
-router.post('/shop/quote', shopAuthIfPresent, (req, res) => {
+router.post('/shop/quote', shopAuthIfPresent, async (req, res) => {
   const body = req.body || {};
   const websiteContext = websiteContextForRequest(req);
   if (websiteContext.error) return res.status(websiteContext.error.status).json({ message: websiteContext.error.message });
-  const { details, quote } = shopQuoteFor(body, websiteContext.websiteId, websiteContext, req.customer);
+  let result;
+  try {
+    result = await shopQuoteFor(body, websiteContext.websiteId, websiteContext, req.customer);
+  } catch (error) {
+    return res.status(error.status || 503).json({ message: error.message || 'Business settings could not be loaded.' });
+  }
+  const { details, quote } = result;
   if (!details.length && (body.items || []).length) {
     return res.status(400).json({ message: 'Valid items nahi mile' });
   }
@@ -8247,7 +8282,7 @@ router.get('/shop/coupons', shopAuthIfPresent, (req, res) => {
     expiry: coupon.expiry || '',
   })));
 });
-router.get('/shop/home', (req, res) => {
+router.get('/shop/home', async (req, res) => {
   const websiteContext = websiteContextForRequest(req);
   if (websiteContext.error) return res.status(websiteContext.error.status).json({ message: websiteContext.error.message });
   const websiteId = websiteContext.websiteId;
@@ -8358,7 +8393,12 @@ router.get('/shop/home', (req, res) => {
       ? `main-module:${settingsModuleSlug}`
       : `website-user:${websiteId}:${settingsModuleSlug}`
     : `main-module:${settingsModuleSlug}`;
-  const settings = shopBusinessSettings(websiteContext, settingsModuleSlug);
+  let settings;
+  try {
+    settings = await shopBusinessSettings(websiteContext, settingsModuleSlug);
+  } catch (error) {
+    return res.status(error.status || 503).json({ message: error.message || 'Business settings could not be loaded.' });
+  }
   const selectedGateway = String(settings.paymentGateway || 'razorpay').toLowerCase();
   const gatewayReady = shopPaymentGatewayReady(settings);
   res.json({
@@ -8534,15 +8574,22 @@ router.get('/shop/orders', shopAuth, (req, res) => {
   res.json(orders);
 });
 
-router.post('/shop/orders', shopAuth, (req, res) => {
+router.post('/shop/orders', shopAuth, async (req, res) => {
   ensureOrders();
   const body = req.body || {};
-  const { details, quote, storeRef } = shopQuoteFor(body, req.customer.websiteId || '', req.websiteContext, req.customer);
+  let quoteResult;
+  let paymentSettings;
+  try {
+    quoteResult = await shopQuoteFor(body, req.customer.websiteId || '', req.websiteContext, req.customer);
+    paymentSettings = await shopGatewaySettings(req);
+  } catch (error) {
+    return res.status(error.status || 503).json({ message: error.message || 'Business settings could not be loaded.' });
+  }
+  const { details, quote, storeRef } = quoteResult;
   if (!details.length) return res.status(400).json({ message: 'Cart empty hai' });
   if (quote.couponError) return res.status(400).json({ message: quote.couponError });
   if (!quote.deliverable) return res.status(400).json({ message: quote.message || 'Is location par delivery nahi' });
   const paymentMethod = String(body.payment || 'COD').toUpperCase();
-  const paymentSettings = shopGatewaySettings(req);
   if (paymentMethod === 'COD' && paymentSettings.codEnabled === false) {
     return res.status(400).json({ message: 'Cash on Delivery is not available.' });
   }
@@ -8649,7 +8696,7 @@ router.post('/shop/payments/initiate', shopAuth, async (req, res) => {
     return res.status(409).json({ message: 'This order is not awaiting online payment.' });
   }
   let settings;
-  try { settings = shopGatewaySettings(req, { decryptSecrets: true }); } catch (error) {
+  try { settings = await shopGatewaySettings(req, { decryptSecrets: true }); } catch (error) {
     return res.status(error.status || 500).json({ message: error.message || 'Gateway settings could not be loaded.' });
   }
   const gateway = String(settings.paymentGateway || '').toLowerCase();
@@ -8764,7 +8811,7 @@ router.post('/shop/payments/verify', shopAuth, async (req, res) => {
     return res.status(409).json({ message: 'There is no pending gateway payment for this order.' });
   }
   let settings;
-  try { settings = shopGatewaySettings(req, { decryptSecrets: true }); } catch (error) {
+  try { settings = await shopGatewaySettings(req, { decryptSecrets: true }); } catch (error) {
     return res.status(error.status || 500).json({ message: error.message || 'Gateway settings could not be loaded.' });
   }
   try {

@@ -61,12 +61,17 @@ async function startWithMemory() {
 async function bootstrap() {
   await startWithMemory();
 
-  mongoose.connect(process.env.MONGODB_URI, { serverSelectionTimeoutMS: 3000 })
-    .then(async () => {
-      console.log('MongoDB connected (optional extra routes)');
+  if (process.env.MONGODB_URI) {
+    try {
+      await mongoose.connect(process.env.MONGODB_URI, { serverSelectionTimeoutMS: 10000 });
+      console.log('MongoDB connected');
       await startWithMongo();
-    })
-    .catch(() => console.log('MongoDB not available - memory mode only'));
+    } catch (error) {
+      console.error('MongoDB connection failed; database-backed settings will be unavailable:', error.message);
+    }
+  } else {
+    console.warn('MONGODB_URI is not configured; running in memory-only mode.');
+  }
 
   app.listen(PORT, '0.0.0.0', () => console.log(`Server listening on port ${PORT} (all network interfaces)`));
 }
