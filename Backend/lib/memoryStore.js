@@ -1,8 +1,10 @@
 const fs = require('fs');
 const path = require('path');
 const bcrypt = require('bcryptjs');
+const mongoose = require('mongoose');
 const { v4: uuidv4 } = require('uuid');
 const { QUICK_COMMERCE_COMPONENTS } = require('./quickCommerceComponents');
+const PlatformData = require('../models/PlatformData');
 
 
 const store = {
@@ -152,19 +154,63 @@ function applyPersisted(data) {
 }
 
 let persistTimer = null;
+let mongoPersistQueue = Promise.resolve();
+
+function persistedSnapshot() {
+  const payload = {};
+  PERSIST_KEYS.forEach((key) => {
+    if (store[key] !== undefined) payload[key] = store[key];
+  });
+  return payload;
+}
 
 function persistNow() {
+  const payload = persistedSnapshot();
+  if (mongoose.connection.readyState === 1) {
+    mongoPersistQueue = mongoPersistQueue
+      .then(() => PlatformData.findByIdAndUpdate('primary', { $set: { data: payload } }, { upsert: true, new: true }))
+      .catch(err => { console.error('MongoDB platform data save failed:', err.message); });
+    return mongoPersistQueue;
+  }
+  if (process.env.NODE_ENV === 'production' || process.env.RENDER === 'true') return;
   try {
     const dir = path.dirname(PERSIST_PATH);
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-    const payload = {};
-    PERSIST_KEYS.forEach((key) => {
-      if (store[key] !== undefined) payload[key] = store[key];
-    });
     fs.writeFileSync(PERSIST_PATH, JSON.stringify(payload));
   } catch (err) {
     console.warn('Persist failed:', err.message);
   }
+}
+
+async function loadPersistedFromMongo() {
+  if (mongoose.connection.readyState !== 1) {
+    throw new Error('MongoDB must be connected before loading platform data.');
+  }
+  const { ensureStarterCatalogs } = require('./starterCatalogSeed');
+  const record = await PlatformData.findById('primary').lean();
+  if (record?.data && Object.keys(record.data).length > 0) {
+    applyPersisted(record.data);
+    removeBundledProductFixtures();
+    if (ensureStarterCatalogs(store)) {
+      await PlatformData.findByIdAndUpdate(
+        'primary',
+        { $set: { data: persistedSnapshot() } },
+        { upsert: true, new: true },
+      );
+    }
+    return;
+  }
+  const existing = loadPersisted();
+  if (existing) {
+    applyPersisted(existing);
+    removeBundledProductFixtures();
+  }
+  ensureStarterCatalogs(store);
+  await PlatformData.findByIdAndUpdate(
+    'primary',
+    { $set: { data: persistedSnapshot() } },
+    { upsert: true, new: true },
+  );
 }
 
 function schedulePersist() {
@@ -173,6 +219,26 @@ function schedulePersist() {
     persistTimer = null;
     persistNow();
   }, 300);
+}
+
+function removeBundledProductFixtures() {
+  const bundledSkus = new Set([
+    'WMK001', 'MCT002', 'RSP003', 'LHB004', 'SWS005', 'SGA006',
+    'AAS001', 'FSO002', 'DSO003', 'DGL010', 'MKK011', 'WFD012',
+    'MDT019', 'HMP020', 'SAP021', 'SDE022', 'SPR023',
+  ]);
+  const isBundledProduct = product => {
+    const sku = String(product?.sku || '').trim().toUpperCase();
+    return !!product?.mainAdminSeedKey
+      || bundledSkus.has(sku)
+      || /^OC10[1-8]$/.test(sku)
+      || /^SKU(?:01[3-9]|2(?:0[0-9]|1[0-5]))$/.test(sku);
+  };
+  const products = Array.isArray(store.productItems) ? store.productItems : [];
+  const keptProducts = products.filter(product => !isBundledProduct(product));
+  if (keptProducts.length === products.length) return;
+  store.productItems = keptProducts;
+  schedulePersist();
 }
 
 function ensureQuickCommerceCatalog() {
@@ -232,23 +298,16 @@ function ensureQuickCommerceCatalog() {
 }
 
 async function fillEmptyCollections() {
-  if (!collectionHasData(store.productItems) && collectionHasData(store.stores)) {
-    const { seedProductItems } = require('./productSeed');
-    const { seedQuickCommerceProducts } = require('./qcShopSeed');
-    store.productItems = seedProductItems(store.stores);
-    store.productItems.push(...seedQuickCommerceProducts(store.stores));
-  }
+  if (!Array.isArray(store.productItems)) store.productItems = [];
   if (!store.products) store.products = [];
-  if (!collectionHasData(store.orders) && collectionHasData(store.stores)) {
-    const { seedOrders } = require('./orderSeed');
-    store.orders = seedOrders(store.stores, store.productItems, store.storeDiscounts);
-  }
+  if (!Array.isArray(store.orders)) store.orders = [];
   if (!collectionHasData(store.deliveryZones)) {
     const { hexPolygon } = require('./geoUtils');
     store.deliveryZones = [
       { _id: uuidv4(), zoneId: 59, name: 'Nagpur City', displayName: 'Nagpur City', lat: 21.1458, lng: 79.0882, radiusKm: 18, commerceType: 'quick_commerce', polygon: hexPolygon(21.1458, 79.0882, 18), modules: ['grocery', 'food'], status: true, isDefault: true },
     ];
   }
+
 }
 
 function ensureWebsiteModuleCatalog() {
@@ -352,6 +411,7 @@ async function seedMemory() {
   const persisted = loadPersisted();
   if (persisted) {
     applyPersisted(persisted);
+    removeBundledProductFixtures();
     ensureQuickCommerceCatalog();
     ensureWebsiteModuleCatalog();
     ensureWebsiteModuleContent();
@@ -682,22 +742,17 @@ async function seedMemory() {
   store.employees = seedEmployees(store.roles, store.stores);
   store.employeeLoginHistory = seedEmployeeLoginHistory(store.employees);
 
-  const { seedOrders, seedFlashSales } = require('./orderSeed');
   const { seedDeliveryMen } = require('./deliveryMenSeed');
-  const { seedProductItems, seedProductRequests, seedProductReviews, seedProductImportHistory, seedProductExportHistory } = require('./productSeed');
-  const { seedStoreDiscounts } = require('./storeDiscountSeed');
 
-  store.productItems = seedProductItems(store.stores);
-  const { seedQuickCommerceProducts } = require('./qcShopSeed');
-  store.productItems.push(...seedQuickCommerceProducts(store.stores));
-  store.storeDiscounts = seedStoreDiscounts(store.stores);
-  store.orders = seedOrders(store.stores, store.productItems, store.storeDiscounts);
+  store.productItems = [];
+  store.storeDiscounts = [];
+  store.orders = [];
   store.deliveryMen = seedDeliveryMen();
-  store.flashSales = seedFlashSales();
-  store.productRequests = seedProductRequests(store.stores);
-  store.productReviews = seedProductReviews(store.stores);
-  store.productImportHistory = seedProductImportHistory();
-  store.productExportHistory = seedProductExportHistory();
+  store.flashSales = [];
+  store.productRequests = [];
+  store.productReviews = [];
+  store.productImportHistory = [];
+  store.productExportHistory = [];
 
   const { seedCampaigns, seedBanners, seedOtherBanners, seedCoupons, seedPushNotifications, seedAdvertisements } = require('./promotionSeed');
   store.campaigns = seedCampaigns();
@@ -732,4 +787,4 @@ async function seedMemory() {
   console.log('Memory store seeded. Login: admin@wepzo.com / admin123');
 }
 
-module.exports = { store, seedMemory, schedulePersist, persistNow, PERSIST_PATH };
+module.exports = { store, seedMemory, schedulePersist, persistNow, loadPersistedFromMongo, PERSIST_PATH };

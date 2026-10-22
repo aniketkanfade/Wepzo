@@ -1,6 +1,6 @@
 const params = new URLSearchParams(window.location.search)
 
-export const API = (import.meta.env.VITE_E_COMMERCE_API_URL || import.meta.env.VITE_API_URL || (import.meta.env.DEV ? 'http://localhost:5000/api' : '/api')).replace(/\/$/, '')
+export const API = (import.meta.env.VITE_E_COMMERCE_API_URL || import.meta.env.VITE_API_URL || '/api').replace(/\/$/, '')
 export const BUILDER_PREVIEW = params.get('builderPreview') === '1'
 export const ADMIN_PREVIEW = params.get('adminPreview') === '1'
 export const WEBSITE_ID = (ADMIN_PREVIEW
@@ -67,6 +67,8 @@ export const videoOf = item => {
   return assetUrl(source)
 }
 
+const getRetryDelays = [1000, 2000, 4000, 8000]
+
 export async function request(path, options = {}) {
   const headers = {
     'Content-Type': 'application/json',
@@ -78,17 +80,34 @@ export async function request(path, options = {}) {
   }
   const token = localStorage.getItem(storageKey('wepzo-shop-token'))
   if (token) headers.Authorization = `Bearer ${token}`
-  const response = await fetch(`${API}${path}`, { ...options, headers })
+  const method = String(options.method || 'GET').toUpperCase()
+  let response
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      response = await fetch(`${API}${path}`, { ...options, headers })
+    } catch (error) {
+      if (method !== 'GET' || attempt >= getRetryDelays.length) throw error
+      await new Promise(resolve => window.setTimeout(resolve, getRetryDelays[attempt]))
+      continue
+    }
+    if (method !== 'GET' || ![502, 503, 504].includes(response.status) || attempt >= getRetryDelays.length) break
+    await new Promise(resolve => window.setTimeout(resolve, getRetryDelays[attempt]))
+  }
   const responseText = await response.text()
   let data = {}
+  let invalidJson = false
   try {
     data = responseText ? JSON.parse(responseText) : {}
   } catch {
-    data = {}
+    invalidJson = true
   }
   if (!response.ok) {
+    if (invalidJson) throw new Error(`Request failed (${response.status} ${response.statusText}).`)
     const detail = data.message || responseText.trim().slice(0, 180)
     throw new Error(detail || `Request failed (${response.status} ${response.statusText}).`)
+  }
+  if (invalidJson) {
+    throw new Error(`The API returned an invalid response for ${path}. Check that the backend is running and the API proxy is configured.`)
   }
   return data
 }

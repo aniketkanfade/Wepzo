@@ -540,7 +540,7 @@ export default function AdminSettings({ amount, paymentSettings, deliverySetting
         <form className="admin-product-form" onSubmit={saveProduct}>
           <h3>{editingId ? 'Edit product' : 'Add a product'}</h3>
           <div className="admin-form-grid">
-            <label>Product name<input required value={productForm.name} onChange={(event) => setProductForm({ ...productForm, name: event.target.value })} placeholder="Everyday Tote"/></label>
+            <label>Product name<input required value={productForm.name} onChange={(event) => setProductForm({ ...productForm, name: event.target.value })} placeholder="Enter product name"/></label>
             <label>Category<select required className="tw:h-11 tw:w-full tw:rounded tw:border tw:border-slate-300 tw:bg-white tw:px-3 tw:text-sm" value={productForm.category} onChange={(event) => setProductForm({ ...productForm, category: event.target.value })}><option value="" disabled>{productCategories.length ? 'Choose a category' : 'Create a category first'}</option>{productCategories.map((category) => <option key={category} value={category}>{category}</option>)}{productForm.category && !productCategories.includes(productForm.category) && <option value={productForm.category}>{productForm.category} (current)</option>}</select></label>
             <label>Original price (INR)<input required min="0" type="number" value={productForm.regularPrice} onChange={(event) => setProductForm({ ...productForm, regularPrice: event.target.value })} placeholder="4598"/></label>
             <label>Offer price (INR) <span>(optional)</span><input min="0" max={productForm.regularPrice || undefined} type="number" value={productForm.offerPrice} onChange={(event) => setProductForm({ ...productForm, offerPrice: event.target.value })} placeholder="Leave blank if no offer"/></label>
@@ -578,7 +578,6 @@ export default function AdminSettings({ amount, paymentSettings, deliverySetting
     </div>
   </section>
 }
-
 
 
 

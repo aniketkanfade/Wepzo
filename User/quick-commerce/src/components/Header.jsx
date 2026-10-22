@@ -11,7 +11,7 @@ import { etaMinutesFromKm, haversineKm } from '../utils/eta';
 import CartDrawer from './CartDrawer';
 import { useSiteSettings } from '../store/siteSettings';
 import googleLensIcon from '../assets/google-lens-icon.svg';
-import { prepareVisualSearchImage } from '../utils/visualSearch';
+import { prepareVisualSearchImage, setVisualSearchImage } from '../utils/visualSearch';
 
 function locationSubtitle(current) {
   if (!current) return 'Select location';
@@ -33,6 +33,7 @@ export default function Header({ componentEnabled = () => true }) {
   const location = useLocation();
   const searchParams = new URLSearchParams(location.search);
   const selectedModuleSlug = searchParams.get('module') || '';
+  const selectedModuleId = searchParams.get('moduleId') || '';
   const selectedCategoryId = searchParams.get('categoryId') || '';
   const selectedSubCategoryId = searchParams.get('subCategoryId') || '';
   const productId = location.pathname.match(/^\/p\/([^/]+)/)?.[1] || '';
@@ -81,7 +82,9 @@ export default function Header({ componentEnabled = () => true }) {
     const onScroll = () => {
       const currentY = window.scrollY;
       const delta = currentY - previousY;
-      if (currentY < 24) {
+      if (window.matchMedia('(max-width: 640px)').matches) {
+        setIsScrolledDown(currentY >= 24);
+      } else if (currentY < 24) {
         directionDistance = 0;
         setIsScrolledDown(false);
       } else if (delta > 0) {
@@ -191,7 +194,7 @@ export default function Header({ componentEnabled = () => true }) {
     setSearchNotice('Preparing your image...');
     try {
       const imageData = await prepareVisualSearchImage(file);
-      sessionStorage.setItem('wepzo-qc-visual-search-image', imageData);
+      setVisualSearchImage(imageData);
       const params = new URLSearchParams();
       params.set('visualSearch', '1');
       if (selectedModuleSlug) params.set('module', selectedModuleSlug);
@@ -227,7 +230,8 @@ export default function Header({ componentEnabled = () => true }) {
   const activeCategory = catalog.categories.find(item => String(item._id) === selectedCategoryId)
     || catalog.categories.find(item => String(item._id) === String(activeSubCategory?.categoryId))
     || catalog.categories.find(item => item.name === (activeSubCategory?.mainCategory || queryCategoryName || productContext?.category || ''));
-  const activeModule = catalog.modules.find(item => item.slug === selectedModuleSlug)
+  const activeModule = catalog.modules.find(item => String(item._id) === selectedModuleId && item.slug === selectedModuleSlug)
+    || catalog.modules.find(item => item.slug === selectedModuleSlug)
     || catalog.modules.find(item => String(item._id) === String(activeCategory?.moduleId));
   let navigationItems = catalog.modules;
   let navigationLevel = 'module';
@@ -242,6 +246,8 @@ export default function Header({ componentEnabled = () => true }) {
     const next = new URLSearchParams(location.search);
     if (navigationLevel === 'module') {
       next.set('module', item.slug);
+      if (item._id) next.set('moduleId', item._id);
+      else next.delete('moduleId');
       ['categoryId', 'subCategoryId', 'childCategoryId', 'category'].forEach(key => next.delete(key));
       return '/?' + next.toString();
     }
@@ -259,7 +265,9 @@ export default function Header({ componentEnabled = () => true }) {
     return '/c?' + next.toString();
   };
   const isNavigationItemActive = item => {
-    if (navigationLevel === 'module') return item.slug === activeModule?.slug;
+    if (navigationLevel === 'module') {
+      return String(item._id || item.slug) === String(activeModule?._id || activeModule?.slug);
+    }
     if (navigationLevel === 'category') return String(item._id) === String(activeCategory?._id);
     return String(item._id) === String(activeSubCategory?._id);
   };  const placeLine = locationSubtitle(current);
@@ -410,11 +418,14 @@ export default function Header({ componentEnabled = () => true }) {
           <span className="qc-header-all-icon"><Home size={22} strokeWidth={1.8} /></span>
           <span>Home</span>
         </Link>
-        {navigationItems.map(item => {
+        {navigationItems.map((item, index) => {
           const image = item.image || moduleFallbackImages[item.slug] || 'https://images.unsplash.com/photo-1542838132-92c53300491e?w=100&h=80&fit=crop';
+          const isDuplicateGrocery = item.slug === 'grocery'
+            && navigationItems.findIndex(module => module.slug === 'grocery') !== index;
+          const label = isDuplicateGrocery ? 'Daily Needs' : item.name;
           return <Link key={item._id || item.slug} to={navigationHref(item)} className={isNavigationItemActive(item) ? 'qc-header-module active' : 'qc-header-module'}>
             <img src={image} alt="" />
-            <span>{item.name}</span>
+            <span>{label}</span>
           </Link>;
         })}
       </nav>}

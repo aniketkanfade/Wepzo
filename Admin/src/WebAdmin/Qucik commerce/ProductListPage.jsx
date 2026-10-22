@@ -6,6 +6,7 @@ import { downloadFile } from '../../api/download';
 import ProductStockUpdateModal from './components/ProductStockUpdateModal';
 import SearchDataFilterDrawer from './components/SearchDataFilterDrawer';
 import ViewableImage from './components/ViewableImage';
+import ConfirmModal from './components/ConfirmModal';
 import { useDeliveryZones } from '../../hooks/useDeliveryZones';
 import NavyToggle from './components/NavyToggle';
 import { LIST_NAVY as NAVY, LIST_TEAL as TEAL, LIST_PAGE_BG as PAGE_BG, LIST_CARD_BORDER as CARD_BORDER, LIST_PER_PAGE as perPage, listBtnNavy, listBtnOutline, listTheadClass, listTheadStyle, listThClass, listRowClass, listRowStyle, listTdClass } from '../../constants/listTheme';
@@ -83,6 +84,9 @@ export default function ProductListPage() {
   const [showFilterDrawer, setShowFilterDrawer] = useState(false);
   const [page, setPage] = useState(1);
   const [stockProduct, setStockProduct] = useState(null);
+  const [deleteTarget, setDeleteTarget] = useState(null);
+  const [deleteError, setDeleteError] = useState('');
+  const [deleting, setDeleting] = useState(false);
   const { names: zoneNames } = useDeliveryZones();
 
   const stopRow = (e) => e.stopPropagation();
@@ -168,10 +172,19 @@ export default function ProductListPage() {
     setItems(prev => prev.map(i => i._id === id ? data : i));
   };
 
-  const handleDelete = async (id) => {
-    if (!confirm('Delete this product?')) return;
-    await api.delete(`/product-items/${id}`);
-    setItems(prev => prev.filter(i => i._id !== id));
+  const handleDelete = async () => {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    setDeleteError('');
+    try {
+      await api.delete(`/product-items/${deleteTarget._id}`);
+      setItems(prev => prev.filter(item => item._id !== deleteTarget._id));
+      setDeleteTarget(null);
+    } catch (error) {
+      setDeleteError(error.response?.data?.message || 'Product could not be deleted. Please try again.');
+    } finally {
+      setDeleting(false);
+    }
   };
 
   const handleStockSaved = (updated) => {
@@ -378,7 +391,7 @@ export default function ProductListPage() {
                         style={{ borderColor: '#b8c9e8' }}>
                         <Edit size={15} />
                       </Link>
-                      <button type="button" title="Delete" onClick={() => handleDelete(item._id)}
+                      <button type="button" title="Delete" onClick={() => { setDeleteTarget(item); setDeleteError(''); }}
                         className="w-9 h-9 flex items-center justify-center rounded-lg border text-[#ff4d4f] hover:bg-red-50 transition"
                         style={{ borderColor: '#ffc9c9' }}>
                         <Trash2 size={15} />
@@ -445,6 +458,20 @@ export default function ProductListPage() {
           product={stockProduct}
           onClose={() => setStockProduct(null)}
           onSaved={handleStockSaved}
+        />
+      )}
+
+      {deleteTarget && (
+        <ConfirmModal
+          title="Delete product?"
+          message={`“${deleteTarget.name}” will be permanently deleted. This action cannot be undone.`}
+          confirmLabel="Delete product"
+          cancelLabel="Cancel"
+          danger
+          busy={deleting}
+          error={deleteError}
+          onClose={() => setDeleteTarget(null)}
+          onConfirm={handleDelete}
         />
       )}
     </div>

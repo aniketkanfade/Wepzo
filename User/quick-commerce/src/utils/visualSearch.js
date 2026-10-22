@@ -1,11 +1,15 @@
-const REFERENCE_KEY = 'wepzo-qc-visual-search-image';
+let referenceImage = '';
 
 export function readVisualSearchImage() {
-  try { return sessionStorage.getItem(REFERENCE_KEY) || ''; } catch { return ''; }
+  return referenceImage;
 }
 
 export function clearVisualSearchImage() {
-  try { sessionStorage.removeItem(REFERENCE_KEY); } catch { /* storage can be disabled */ }
+  referenceImage = '';
+}
+
+export function setVisualSearchImage(image) {
+  referenceImage = image;
 }
 
 function loadImage(source) {

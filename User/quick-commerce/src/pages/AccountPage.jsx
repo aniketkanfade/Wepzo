@@ -18,6 +18,7 @@ export default function AccountPage() {
   const { section = 'profile' } = useParams();
   const navigate = useNavigate();
   const user = useAuthStore(state => state.user);
+  const authLoading = useAuthStore(state => state.loading);
   const setSession = useAuthStore(state => state.setSession);
   const token = useAuthStore(state => state.token);
   const business = useSiteSettings(state => state.business);
@@ -56,6 +57,7 @@ export default function AccountPage() {
   const referralCode = customer?.referralCode || '';
   const activeOrders = useMemo(() => orders.filter(order => !['delivered', 'cancelled', 'rejected'].includes(String(order.status || '').toLowerCase())), [orders]);
 
+  if (authLoading) return <p className="py-10 text-center text-sm text-slate-500">Loading account...</p>;
   if (!user) return <Navigate to={`/login?next=${encodeURIComponent(`/account/${activeSection}`)}`} replace />;
 
   const saveProfile = async event => {

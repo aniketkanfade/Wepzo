@@ -4,6 +4,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import api from '../../api/axios';
 import AdminListLayout from './components/AdminListLayout';
 import ViewableImage from './components/ViewableImage';
+import ConfirmModal from './components/ConfirmModal';
 import { useListPagination } from '../../hooks/useListPagination';
 import { LIST_TEAL, listBtnOutline, listTheadClass, listTheadStyle, listThClass, listRowClass, listRowStyle, listTdClass } from '../../constants/listTheme';
 
@@ -12,6 +13,9 @@ export default function ProductLowStockPage() {
   const [items, setItems] = useState([]);
   const [searchInput, setSearchInput] = useState('');
   const [search, setSearch] = useState('');
+  const [deleteTarget, setDeleteTarget] = useState(null);
+  const [deleteError, setDeleteError] = useState('');
+  const [deleting, setDeleting] = useState(false);
   const stopRow = (e) => e.stopPropagation();
 
   useEffect(() => { api.get('/product-items?lowStock=true').then(r => setItems(r.data)).catch(() => {}); }, []);
@@ -21,10 +25,19 @@ export default function ProductLowStockPage() {
   );
   const { page, setPage, perPage, totalPages, paginated, total } = useListPagination(filtered, { resetDeps: [search] });
 
-  const handleDelete = async (id) => {
-    if (!confirm('Delete this product?')) return;
-    await api.delete(`/product-items/${id}`);
-    setItems(prev => prev.filter(i => i._id !== id));
+  const handleDelete = async () => {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    setDeleteError('');
+    try {
+      await api.delete(`/product-items/${deleteTarget._id}`);
+      setItems(prev => prev.filter(item => item._id !== deleteTarget._id));
+      setDeleteTarget(null);
+    } catch (error) {
+      setDeleteError(error.response?.data?.message || 'Product could not be deleted. Please try again.');
+    } finally {
+      setDeleting(false);
+    }
   };
 
   return (
@@ -95,7 +108,7 @@ export default function ProductLowStockPage() {
                     className="w-9 h-9 flex items-center justify-center rounded-lg border text-[#1a3a8a] hover:bg-[#f0f4ff]" style={{ borderColor: '#b8c9e8' }}>
                     <Edit size={15} />
                   </Link>
-                  <button type="button" title="Delete" onClick={() => handleDelete(item._id)}
+                  <button type="button" title="Delete" onClick={() => { setDeleteTarget(item); setDeleteError(''); }}
                     className="w-9 h-9 flex items-center justify-center rounded-lg border text-[#ff4d4f] hover:bg-red-50" style={{ borderColor: '#ffc9c9' }}>
                     <Trash2 size={15} />
                   </button>
@@ -105,6 +118,19 @@ export default function ProductLowStockPage() {
           ))}
         </tbody>
       </table>
+      {deleteTarget && (
+        <ConfirmModal
+          title="Delete product?"
+          message={`“${deleteTarget.name}” will be permanently deleted. This action cannot be undone.`}
+          confirmLabel="Delete product"
+          cancelLabel="Cancel"
+          danger
+          busy={deleting}
+          error={deleteError}
+          onClose={() => setDeleteTarget(null)}
+          onConfirm={handleDelete}
+        />
+      )}
     </AdminListLayout>
   );
 }

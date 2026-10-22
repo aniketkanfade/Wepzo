@@ -207,6 +207,12 @@ export default function useStorefront() {
         request(`/shop/products?${new URLSearchParams({ ...(selectedModule ? { module: selectedModule } : {}), ...(sort ? { sort } : {}) })}`),
         WEBSITE_ID ? request(`/public/published-websites/${WEBSITE_ID}`).catch(() => null) : Promise.resolve(null),
       ])
+      if (!shop || typeof shop !== 'object' || Array.isArray(shop)) {
+        throw new Error('The shop API returned invalid storefront data. Please try again.')
+      }
+      if (!Array.isArray(catalog)) {
+        throw new Error('The products API returned invalid catalog data. Please try again.')
+      }
       setHome(shop)
       if (shop.business?.codEnabled === false && shop.business?.onlinePaymentEnabled) setPaymentMethod('ONLINE')
       setProducts(catalog)

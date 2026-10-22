@@ -225,6 +225,10 @@ export default function StorefrontPage() {
             visible={showCategories && Boolean(selectedModule)}
           />
           {showDeals && !selectedModule && <FlashDealsSection {...productSectionProps} sales={home?.flashSales} products={products} />}
+<<<<<<< HEAD
+=======
+          {!selectedModule && <PromotionBanners banners={homeMidBanners} />}
+>>>>>>> 60ab641a6dd29e4a6267f01dc5119f9bf84e318f
           {showCategoryRecommendations && <CategoryRecommendationsSection
             {...productSectionProps} products={recommendationProducts} categoryLabel={recommendationScope}
             moduleSlug={selectedModule} interactions={productInteractions}
@@ -246,7 +250,10 @@ export default function StorefrontPage() {
                 <PromotionBanners banners={storefrontBanners} />
               </>
             : (showProductGrid || selectedModule) && <>
+<<<<<<< HEAD
               {!selectedModule && <PromotionBanners banners={homeMidBanners} />}
+=======
+>>>>>>> 60ab641a6dd29e4a6267f01dc5119f9bf84e318f
               <ProductGridSection {...productSectionProps} products={shown} prefix="catalog" />
               {!selectedModule && <PromotionBanners banners={storefrontBanners} />}
             </>}

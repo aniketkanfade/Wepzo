@@ -1,27 +1,10 @@
 import axios from 'axios';
+import { getWebsiteContext } from './websiteContext';
 
-const api = axios.create({ baseURL: '/api' });
+const api = axios.create({ baseURL: '/api', withCredentials: true });
 
 export function readQcToken() {
-  try {
-    const storageKey = getShopAuthStorageKey();
-    const raw = localStorage.getItem(storageKey);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    return parsed?.state?.token || parsed?.token || null;
-  } catch {
-    return null;
-  }
-}
-
-export function getShopAuthStorageKey() {
-  try {
-    const websiteId = new URLSearchParams(window.location.search).get('websiteId')
-      || JSON.parse(sessionStorage.getItem('wepzo-website-context') || 'null')?.websiteId;
-    return websiteId ? `wepzo-qc-auth:${websiteId}` : 'wepzo-qc-auth';
-  } catch {
-    return 'wepzo-qc-auth';
-  }
+  return api.defaults.headers.common.Authorization?.replace(/^Bearer\s+/i, '') || null;
 }
 
 api.interceptors.request.use((config) => {
@@ -38,24 +21,21 @@ api.interceptors.request.use((config) => {
   const token = readQcToken();
   if (token) config.headers.Authorization = `Bearer ${token}`;
   else delete config.headers.Authorization;
-  try {
-    const savedContext = JSON.parse(sessionStorage.getItem('wepzo-website-context') || 'null');
-    const websiteId = urlParams.get('websiteId') || (!adminPreview ? savedContext?.websiteId : '');
-    const websiteModuleId = urlParams.get('websiteModuleId') || (!adminPreview ? savedContext?.websiteModuleId : '');
-    if (websiteId) config.headers['X-Website-Id'] = websiteId;
-    if (websiteModuleId) config.headers['X-Website-Module-Id'] = websiteModuleId;
-    if (adminPreview) {
-      delete config.headers.Authorization;
-      config.headers['X-Admin-Preview'] = '1';
-    }
-  } catch { /* ignore unavailable browser storage */ }
+  const savedContext = getWebsiteContext();
+  const websiteId = urlParams.get('websiteId') || (!adminPreview ? savedContext?.websiteId || import.meta.env.VITE_WEBSITE_ID : '');
+  const websiteModuleId = urlParams.get('websiteModuleId') || (!adminPreview ? savedContext?.websiteModuleId || import.meta.env.VITE_WEBSITE_MODULE_ID : '');
+  if (websiteId) config.headers['X-Website-Id'] = websiteId;
+  if (websiteModuleId) config.headers['X-Website-Module-Id'] = websiteModuleId;
+  if (adminPreview) {
+    delete config.headers.Authorization;
+    config.headers['X-Admin-Preview'] = '1';
+  }
   return config;
 });
 
 function isShopAuthRequest(config) {
   const url = String(config?.url || '').split('?')[0];
   const method = String(config?.method || 'get').toLowerCase();
-  if (url.includes('/shop/auth/me')) return true;
   if (method === 'post' && /\/shop\/orders\/?$/.test(url)) return true;
   return false;
 }
@@ -64,7 +44,6 @@ api.interceptors.response.use(
   (r) => r,
   (err) => {
     if (err.response?.status === 401 && isShopAuthRequest(err.config) && typeof window !== 'undefined') {
-      try { localStorage.removeItem(getShopAuthStorageKey()); } catch { /* ignore */ }
       const path = window.location.pathname || '/';
       if (!path.startsWith('/login')) {
         const next = encodeURIComponent(path + (window.location.search || ''));
@@ -85,6 +64,10 @@ export const shop = {
     if (token) api.defaults.headers.common.Authorization = `Bearer ${token}`;
     else delete api.defaults.headers.common.Authorization;
   },
+  state: () => api.get('/shop/state').then(r => r.data),
+  saveState: (state) => api.put('/shop/state', { state }).then(r => r.data),
+  establishSession: () => api.post('/shop/auth/session').then(r => r.data),
+  logout: () => api.post('/shop/auth/logout').then(r => r.data),
   home: (params) => api.get('/shop/home', { params }).then(r => r.data),
   products: (params) => api.get('/shop/products', { params }).then(r => r.data),
   product: (id, params) => api.get(`/shop/products/${id}`, { params }).then(r => r.data),

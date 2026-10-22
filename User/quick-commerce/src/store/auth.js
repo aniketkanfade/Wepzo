@@ -1,23 +1,25 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
-import { getShopAuthStorageKey, shop } from '../api';
+import { shop } from '../api';
 
-export const useAuthStore = create(persist((set) => ({
+export const useAuthStore = create((set) => ({
   token: null,
   user: null,
+  loading: true,
   setSession: (token, user) => {
     shop.setToken(token);
-    set({ token, user });
+    set({ token, user, loading: false });
     if (typeof window !== 'undefined') window.dispatchEvent(new Event('wepzo:shop-session-changed'));
   },
   logout: () => {
     shop.setToken(null);
-    set({ token: null, user: null });
+    set({ token: null, user: null, loading: false });
+    shop.logout().catch(error => {
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('wepzo:shop-session-error', {
+          detail: error.response?.data?.message || error.message,
+        }));
+      }
+    });
     if (typeof window !== 'undefined') window.dispatchEvent(new Event('wepzo:shop-session-changed'));
-  },
-}), {
-  name: getShopAuthStorageKey(),
-  onRehydrateStorage: () => (state) => {
-    if (state?.token) shop.setToken(state.token);
   },
 }));

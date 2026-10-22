@@ -15,8 +15,8 @@ import OrderManagement from './components/OrderManagement.jsx'
 import CustomerProfile from './components/CustomerProfile.jsx'
 import CodPaymentPrompt from './components/CodPaymentPrompt.jsx'
 import { deleteLocalStore, findLocalStoreBySlug, listLocalStores, restoreLocalStore, updateLocalStore } from './platformLocal.js'
-import { products as initialProducts, categories as initialCategories } from './data/store.js'
 import { getProductQuantityLimit, getTrackedStock } from './utils/productLimits.js'
+const API = (import.meta.env.VITE_API_URL || '/api').replace(/\/$/, '')
 const defaultSubscriptionPlans = [{ id: '1m', label: '1 month', unit: 'month', duration: 1, months: 1, price: 500, enabled: true }, { id: '3m', label: '3 months', unit: 'month', duration: 3, months: 3, price: 1350, enabled: true }, { id: '6m', label: '6 months', unit: 'month', duration: 6, months: 6, price: 2500, enabled: true }, { id: '12m', label: '1 year', unit: 'year', duration: 1, months: 12, price: 4800, enabled: true }]
 const normalizePlans = (plans) => plans.map((plan) => {
   const unit = plan.unit || (String(plan.label).toLowerCase().includes('year') ? 'year' : 'month')
@@ -38,8 +38,8 @@ function App() {
   const [productCategories, setProductCategories] = useState(() => {
     try {
       const saved = JSON.parse(localStorage.getItem(activeStoreId ? `morrow-store-${activeStoreId}-categories` : 'morrow-categories'))
-      return Array.isArray(saved) ? saved : activeStoreId ? [] : initialCategories.slice(1)
-    } catch { return activeStoreId ? [] : initialCategories.slice(1) }
+      return Array.isArray(saved) ? saved : []
+    } catch { return [] }
   })
   const [subscriptionAmount, setSubscriptionAmount] = useState(() => {
     const saved = Number(localStorage.getItem('morrow-platform-subscription-price'))
@@ -101,12 +101,41 @@ function App() {
   const [query, setQuery] = useState('')
   const [category, setCategory] = useState('All pieces')
   const [cart, setCart] = useState({})
-  const [catalog, setCatalog] = useState(() => {
-    try {
-      const saved = JSON.parse(localStorage.getItem(storeKey('products')))
-      return Array.isArray(saved) ? saved : initialProducts
-    } catch { return initialProducts }
-  })
+  const [catalog, setCatalog] = useState([])
+  const [catalogLoading, setCatalogLoading] = useState(true)
+  const [catalogError, setCatalogError] = useState('')
+  useEffect(() => {
+    let active = true
+    fetch(`${API}/shop/products?module=e-commerce`, {
+      headers: { 'X-Website-Module': 'e-commerce' },
+      cache: 'no-store',
+    })
+      .then(async response => {
+        const data = await response.json().catch(() => ({}))
+        if (!response.ok) throw new Error(data.message || `Products could not be loaded (${response.status}).`)
+        if (!Array.isArray(data)) throw new Error('The product API returned an invalid catalog.')
+        return data.map(product => ({
+          ...product,
+          id: product.id || product._id || product.productId,
+          category: product.category || product.mainCategory || '',
+          color: product.color || product.brand || '',
+          oldPrice: product.mrp > product.price ? product.mrp : product.oldPrice,
+        }))
+      })
+      .then(products => {
+        if (!active) return
+        setCatalog(products)
+        setProductCategories([...new Set(products.map(product => product.category).filter(Boolean))])
+        setCatalogError('')
+      })
+      .catch(error => {
+        if (active) setCatalogError(error.message || 'Products could not be loaded from the store API.')
+      })
+      .finally(() => {
+        if (active) setCatalogLoading(false)
+      })
+    return () => { active = false }
+  }, [])
   const [notice, setNotice] = useState('')
   const [checkoutOpen, setCheckoutOpen] = useState(false)
   const [loginOpen, setLoginOpen] = useState(false)
@@ -287,7 +316,7 @@ function App() {
     setActiveStoreId('')
     try {
       const savedProducts = JSON.parse(localStorage.getItem('morrow-products'))
-      setCatalog(Array.isArray(savedProducts) ? savedProducts : initialProducts)
+      setCatalog(Array.isArray(savedProducts) ? savedProducts : [])
       const savedPercent = Number(localStorage.getItem('morrow-advance-percent'))
       setAdvanceAmount(Number.isFinite(savedPercent) && savedPercent >= 0 && savedPercent <= 100 ? savedPercent : 20)
       const savedPayments = JSON.parse(localStorage.getItem('morrow-payment-settings')) || {}
@@ -297,11 +326,11 @@ function App() {
       setDeliverySettings(Object.fromEntries(Object.entries(defaultDelivery).map(([key, value]) => [key, { ...value, ...(savedDelivery[key] || {}), paymentMethods: { ...value.paymentMethods, ...(savedDelivery[key]?.paymentMethods || {}) } }])))
       setSavedAddress(JSON.parse(localStorage.getItem('morrow-delivery-address')))
       const savedCategories = JSON.parse(localStorage.getItem('morrow-categories'))
-      setProductCategories(Array.isArray(savedCategories) ? savedCategories : initialCategories.slice(1))
+      setProductCategories(Array.isArray(savedCategories) ? savedCategories : [])
       setBanner({ ...defaultBanner, ...(JSON.parse(localStorage.getItem('morrow-banner')) || {}) })
       setAppearance({ ...defaultAppearance, ...(JSON.parse(localStorage.getItem('morrow-appearance')) || {}) })
       setStoreSubscription({ status: 'platform', expiresAt: null })
-    } catch { setCatalog(initialProducts) }
+    } catch { setCatalog([]) }
     setMainAdminAuthenticated(true)
   }
   const changeQuantity = (product, amount) => {
@@ -327,7 +356,7 @@ function App() {
   }
   const cartCount = Object.values(cart).reduce((total, quantity) => total + quantity, 0)
   const mainOrders = (() => { try { return JSON.parse(localStorage.getItem('morrow-orders')) || [] } catch { return [] } })()
-  const mainProducts = (() => { try { const saved = JSON.parse(localStorage.getItem('morrow-products')); return Array.isArray(saved) ? saved : initialProducts } catch { return initialProducts } })()
+  const mainProducts = catalog
   const customerOrders = currentUser ? (() => {
     const key = routeStore?.storeId ? `morrow-store-${routeStore.storeId}-orders` : 'morrow-orders'
     try { return (JSON.parse(localStorage.getItem(key)) || []).filter((order) => String(order.customer?.email || '').toLowerCase() === String(currentUser.email || '').toLowerCase()) } catch { return [] }
@@ -384,7 +413,9 @@ function App() {
       <section className="collection" id="collection">
         {categoryOptions.length > 0 && <div className="category-row" role="tablist" aria-label="Filter by category">{['All pieces', ...categoryOptions].map((item) => <button key={item} className={`category-chip ${category === item ? 'active' : ''}`} onClick={() => setCategory(item)} role="tab" aria-selected={category === item}>{item}</button>)}</div>}
         <div className="product-grid" id="products">{filtered.map((product, index) => <ProductCard key={product.id} product={product} index={index} quantity={cart[product.id] || 0} onQuantityChange={changeQuantity}/>)}</div>
-        {filtered.length === 0 && <div className="empty-state">No pieces found. Try another search.</div>}
+        {catalogLoading && <div className="empty-state" role="status">Loading products from the store...</div>}
+        {!catalogLoading && catalogError && <div className="empty-state" role="alert">{catalogError}</div>}
+        {!catalogLoading && !catalogError && filtered.length === 0 && <div className="empty-state">No products are available yet.</div>}
       </section>
       <section className="note-banner"><span className="note-sparkle">✳</span><div><span className="eyebrow">A NOTE FROM MORROW</span><p>Less, but <em>lovelier.</em></p></div><span className="note-aside">Thoughtfully made. Happily kept.</span></section>
     </>}</main>
@@ -395,8 +426,5 @@ function App() {
 }
 
 export default App
-
-
-
 
 

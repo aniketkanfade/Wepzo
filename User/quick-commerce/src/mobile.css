@@ -53,9 +53,7 @@
 
 @media (max-width: 640px) {
   .qc-header {
-    position: sticky !important;
-    top: 0 !important;
-    z-index: 1000 !important;
+    position: static !important;
     align-self: stretch;
     width: 100%;
     background: #fff;
@@ -65,6 +63,20 @@
     position: static !important;
     width: 100%;
     background: #fff;
+  }
+
+  .qc-header-cats.is-module-nav.is-compact {
+    position: fixed !important;
+    z-index: 1100;
+    top: 0;
+    right: 0;
+    left: 0;
+    width: 100%;
+    padding-top: 8px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid #e8eaf0;
+    background: #fff;
+    box-shadow: 0 2px 10px rgb(15 23 42 / 8%);
   }
 
   .qc-header-cats > .qc-header-module:first-child {
@@ -88,7 +100,7 @@
   .qc-header-main {
     display: grid;
     position: relative;
-    grid-template-columns: minmax(64px, auto) minmax(0, 1fr) 40px;
+    grid-template-columns: minmax(0, .85fr) minmax(0, 1.15fr);
     gap: 6px;
     width: 100%;
     max-width: none;
@@ -97,37 +109,17 @@
   }
 
   .qc-header-logo {
-    min-width: 0;
-    max-width: 100%;
-    overflow: hidden;
-    gap: 5px;
-    font-size: 16px;
-  }
-
-  .qc-header-logo > span:not(.qc-header-brand-name) {
-    width: 26px;
-    height: 26px;
-  }
-
-  .qc-header-brand-image {
-    max-width: min(68px, 22vw);
-    max-height: 28px;
-  }
-
-  .qc-header-brand-name {
-    max-width: 58px;
-    font-size: 16px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    display: none !important;
   }
 
   .qc-header-location {
-    justify-self: end;
+    grid-column: 1;
+    grid-row: 1;
+    justify-self: stretch;
     align-self: center;
-    width: auto;
+    width: 100%;
     min-width: 0;
-    max-width: min(30vw, 102px) !important;
+    max-width: 100% !important;
     margin: 0;
     padding: 3px 0 !important;
     border-radius: 0 !important;
@@ -274,8 +266,7 @@
   }
 
   .qc-home .qc-product-image-wrap > a:first-child {
-    height: 68px;
-    aspect-ratio: auto;
+    aspect-ratio: 1 / 1;
     padding: 4px;
     background: #f7fafc;
   }
@@ -581,7 +572,7 @@
 
 @media (max-width: 360px) {
   .qc-header-main {
-    grid-template-columns: minmax(64px, 78px) minmax(64px, 88px) minmax(90px, 1fr);
+    grid-template-columns: minmax(0, .85fr) minmax(0, 1.15fr);
     gap: 5px;
     padding-right: 8px;
     padding-left: 8px;
@@ -884,7 +875,7 @@
   }
 
   .qc-header-main {
-    grid-template-columns: minmax(65px, .85fr) minmax(128px, 1.25fr) minmax(100px, 1.2fr);
+    grid-template-columns: minmax(0, .85fr) minmax(0, 1.15fr);
     grid-template-rows: 36px;
     column-gap: 6px;
     row-gap: 0;
@@ -892,11 +883,7 @@
   }
 
   .qc-header-logo {
-    grid-column: 1;
-    grid-row: 1;
-    justify-self: start;
-    max-width: 100%;
-    padding-right: 4px;
+    display: none !important;
   }
 
   .qc-header-brand-image {
@@ -905,7 +892,7 @@
   }
 
   .qc-header-location {
-    grid-column: 2;
+    grid-column: 1;
     grid-row: 1;
     justify-self: stretch;
     max-width: 100% !important;
@@ -933,7 +920,7 @@
   .qc-header-location > span:last-child > span {
     flex: 1;
     min-width: 0;
-    max-width: min(28vw, 105px);
+    max-width: 100%;
     display: block;
     overflow: hidden;
     font-size: 10px;
@@ -948,7 +935,7 @@
   }
 
   .qc-header-search {
-    grid-column: 3;
+    grid-column: 2;
     grid-row: 1;
     width: 100%;
     min-width: 0;
@@ -1074,22 +1061,15 @@
   .qc-header-cats.is-module-nav .qc-header-module img {
     display: block;
     width: 52px;
-    height: 50px;
+    height: 52px;
     flex: 0 0 auto;
-    object-fit: cover;
+    aspect-ratio: 1 / 1;
+    object-fit: contain;
     border-radius: 11px;
     background: transparent;
     mix-blend-mode: normal;
     transform: none;
   }
-
-  .qc-header-cats.is-module-nav .qc-header-module:nth-child(2) { background: linear-gradient(145deg, #fff8df, #e7f5d1 54%, #ffe1bc); }
-  .qc-header-cats.is-module-nav .qc-header-module:nth-child(3) { background: linear-gradient(145deg, #fff0df, #ffd6c9 55%, #ffe3eb); }
-  .qc-header-cats.is-module-nav .qc-header-module:nth-child(4) { background: linear-gradient(145deg, #edf6ff, #d5e8ff 55%, #e9ddff); }
-  .qc-header-cats.is-module-nav .qc-header-module:nth-child(5) { background: linear-gradient(145deg, #fff9d8, #ffe28d 55%, #ffd978); }
-  .qc-header-cats.is-module-nav .qc-header-module:nth-child(6) { background: linear-gradient(145deg, #e8fff4, #c6f0df 55%, #d6f1ff); }
-  .qc-header-cats.is-module-nav .qc-header-module:nth-child(7) { background: linear-gradient(145deg, #f4edff, #e3d8ff 55%, #ffe4f2); }
-  .qc-header-cats.is-module-nav .qc-header-module:nth-child(8) { background: linear-gradient(145deg, #eafcff, #d2eff5 55%, #e9e2ff); }
 
   .qc-header-cats.is-module-nav .qc-header-module span:last-child {
     max-width: 100%;
@@ -1153,7 +1133,7 @@
 
 @media (max-width: 360px) {
   .qc-header-main {
-    grid-template-columns: minmax(58px, .75fr) minmax(112px, 1.2fr) minmax(80px, 1fr);
+    grid-template-columns: minmax(0, .85fr) minmax(0, 1.15fr);
     column-gap: 5px;
     padding-right: 8px;
     padding-left: 8px;

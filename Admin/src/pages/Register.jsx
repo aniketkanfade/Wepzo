@@ -40,7 +40,14 @@ export default function Register() {
     if (password.length < 8) return setError('Password kam se kam 8 characters ka hona chahiye');
     setSubmitting(true);
     try {
-      const { data } = await api.post('/auth/register', { name, email, password, moduleId: selectedModule?._id, moduleSlug });
+      const { data } = await api.post('/auth/register', {
+        name,
+        email,
+        password,
+        websiteName: websiteName.trim(),
+        moduleId: selectedModule?._id,
+        moduleSlug,
+      });
       setAuth(data.user, data.token);
       resetBuilder();
       const registeredModule = data.module || selectedModule;
