@@ -22,8 +22,8 @@ api.interceptors.request.use((config) => {
   if (token) config.headers.Authorization = `Bearer ${token}`;
   else delete config.headers.Authorization;
   const savedContext = getWebsiteContext();
-  const websiteId = urlParams.get('websiteId') || (!adminPreview ? savedContext?.websiteId : '');
-  const websiteModuleId = urlParams.get('websiteModuleId') || (!adminPreview ? savedContext?.websiteModuleId : '');
+  const websiteId = urlParams.get('websiteId') || (!adminPreview ? savedContext?.websiteId || import.meta.env.VITE_WEBSITE_ID : '');
+  const websiteModuleId = urlParams.get('websiteModuleId') || (!adminPreview ? savedContext?.websiteModuleId || import.meta.env.VITE_WEBSITE_MODULE_ID : '');
   if (websiteId) config.headers['X-Website-Id'] = websiteId;
   if (websiteModuleId) config.headers['X-Website-Module-Id'] = websiteModuleId;
   if (adminPreview) {
