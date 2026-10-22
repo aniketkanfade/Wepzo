@@ -1,33 +1,31 @@
-import { X, AlertTriangle, CheckCircle } from 'lucide-react';
+import { X, AlertTriangle, CheckCircle, Trash2 } from 'lucide-react';
 
-export default function ConfirmModal({ title, message, confirmLabel = 'Yes, Confirm', cancelLabel = 'No', onConfirm, onClose, danger }) {
+export default function ConfirmModal({ title, message, confirmLabel = 'Yes, Confirm', cancelLabel = 'No', onConfirm, onClose, danger, busy = false, error = '' }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" onClick={onClose}>
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-in" onClick={e => e.stopPropagation()}>
-        <div className={`px-6 py-5 ${danger ? 'bg-red-50' : 'bg-primary-50'}`}>
-          <div className="flex items-start justify-between">
-            <div className="flex items-center gap-3">
-              <div className={`w-11 h-11 rounded-full flex items-center justify-center shadow-sm ${danger ? 'bg-white' : 'bg-white'}`}>
-                {danger
-                  ? <AlertTriangle size={22} className="text-red-500" />
-                  : <CheckCircle size={22} className="text-primary-600" />}
-              </div>
-              <h3 className="font-bold text-gray-900 text-base">{title}</h3>
-            </div>
-            <button type="button" onClick={onClose} className="p-1.5 hover:bg-white/60 rounded-lg text-gray-400 transition">
-              <X size={18} />
-            </button>
-          </div>
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/55 p-4 backdrop-blur-sm" onClick={() => !busy && onClose()}>
+      <div role="alertdialog" aria-modal="true" aria-labelledby="confirm-modal-title" aria-describedby="confirm-modal-message" className="w-full max-w-sm overflow-hidden rounded-2xl bg-white shadow-2xl ring-1 ring-black/5" onClick={event => event.stopPropagation()}>
+        <div className="flex justify-end px-4 pt-4">
+          <button type="button" disabled={busy} aria-label="Close dialog" onClick={onClose} className="rounded-lg p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 disabled:opacity-50">
+            <X size={18} />
+          </button>
         </div>
-        <p className="px-6 py-5 text-sm text-gray-600 leading-relaxed">{message}</p>
-        <div className="flex gap-3 px-6 pb-6">
-          <button type="button" onClick={onClose}
-            className="flex-1 py-2.5 border border-gray-200 rounded-xl text-sm font-semibold text-gray-600 hover:bg-gray-50 transition">
+        <div className="px-6 pb-6 text-center">
+          <div className={`mx-auto grid h-14 w-14 place-items-center rounded-full ${danger ? 'bg-rose-50 text-rose-600' : 'bg-blue-50 text-blue-600'}`}>
+            {danger ? <Trash2 size={24} /> : <CheckCircle size={24} />}
+          </div>
+          <h3 id="confirm-modal-title" className="mt-4 text-lg font-bold text-slate-900">{title}</h3>
+          <p id="confirm-modal-message" className="mt-2 text-sm leading-6 text-slate-600">{message}</p>
+          {error && <p role="alert" className="mt-3 rounded-lg bg-rose-50 px-3 py-2 text-left text-xs text-rose-700">{error}</p>}
+        </div>
+        <div className="flex justify-center gap-3 border-t border-slate-100 bg-slate-50/70 px-6 py-4">
+          <button type="button" disabled={busy} onClick={onClose}
+            className="min-w-28 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-100 disabled:opacity-50">
             {cancelLabel}
           </button>
-          <button type="button" onClick={onConfirm}
-            className={`flex-1 py-2.5 rounded-xl text-sm font-bold text-white shadow-sm transition ${danger ? 'bg-red-600 hover:bg-red-700' : 'bg-primary-600 hover:bg-primary-700'}`}>
-            {confirmLabel}
+          <button type="button" disabled={busy} onClick={onConfirm}
+            className={`inline-flex min-w-28 items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-bold text-white shadow-sm transition disabled:cursor-wait disabled:opacity-60 ${danger ? 'bg-rose-600 hover:bg-rose-700' : 'bg-primary-600 hover:bg-primary-700'}`}>
+            {busy && <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />}
+            {busy ? 'Please wait...' : confirmLabel}
           </button>
         </div>
       </div>
