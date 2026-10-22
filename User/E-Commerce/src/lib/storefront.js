@@ -67,6 +67,8 @@ export const videoOf = item => {
   return assetUrl(source)
 }
 
+const getRetryDelays = [1000, 2000, 4000, 8000]
+
 export async function request(path, options = {}) {
   const headers = {
     'Content-Type': 'application/json',
@@ -78,7 +80,19 @@ export async function request(path, options = {}) {
   }
   const token = localStorage.getItem(storageKey('wepzo-shop-token'))
   if (token) headers.Authorization = `Bearer ${token}`
-  const response = await fetch(`${API}${path}`, { ...options, headers })
+  const method = String(options.method || 'GET').toUpperCase()
+  let response
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      response = await fetch(`${API}${path}`, { ...options, headers })
+    } catch (error) {
+      if (method !== 'GET' || attempt >= getRetryDelays.length) throw error
+      await new Promise(resolve => window.setTimeout(resolve, getRetryDelays[attempt]))
+      continue
+    }
+    if (method !== 'GET' || ![502, 503, 504].includes(response.status) || attempt >= getRetryDelays.length) break
+    await new Promise(resolve => window.setTimeout(resolve, getRetryDelays[attempt]))
+  }
   const responseText = await response.text()
   let data = {}
   let invalidJson = false
