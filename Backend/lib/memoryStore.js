@@ -212,6 +212,26 @@ function schedulePersist() {
   }, 300);
 }
 
+function removeBundledProductFixtures() {
+  const bundledSkus = new Set([
+    'WMK001', 'MCT002', 'RSP003', 'LHB004', 'SWS005', 'SGA006',
+    'AAS001', 'FSO002', 'DSO003', 'DGL010', 'MKK011', 'WFD012',
+    'MDT019', 'HMP020', 'SAP021', 'SDE022', 'SPR023',
+  ]);
+  const isBundledProduct = product => {
+    const sku = String(product?.sku || '').trim().toUpperCase();
+    return !!product?.mainAdminSeedKey
+      || bundledSkus.has(sku)
+      || /^OC10[1-8]$/.test(sku)
+      || /^SKU(?:01[3-9]|2(?:0[0-9]|1[0-5]))$/.test(sku);
+  };
+  const products = Array.isArray(store.productItems) ? store.productItems : [];
+  const keptProducts = products.filter(product => !isBundledProduct(product));
+  if (keptProducts.length === products.length) return;
+  store.productItems = keptProducts;
+  schedulePersist();
+}
+
 function ensureQuickCommerceCatalog() {
   let changed = false;
   if (!Array.isArray(store.components)) store.components = [];
@@ -279,25 +299,6 @@ async function fillEmptyCollections() {
     ];
   }
 
-  function removeBundledProductFixtures() {
-    const bundledSkus = new Set([
-      'WMK001', 'MCT002', 'RSP003', 'LHB004', 'SWS005', 'SGA006',
-      'AAS001', 'FSO002', 'DSO003', 'DGL010', 'MKK011', 'WFD012',
-      'MDT019', 'HMP020', 'SAP021', 'SDE022', 'SPR023',
-    ]);
-    const isBundledProduct = product => {
-      const sku = String(product?.sku || '').trim().toUpperCase();
-      return !!product?.mainAdminSeedKey
-        || bundledSkus.has(sku)
-        || /^OC10[1-8]$/.test(sku)
-        || /^SKU(?:01[3-9]|2(?:0[0-9]|1[0-5]))$/.test(sku);
-    };
-    const products = Array.isArray(store.productItems) ? store.productItems : [];
-    const keptProducts = products.filter(product => !isBundledProduct(product));
-    if (keptProducts.length === products.length) return;
-    store.productItems = keptProducts;
-    schedulePersist();
-  }
 }
 
 function ensureWebsiteModuleCatalog() {
