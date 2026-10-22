@@ -52,6 +52,11 @@
 }
 
 @media (max-width: 640px) {
+  .qc-product-breadcrumb,
+  .qc-category-breadcrumb {
+    display: none !important;
+  }
+
   .qc-header {
     position: static !important;
     align-self: stretch;
