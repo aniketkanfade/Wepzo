@@ -34,6 +34,14 @@ function productSuggestionName(product) {
     .find(Boolean) || 'Product';
 }
 
+function HighlightedSuggestionName({ name, query }) {
+  const title = String(name || '');
+  const term = String(query || '').trim();
+  const position = term ? title.toLowerCase().indexOf(term.toLowerCase()) : -1;
+  if (position < 0) return title;
+  return <>{title.slice(0, position)}<mark className="qc-search-match">{title.slice(position, position + term.length)}</mark>{title.slice(position + term.length)}</>;
+}
+
 export default function Header({ componentEnabled = () => true }) {
   const navigate = useNavigate();
   const location = useLocation();
@@ -347,7 +355,7 @@ export default function Header({ componentEnabled = () => true }) {
           </span>
         </button>}
 
-        {componentEnabled('quick-commerce-search') && <div ref={boxRef} className={'qc-header-search flex-1 relative min-w-0' + (isScrolledDown ? ' is-mobile-sticky' : '')}>
+        {componentEnabled('quick-commerce-search') && <div ref={boxRef} className={'qc-header-search flex-1 relative min-w-0' + (isScrolledDown ? ' is-mobile-sticky' : '') + (showSuggest && q.trim() ? ' has-suggestions' : '')}>
           <form onSubmit={submit} className="flex items-center gap-2">
             <button type="submit" className="qc-search-submit-icon" aria-label="Search products">
               <Search size={20} />
@@ -369,7 +377,7 @@ export default function Header({ componentEnabled = () => true }) {
           </form>
           {searchNotice && <p role="status" className="absolute left-0 right-0 top-[calc(100%+5px)] z-50 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600 shadow-lg">{searchNotice}</p>}
           {showSuggest && q.trim() && (
-            <div className="qc-search-suggestions absolute left-0 right-14 top-[calc(100%+6px)] z-50 rounded-xl shadow-xl border border-slate-100 overflow-hidden py-1" style={{ backgroundColor: '#e9edf2' }}>
+            <div className="qc-search-suggestions absolute left-0 right-14 top-[calc(100%+6px)] z-50 rounded-xl shadow-xl border border-slate-100 overflow-hidden py-1" style={{ backgroundColor: '#e9edf2' }} onMouseDown={event => { if (event.target === event.currentTarget) setShowSuggest(false); }}>
               {suggests.map(p => (
                 <button
                   key={p.id}
@@ -385,7 +393,7 @@ export default function Header({ componentEnabled = () => true }) {
                   <span className="qc-search-suggestion-image h-9 w-9 rounded-md bg-slate-50 border border-slate-100 overflow-hidden shrink-0">
                     <img src={p.image} alt="" className="h-full w-full object-contain" />
                   </span>
-                  <div className="qc-search-suggestion-name" style={{ display: 'block', gridColumn: 2, minWidth: 0, color: '#1f2937', fontSize: 12, fontWeight: 650, lineHeight: 1.25, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{productSuggestionName(p)}</div>
+                  <div className="qc-search-suggestion-name" style={{ display: 'block', gridColumn: 2, minWidth: 0, color: '#1f2937', fontSize: 12, fontWeight: 650, lineHeight: 1.25, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}><HighlightedSuggestionName name={productSuggestionName(p)} query={q} /></div>
                 </button>
               ))}
               {suggests.length === 0 && (
