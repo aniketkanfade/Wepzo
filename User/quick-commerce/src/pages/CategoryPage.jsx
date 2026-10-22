@@ -11,7 +11,7 @@ const sameId = (a, b) => String(a || '') === String(b || '');
 const imageFallback = 'https://images.unsplash.com/photo-1542838132-92c53300491e?w=180&h=140&fit=crop';
 
 function ChoiceButton({ item, active, onClick }) {
-  return <button type="button" onClick={onClick} className={'flex min-w-[94px] flex-col items-center gap-1 rounded-xl border px-3 py-2 text-center text-xs font-medium transition ' + (active ? 'border-brand-500 bg-brand-50 text-brand-700' : 'border-slate-100 bg-white text-slate-600 hover:border-brand-200')}>
+  return <button type="button" onClick={onClick} className={'qc-category-choice flex min-w-[94px] flex-col items-center gap-1 rounded-xl border px-3 py-2 text-center text-xs font-medium transition ' + (active ? 'is-active border-brand-500 bg-brand-50 text-slate-900 font-semibold' : 'border-slate-100 bg-white text-slate-600 hover:border-brand-200')}>
     <img src={item.image || imageFallback} alt="" className="h-12 w-14 rounded-md object-contain"/>
     <span>{item.name}</span>
   </button>;

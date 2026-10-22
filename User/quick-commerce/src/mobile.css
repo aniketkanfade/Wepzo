@@ -57,6 +57,12 @@
     display: none !important;
   }
 
+  .qc-category-choice.is-active,
+  .qc-category-choice.is-active span {
+    color: #172033 !important;
+    opacity: 1 !important;
+  }
+
   .qc-header {
     position: static !important;
     align-self: stretch;
