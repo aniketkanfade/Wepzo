@@ -297,6 +297,17 @@
   background-color: var(--button-background, var(--brand-color, #f4510b));
 }
 
+.qc-header-cats {
+  scrollbar-width: none !important;
+  -ms-overflow-style: none;
+}
+
+.qc-header-cats::-webkit-scrollbar {
+  display: none !important;
+  width: 0;
+  height: 0;
+}
+
 .qc-header-cats .qc-header-module img {
   width: 42px;
   height: 42px;

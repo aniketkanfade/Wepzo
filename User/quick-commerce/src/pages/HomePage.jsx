@@ -113,10 +113,17 @@ export default function HomePage({ componentEnabled = () => true, builderPreview
   const [activeBannerIndex, setActiveBannerIndex] = useState(0);
   const [searchParams] = useSearchParams();
   const moduleSlug = searchParams.get('module') || '';
+  const moduleId = searchParams.get('moduleId') || '';
   const currentLocation = useLocationStore(s => s.current)
     || (templatePreview ? { lat: 21.1458, lng: 79.0882, city: 'Nagpur' } : null);
   const city = currentLocation?.city || data?.city || '';
-  const activeModule = data?.modules?.find(m => m.slug === moduleSlug);
+  const activeModule = data?.modules?.find(m => String(m._id) === moduleId && m.slug === moduleSlug)
+    || data?.modules?.find(m => m.slug === moduleSlug);
+  const isAlternateGroceryModule = moduleSlug === 'grocery'
+    && Boolean(moduleId)
+    && data?.modules?.findIndex(module => String(module._id) === moduleId)
+      !== data?.modules?.findIndex(module => module.slug === 'grocery');
+  const activeModuleName = isAlternateGroceryModule ? 'Daily Needs' : activeModule?.name;
   const catalogPath = moduleSlug ? `/c?module=${encodeURIComponent(moduleSlug)}` : '/c';
   const brandPath = id => { const query = new URLSearchParams(); if (moduleSlug) query.set('module', moduleSlug); query.set('brand', id); return `/c?${query.toString()}`; };
   const visibleCategories = (data?.categories || []).filter(c => c.status !== false && (!moduleSlug || c.moduleId === activeModule?._id));
@@ -126,9 +133,11 @@ export default function HomePage({ componentEnabled = () => true, builderPreview
   ).values()];
   const allProducts = data?.allProducts || allHomeProducts;
   const productSections = (data?.modules || [])
-    .filter(module => !moduleSlug || module.slug === moduleSlug)
+    .filter((module, index, modules) => (!moduleSlug || module.slug === moduleSlug)
+      && (!module.slug || modules.findIndex(candidate => candidate.slug === module.slug) === index))
     .map(module => ({
       ...module,
+      name: isAlternateGroceryModule ? activeModuleName : module.name,
       products: allProducts.filter(product => {
         const moduleValues = [
           product.moduleSlug,
@@ -151,7 +160,8 @@ export default function HomePage({ componentEnabled = () => true, builderPreview
   const trendyProduct = [...(data?.flash || []), ...productGridItems].find(product =>
     String(product.store || '').trim().toLowerCase().includes('trendy')
   );
-  const selectedModuleRecord = data?.modules?.find(module => module.slug === moduleSlug);
+  const selectedModuleRecord = data?.modules?.find(module => String(module._id) === moduleId && module.slug === moduleSlug)
+    || data?.modules?.find(module => module.slug === moduleSlug);
   const selectedModuleTargets = [moduleSlug, selectedModuleRecord?._id, selectedModuleRecord?.name]
     .filter(Boolean).map(value => String(value).trim().toLowerCase());
   const belongsToCurrentModule = banner => {
@@ -206,7 +216,7 @@ export default function HomePage({ componentEnabled = () => true, builderPreview
       </section>; })()}
 
       {moduleSlug && componentEnabled('quick-commerce-category-tiles') && visibleCategories.length > 0 && <section>
-        <h2 className="mb-2 text-lg font-bold text-slate-900">{activeModule ? `${activeModule.name} Categories` : 'Shop by Category'}</h2>
+        <h2 className="mb-2 text-lg font-bold text-slate-900">{activeModuleName ? `${activeModuleName} Categories` : 'Shop by Category'}</h2>
         <Rail className="qc-categories">
         {visibleCategories.map(c => {
           const query = new URLSearchParams();
@@ -241,7 +251,7 @@ export default function HomePage({ componentEnabled = () => true, builderPreview
       </section>}
 
       {componentEnabled('quick-commerce-offer-banner') && homeMidBanners.length > 0 && <section className="space-y-3"><h2 className="text-lg font-bold text-slate-900">Offers and promotions</h2><PromotionBannerRail banners={homeMidBanners} label="Home middle banners"/></section>}
-      {componentEnabled('quick-commerce-category-tiles') && moduleCategoryBanners.length > 0 && <section className="space-y-3"><h2 className="text-lg font-bold text-slate-900">Featured in {activeModule?.name || 'this module'}</h2><PromotionBannerRail banners={moduleCategoryBanners} label="Module category banners"/></section>}
+      {componentEnabled('quick-commerce-category-tiles') && moduleCategoryBanners.length > 0 && <section className="space-y-3"><h2 className="text-lg font-bold text-slate-900">Featured in {activeModuleName || 'this module'}</h2><PromotionBannerRail banners={moduleCategoryBanners} label="Module category banners"/></section>}
 
       {componentEnabled('quick-commerce-product-grid') && (
         productSections.length > 0 ? (
