@@ -9,7 +9,6 @@ import { ImageViewerProvider } from './ImageViewerProvider';
 import PageErrorBoundary from './PageErrorBoundary';
 import AdminSupportDock from './AdminSupportDock';
 import { getWebsiteHeaderAccessPaths } from '../../../constants/websiteAccess';
-import { getWebsiteAdminPath } from '../../../constants/adminModules';
 import { hasWebsiteServiceEnded, isWebsiteServiceActive } from '../../../utils/websiteService';
 
 function flattenMenuPaths(items) {
@@ -48,7 +47,6 @@ export default function Layout() {
   const isSubdomainPage = location.pathname === '/sub-domain';
   const isDomainSetupPage = isOnDomainPage || isSubdomainPage;
   const isWebsiteUser = user?.role === 'website_user';
-  const websiteAdminPath = getWebsiteAdminPath(user);
   const isSettings = location.pathname.startsWith('/settings') || ['/components', '/plans', '/users', '/roles'].includes(location.pathname);
   useEffect(() => {
     if (!isWebsiteUser || !user?.selectedModuleSlug) return;
@@ -96,10 +94,7 @@ export default function Layout() {
   }, [isWebsiteUser, user?.selectedModuleSlug, user?.selectedModuleId]);
 
   const effectiveWebsiteAccess = isWebsiteUser
-    ? {
-        header: [...new Set([...websiteAccess.header, websiteAdminPath])],
-        sidebar: [...new Set([...websiteAccess.sidebar, websiteAdminPath, '/website-builder', '/settings/third-party', ...(websiteDomainOptions.showOwnDomainOption ? ['/on-domain'] : [])])],
-      }
+    ? { ...websiteAccess, sidebar: [...new Set([...websiteAccess.sidebar, '/website-builder', '/settings/third-party', ...(websiteDomainOptions.showOwnDomainOption ? ['/on-domain'] : [])])] }
     : websiteAccess;
   const websiteBuilderAccess = isWebsiteUser || websiteAccess.header.includes('/website-builder') || websiteAccess.sidebar.includes('/website-builder');
   const allKnownPaths = [...new Set([...getWebsiteHeaderAccessPaths(), ...flattenMenuPaths(ADMIN_SIDEBAR_MENU), '/website-subscription', '/settings/welcome-page', '/settings/on-domain', '/on-domain'])];
@@ -110,15 +105,15 @@ export default function Layout() {
   const hasBuilderAccess = websiteBuilderAccess;
   const currentRouteAllowed = matchesAllowedRoute(location.pathname, allowedPaths, allKnownPaths);
   if (isWebsiteUser && (!websiteAccessReady || !websitePaymentReady || !websiteDomainOptionsReady)) return <div className="flex h-screen items-center justify-center bg-slate-50 text-sm text-slate-500">Loading website access...</div>;
-  if (isWebsiteUser && websiteServiceEnded && isWebsiteBuilder) return <Navigate to="/website-renewal" replace />;
+  if (isWebsiteUser && websiteServiceEnded && isWebsiteBuilder) return <Navigate to="/website-dashboard" replace />;
   if (isWebsiteUser && isWebsiteBuilder) return <Navigate to="/sub-domain" replace />;
   if (isWebsiteUser && isSubdomainPage && !websiteDomainOptions.showSubdomainOption) return <Navigate to="/welcome" replace />;
   if (isWebsiteUser && isOnDomainPage && !websiteDomainOptions.showOwnDomainOption) return <Navigate to="/welcome" replace />;
   if (isWebsiteUser && websiteAccessReady && isWebsiteBuilder && !hasBuilderAccess) {
     return <WebsiteAccessDenied onSignOut={() => { resetBuilder(); logout(); }} />;
   }
-  if (isWebsiteUser && websiteAccessReady && websitePaymentReady && !hasPaidWebsite && !isWebsiteBuilder && !isDomainSetupPage && location.pathname !== '/website-subscription') {
-    if (websiteServiceEnded) return <Navigate to="/website-renewal" replace />;
+  if (isWebsiteUser && websiteAccessReady && websitePaymentReady && !hasPaidWebsite && !isWebsiteBuilder && !isDomainSetupPage && !['/website-dashboard', '/website-subscription'].includes(location.pathname)) {
+    if (websiteServiceEnded) return <Navigate to="/website-dashboard" replace />;
     if (hasBuilderAccess) return <Navigate to="/sub-domain" replace />;
     return <WebsiteAccessDenied onSignOut={() => { resetBuilder(); logout(); }} />;
   }

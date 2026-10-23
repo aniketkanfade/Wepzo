@@ -2,7 +2,6 @@ import { lazy, Suspense, useEffect, useState } from 'react';
 import { Link, Navigate, Route, Routes } from 'react-router-dom';
 import api from './api/axios';
 import { useAuthStore } from './store/useStore';
-import { getWebsiteAdminPath } from './constants/adminModules';
 const Login = lazy(() => import('./pages/Login'));
 const Register = lazy(() => import('./pages/Register'));
 const ComponentsPage = lazy(() => import('./pages/ComponentsPage'));
@@ -81,6 +80,7 @@ const WebsiteModulesPage = lazy(() => import('./pages/settings/WebsiteModulesPag
 const WebsiteAccessPage = lazy(() => import('./pages/settings/WebsiteAccessPage'));
 const WebsiteSubscriptionPlansPage = lazy(() => import('./pages/settings/WebsiteSubscriptionPlansPage'));
 const WebsiteSubscriptionPage = lazy(() => import('./pages/WebsiteSubscriptionPage'));
+const WebsiteDashboardPage = lazy(() => import('./pages/WebsiteDashboardPage'));
 const WebsiteRenewalPage = lazy(() => import('./pages/WebsiteRenewalPage'));
 const WelcomePage = lazy(() => import('./pages/WelcomePage'));
 const OnDomainPage = lazy(() => import('./pages/OnDomainPage'));
@@ -102,11 +102,6 @@ const QuickCommerceZonesPage = lazy(() => import('./WebAdmin/Qucik commerce/Quic
 function PrivateRoute({ children }) {
   const { token } = useAuthStore();
   return token ? children : <Navigate to="/login" />;
-}
-
-function WebsiteAdminRedirect() {
-  const user = useAuthStore(state => state.user);
-  return <Navigate to={getWebsiteAdminPath(user)} replace />;
 }
 
 function MainAdminRoute({ children }) {
@@ -151,7 +146,7 @@ export default function App() {
       <Route path="/login" element={<Login />} />
       <Route path="/register" element={<Register />} />
       <Route path="/published-websites/:websiteId" element={<PublishedWebsitePage />} />
-      <Route path="/website-dashboard" element={<PrivateRoute><WebsiteAdminRedirect /></PrivateRoute>} />
+      <Route path="/website-dashboard" element={<PrivateRoute><PaidWebsiteRoute><WebsiteDashboardPage /></PaidWebsiteRoute></PrivateRoute>} />
       <Route path="/website-renewal" element={<PrivateRoute><PaidWebsiteRoute><WebsiteRenewalPage /></PaidWebsiteRoute></PrivateRoute>} />
       <Route path="/welcome" element={<PrivateRoute><WelcomePage /></PrivateRoute>} />
       <Route path="/" element={<PrivateRoute><Layout /></PrivateRoute>}>

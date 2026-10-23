@@ -3,7 +3,6 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { ArrowLeft, ArrowRight, Check, Globe2, Headphones, LogOut, UserCircle2 } from 'lucide-react';
 import api from '../api/axios';
 import { useAuthStore, useBuilderStore } from '../store/useStore';
-import { getWebsiteAdminPath } from '../constants/adminModules';
 import { clearPaymentReturnDetails, launchPaymentCheckout, paymentReturnDetails, paymentReturnUrl } from '../utils/paymentCheckout';
 
 export default function SubdomainPage() {
@@ -47,7 +46,6 @@ export default function SubdomainPage() {
     setNotice(`Your website is live at ${data.domain?.fullDomain || `${domainName}.${baseDomain}`}.`);
     return data;
   };
-  const openWebsiteDashboard = () => navigate(getWebsiteAdminPath(user), { replace: true });
 
   useEffect(() => {
     const { purchaseId, gateway, flow } = paymentReturnDetails();
@@ -59,8 +57,7 @@ export default function SubdomainPage() {
       if (!pending) throw new Error('The website purchase for this payment could not be found.');
       setWebsite(pending);
       await api.post(`/websites/${encodeURIComponent(pending._id)}/checkout/verify`, { purchaseId });
-      await publishWebsite(pending._id);
-      openWebsiteDashboard();
+      return publishWebsite(pending._id);
     }).catch(requestError => setError(requestError.response?.data?.message || requestError.message || 'Payment could not be verified.'))
       .finally(() => { clearPaymentReturnDetails(); setSaving(false); });
   }, []);
@@ -86,16 +83,12 @@ export default function SubdomainPage() {
       setWebsite(savedWebsite);
       if (savedWebsite.purchase?.status === 'paid') {
         await publishWebsite(savedWebsite._id);
-        setSaving(false);
-        openWebsiteDashboard();
         return;
       }
       const { data: order } = await api.post(`/websites/${encodeURIComponent(savedWebsite._id)}/checkout`, { purchaseType: 'full', returnUrl: paymentReturnUrl() });
       if (order.free) {
         setWebsite(order.website);
         setNotice(`Your website is live at ${order.website.domain?.fullDomain || `${domainName}.${baseDomain}`}.`);
-        setSaving(false);
-        openWebsiteDashboard();
         return;
       }
       await launchPaymentCheckout(order, {
@@ -106,7 +99,6 @@ export default function SubdomainPage() {
           await api.post(`/websites/${encodeURIComponent(savedWebsite._id)}/checkout/verify`, response);
           await publishWebsite(savedWebsite._id);
           setSaving(false);
-          openWebsiteDashboard();
         },
       });
     } catch (requestError) {

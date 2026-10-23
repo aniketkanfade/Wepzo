@@ -3,7 +3,7 @@ import { NavLink, useLocation } from 'react-router-dom';
 import api from '../../../api/axios';
 import { isWebsiteServiceActive } from '../../../utils/websiteService';
 import {
-  LayoutDashboard, Package, ShoppingCart, Megaphone, Store, CalendarDays, Clock3, CircleCheck, LoaderCircle, PackageOpen, PackageCheck, Ban, CircleAlert, Banknote, ListOrdered, ExternalLink,
+  LayoutDashboard, Package, ShoppingCart, Megaphone, Store, CalendarDays, Clock3, CircleCheck, LoaderCircle, PackageOpen, PackageCheck, Ban, CircleAlert, Banknote, ListOrdered,
   ChevronDown, ChevronRight, Search, Settings, Users, Shield, Layers, CreditCard,
   ShoppingBasket, ReceiptText, Grid3X3, Image, Gift, Bell, Tag, List, PackagePlus,
   PackageSearch, Barcode, Upload, Download, RotateCcw, Zap, Smartphone, Truck, Mail, FileText,
@@ -12,58 +12,6 @@ import {
 import { useAuthStore } from '../../../store/useStore';
 import { useModuleStore } from '../../../store/useStore';
 import { getAdminModuleKey, getAdminModulePath } from '../../../constants/adminModules';
-import { assignedWebsiteDomainUrl, ecommercePreviewBase } from '../../../utils/ecommercePreviewUrl';
-
-function tenantWebsiteUrl(website, user) {
-  if (!website || website.status !== 'published') return '';
-  const moduleKey = getAdminModuleKey({
-    slug: website.websiteModuleSlug || user?.selectedModuleSlug,
-    type: website.moduleType || user?.selectedModuleType,
-    name: website.moduleName || user?.selectedModuleName,
-  });
-  const liveBase = website.hosting?.status === 'active' && website.hosting.url
-    ? website.hosting.url
-    : website.domain?.fullDomain || '';
-  let target;
-
-  const assignedDomain = assignedWebsiteDomainUrl(website);
-  if (assignedDomain) {
-    target = new URL(assignedDomain);
-    target.searchParams.set('published', '1');
-    if (moduleKey === 'quick-commerce') {
-      const components = [...new Set((website.components || []).flatMap(entry => {
-        const slug = entry?.componentId?.slug || entry?.slug;
-        if (slug === 'quick-commerce-favorites-cart') return ['quick-commerce-favorites', 'quick-commerce-cart'];
-        return slug ? [slug] : [];
-      }))];
-      target.searchParams.set('components', components.join(','));
-    }
-    return target.href;
-  }
-
-  if (moduleKey === 'e-commerce') {
-    const base = ecommercePreviewBase(website) || liveBase;
-    if (!base) return '';
-    target = new URL(/^https?:\/\//i.test(base) ? base : `https://${base}`);
-    target.searchParams.set('published', '1');
-  } else if (liveBase) {
-    target = new URL(/^https?:\/\//i.test(liveBase) ? liveBase : `https://${liveBase}`);
-  } else if (moduleKey === 'store-single') {
-    const base = import.meta.env.VITE_STORE_SINGLE_PREVIEW_URL || (import.meta.env.DEV ? 'http://localhost:5175/' : '');
-    if (!base) return '';
-    target = new URL(base, window.location.origin);
-  } else {
-    target = new URL(`/published-websites/${encodeURIComponent(website._id)}`, window.location.origin);
-  }
-
-  target.searchParams.set('websiteId', website._id);
-  const moduleId = website.websiteModuleId || user?.selectedModuleId;
-  if (moduleId) {
-    target.searchParams.set('moduleId', moduleId);
-    target.searchParams.set('websiteModuleId', moduleId);
-  }
-  return target.href;
-}
 
 
 const menuItems = [
@@ -197,7 +145,7 @@ const E_COMMERCE_MENU_ITEMS = [
   ...menuItems.filter(item => ['Quick Commerce', 'Promotion Management', 'Store Management', 'Customer Management'].includes(item.label))
     .map(item => item.label === 'Quick Commerce' ? { ...item, label: 'E-Commerce Storefront' } : item),
 ];
-const STORE_SINGLE_MENU_ITEMS = [getDashboardItem({ slug: 'store-single' }), { label: 'Store single page', icon: Store, children: [
+const STORE_SINGLE_MENU_ITEMS = [{ label: 'Store single page', icon: Store, children: [
   { label: 'Orders', path: '/store-single/orders', icon: ListOrdered },
 ] }];
 
@@ -334,14 +282,12 @@ export default function Sidebar({ mobileOpen, onClose, websiteAccess, showOwnDom
   const [activeOpenDepth, setActiveOpenDepth] = useState(null);
   const [badgeCounts, setBadgeCounts] = useState({ requests: 0 });
   const [hasPaidWebsite, setHasPaidWebsite] = useState(false);
-  const [tenantWebsite, setTenantWebsite] = useState(null);
   const [onDomainPurchased, setOnDomainPurchased] = useState(false);
   const [onDomainStatusReady, setOnDomainStatusReady] = useState(false);
 
   useEffect(() => {
     if (!isWebsiteUser) {
       setHasPaidWebsite(false);
-      setTenantWebsite(null);
       setOnDomainPurchased(false);
       setOnDomainStatusReady(true);
       return undefined;
@@ -350,28 +296,14 @@ export default function Sidebar({ mobileOpen, onClose, websiteAccess, showOwnDom
     setOnDomainStatusReady(false);
     api.get('/websites').then(({ data }) => {
       const websites = Array.isArray(data) ? data : [];
-      const userId = String(user?.id || user?._id || '');
-      const linkedWebsite = websites.find(site => String(site._id) === String(user?.websiteId || ''))
-        || websites.find(site => String(site.userId?._id || site.userId || '') === userId)
-        || (websites.length === 1 ? websites[0] : null);
-      if (active) {
-        setTenantWebsite(linkedWebsite);
-        setHasPaidWebsite(isWebsiteServiceActive(linkedWebsite));
-      }
-    }).catch(() => {
-      if (active) {
-        setHasPaidWebsite(false);
-        setTenantWebsite(null);
-      }
-    });
+      if (active) setHasPaidWebsite(websites.some(isWebsiteServiceActive));
+    }).catch(() => { if (active) setHasPaidWebsite(false); });
     api.get('/on-domain/package').then(({ data }) => {
       if (active) setOnDomainPurchased(data?.purchased === true || data?.domainHostingPurchased === true);
     }).catch(() => { if (active) setOnDomainPurchased(false); })
       .finally(() => { if (active) setOnDomainStatusReady(true); });
     return () => { active = false; };
-  }, [isWebsiteUser, user?.id, user?._id, user?.websiteId, user?.selectedModuleSlug]);
-
-  const openWebsiteUrl = tenantWebsiteUrl(tenantWebsite, user);
+  }, [isWebsiteUser, user?.id, user?.websiteId, user?.selectedModuleSlug]);
 
   useEffect(() => {
     if (isWebsiteUser) return;
@@ -472,7 +404,7 @@ export default function Sidebar({ mobileOpen, onClose, websiteAccess, showOwnDom
         </div>
         <nav className="admin-sidebar-nav min-w-0 w-full max-w-full flex-1 overflow-x-hidden overflow-y-auto px-3 pb-4 space-y-0.5">
           {isWebsiteUser && hasPaidWebsite && allowedSidebarPaths.has('/website-builder') && <div className="mb-3 border-b border-slate-100 pb-3">
-            {openWebsiteUrl && <a href={openWebsiteUrl} target="_blank" rel="noreferrer" className="mb-1 flex items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50"><ExternalLink size={16}/>Open Website</a>}
+            <NavLink to="/sub-domain" className={({ isActive }) => `flex items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm font-medium ${isActive ? 'bg-[#f0f4ff] text-[#1a3a8a]' : 'text-gray-700 hover:bg-gray-50'}`}><Globe2 size={16}/>Subdomain setup</NavLink>
             {onDomainStatusReady && !onDomainPurchased && showOwnDomainOption && <NavLink to="/on-domain" className={({ isActive }) => `flex items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm font-medium ${isActive ? 'bg-[#f0f4ff] text-[#1a3a8a]' : 'text-gray-700 hover:bg-gray-50'}`}><Globe2 size={16}/>On Domain</NavLink>}
             <NavLink to="/website-subscription" className={({ isActive }) => `flex items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm font-medium ${isActive ? 'bg-[#f0f4ff] text-[#1a3a8a]' : 'text-gray-700 hover:bg-gray-50'}`}><CreditCard size={16}/>Plan & Subscription</NavLink>
           </div>}

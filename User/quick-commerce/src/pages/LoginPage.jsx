@@ -10,7 +10,7 @@ export default function LoginPage() {
   const next = params.get('next') || '/';
   const setSession = useAuthStore(s => s.setSession);
   const [mode, setMode] = useState('login');
-  const [form, setForm] = useState({ name: '', email: '', phone: '', password: '' });
+  const [form, setForm] = useState({ name: '', email: 'customer@wepzo.com', phone: '9876543210', password: 'customer123' });
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
@@ -66,6 +66,7 @@ export default function LoginPage() {
             {busy ? 'Please wait…' : mode === 'login' ? 'Sign In' : 'Register'}
           </button>
         </form>
+        <p className="text-[11px] text-slate-400 mt-3">Demo: customer@wepzo.com / customer123</p>
         <Link to="/" className="block text-center text-xs text-brand-700 mt-3">Back to shop</Link>
       </div>
     </div>

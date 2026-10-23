@@ -2,7 +2,6 @@ import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import api from '../api/axios';
 import { useAuthStore, useBuilderStore } from '../store/useStore';
-import { getWebsiteAdminPath } from '../constants/adminModules';
 
 export default function Login() {
   const [email, setEmail] = useState('admin@wepzo.in');
@@ -22,7 +21,7 @@ export default function Login() {
       const { data } = await api.post('/auth/login', { email, password });
       if (data.user.role === 'website_user') resetBuilder();
       setAuth(data.user, data.token);
-      navigate(data.user.role === 'website_user' ? getWebsiteAdminPath(data.user) : '/');
+      navigate(data.user.role === 'website_user' ? '/website-dashboard' : '/');
     } catch (err) {
       setError(err.response?.data?.message || 'Login failed');
     } finally {
