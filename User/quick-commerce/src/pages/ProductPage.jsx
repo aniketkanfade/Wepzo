@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import {
-  BadgeCheck, Check, ChevronDown, ChevronRight, Heart, Image as ImageIcon, MapPin,
+  BadgeCheck, Check, ChevronDown, ChevronLeft, ChevronRight, Heart, Image as ImageIcon, MapPin,
   Minus, PackageCheck, Plus, RotateCcw, ShieldCheck, ShoppingCart,
   Star, Store, Truck, Zap,
 } from 'lucide-react';
@@ -27,6 +27,8 @@ function compactCount(value) {
 
 export default function ProductPage() {
   const routeLocation = useLocation();
+  const returnToValue = new URLSearchParams(routeLocation.search).get('returnTo') || '';
+  const trackingReturnPath = returnToValue.startsWith('/track/') ? returnToValue : '';
   const { id } = useParams();
   const navigate = useNavigate();
   const add = useCart(state => state.add);
@@ -153,6 +155,9 @@ export default function ProductPage() {
 
   return (
     <div className="qc-product-page mx-auto max-w-[1280px] px-4 pb-10 pt-2">
+      {trackingReturnPath && <Link to={trackingReturnPath} className="mb-3 inline-flex items-center gap-1 rounded-lg py-2 text-sm font-bold text-brand-700 hover:text-brand-800">
+        <ChevronLeft size={17} /> Back to Order Tracking
+      </Link>}
       <nav className="qc-product-breadcrumb" aria-label="Product path">
         <Link to="/">Home</Link><ChevronRight size={14} />
         <Link to={`/c?category=${encodeURIComponent(p.category || '')}`}>{p.category || 'Products'}</Link>

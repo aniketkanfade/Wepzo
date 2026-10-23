@@ -11,6 +11,7 @@ export default function SettingsEmployeeProfilePage() {
   const [employees, setEmployees] = useState([]);
   const [roles, setRoles] = useState([]);
   const [stores, setStores] = useState([]);
+  const [riders, setRiders] = useState([]);
   const [history, setHistory] = useState([]);
   const [form, setForm] = useState(EMPTY_EMPLOYEE);
   const [emp, setEmp] = useState(null);
@@ -21,6 +22,7 @@ export default function SettingsEmployeeProfilePage() {
     api.get('/employees').then(r => setEmployees(r.data || [])).catch(() => setEmployees([]));
     api.get('/roles').then(r => setRoles(r.data || [])).catch(() => setRoles([]));
     api.get('/stores').then(r => setStores(r.data || [])).catch(() => setStores([]));
+    api.get('/delivery-men', { params: { includeOffline: 1 } }).then(r => setRiders(r.data || [])).catch(() => setRiders([]));
   };
 
   useEffect(() => { loadLists(); }, []);
@@ -36,6 +38,7 @@ export default function SettingsEmployeeProfilePage() {
       setForm({
         name: e.name, email: e.email || '', phone: e.phone || '',
         roleId: e.roleId || '', storeId: e.storeId || '',
+        riderId: e.riderId || e.deliveryManId || '',
         status: e.status || 'active', password: '', loginEnabled: e.loginEnabled !== false,
       });
     }).catch(() => setEmp(null));
@@ -90,7 +93,7 @@ export default function SettingsEmployeeProfilePage() {
             <div className="bg-white border rounded-lg p-3" style={{ borderColor: CARD_BORDER }}><span className="text-gray-400 block">Logins</span>{emp.loginCount || 0}</div>
           </div>
           <form onSubmit={handleSave} className="bg-white rounded-xl border shadow-sm p-5 space-y-4" style={{ borderColor: CARD_BORDER }}>
-            <EmployeeFormFields form={form} set={set} roles={roles} stores={stores} passwordOptional />
+            <EmployeeFormFields form={form} set={set} roles={roles} stores={stores} riders={riders} passwordOptional />
             <div className="flex justify-end gap-2">
               <button type="button" onClick={handleDelete} className="inline-flex items-center gap-1 px-4 py-2.5 rounded-lg text-sm text-red-600 border border-red-200">
                 <Trash2 size={14} /> Delete

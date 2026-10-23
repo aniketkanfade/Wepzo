@@ -17,6 +17,7 @@ import AdminManagementScreen from '../screens/AdminManagementScreen';
 import DashboardScreen from '../screens/DashboardScreen';
 import ModulesScreen from '../screens/ModulesScreen';
 import OrderDetailScreen from '../screens/OrderDetailScreen';
+import RiderDeliveryScreen from '../screens/RiderDeliveryScreen';
 import CatalogScreen from '../screens/CatalogScreen';
 import CategoryConfigScreen from '../screens/CategoryConfigScreen';
 import ProductCreateScreen from '../screens/ProductCreateScreen';
@@ -165,6 +166,7 @@ export default function AdminShell() {
   const { session } = useAuth();
   const { activeModule } = useModule();
   const user = session?.user || {};
+  const isDeliveryRider = !!user.employeeId && /rider|delivery[-_ ]?man/i.test(String(user.role || ''));
   const menuItems = useMemo(() => getNativeAdminMenu(activeModule, user.role), [activeModule, user.role]);
   const [route, setRoute] = useState('');
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -192,7 +194,7 @@ export default function AdminShell() {
     <SafeAreaView style={styles.safe} edges={['top']}>
       <StatusBar barStyle="dark-content" backgroundColor={colors.surface} />
       <View style={styles.header}>
-        <TouchableOpacity
+        {!isDeliveryRider && <TouchableOpacity
           accessibilityRole="button"
           accessibilityLabel="Open admin navigation"
           onPress={() => setDrawerOpen(true)}
@@ -200,19 +202,19 @@ export default function AdminShell() {
         >
           <Text style={styles.menuGlyph}>☰</Text>
           <Text style={styles.menuButtonLabel}>Menu</Text>
-        </TouchableOpacity>
+        </TouchableOpacity>}
         <View style={styles.headerCopy}>
-          <Text style={styles.headerTitle}>{screenTitle(menuItems, currentRoute, selectedOrderId, selectedStoreId, selectedProductId)}</Text>
-          <Text style={styles.headerSubtitle}>{activeModule?.name || 'Wepzo Admin'}</Text>
+          <Text style={styles.headerTitle}>{isDeliveryRider ? 'My delivery' : screenTitle(menuItems, currentRoute, selectedOrderId, selectedStoreId, selectedProductId)}</Text>
+          <Text style={styles.headerSubtitle}>{isDeliveryRider ? 'WEPZO rider workspace' : activeModule?.name || 'Wepzo Admin'}</Text>
         </View>
-        <TouchableOpacity accessibilityRole="button" onPress={() => navigateTo('/settings')} style={styles.settingsButton}>
+        {!isDeliveryRider && <TouchableOpacity accessibilityRole="button" onPress={() => navigateTo('/settings')} style={styles.settingsButton}>
           <Text style={styles.settingsLabel}>Settings</Text>
-        </TouchableOpacity>
+        </TouchableOpacity>}
         <View style={styles.avatar}><Text style={styles.avatarText}>{(user.name || user.email || 'A').slice(0, 1).toUpperCase()}</Text></View>
       </View>
 
       <View style={styles.content}>
-        <SelectedScreen
+        {isDeliveryRider ? <RiderDeliveryScreen /> : <SelectedScreen
           key={`${currentRoute}-${selectedOrderId || selectedStoreId || selectedProductId || 'list'}`}
           route={currentRoute}
           onNavigate={navigateTo}
@@ -242,7 +244,7 @@ export default function AdminShell() {
             setSelectedStoreId('');
             setSelectedProductId('');
           }}
-        />
+        />}
       </View>
 
       <Modal visible={drawerOpen} transparent animationType="fade" onRequestClose={() => setDrawerOpen(false)}>

@@ -1,5 +1,5 @@
 export const EMPTY_EMPLOYEE = {
-  name: '', email: '', phone: '', roleId: '', storeId: '',
+  name: '', email: '', phone: '', roleId: '', storeId: '', riderId: '',
   status: 'active', password: '', loginEnabled: true,
 };
 
@@ -24,6 +24,7 @@ export function employeePayload(form, roles, stores) {
     roleName: role?.name,
     storeId: form.storeId || null,
     storeName: st?.name || 'All Stores',
+    riderId: form.riderId || null,
     status: form.status,
     loginEnabled: form.loginEnabled !== false,
   };
@@ -31,7 +32,9 @@ export function employeePayload(form, roles, stores) {
   return payload;
 }
 
-export function EmployeeFormFields({ form, set, roles, stores, passwordOptional }) {
+export function EmployeeFormFields({ form, set, roles, stores, riders = [], passwordOptional }) {
+  const selectedRole = roles.find(role => role._id === form.roleId);
+  const isRiderRole = /rider|delivery[-_ ]?man/i.test(`${selectedRole?.slug || ''} ${selectedRole?.name || ''}`);
   return (
     <div className="space-y-3">
       {[
@@ -60,6 +63,14 @@ export function EmployeeFormFields({ form, set, roles, stores, passwordOptional 
           ))}
         </select>
       </div>
+      {isRiderRole && <div>
+        <label className="block text-xs font-semibold text-gray-600 mb-1.5">Linked delivery rider</label>
+        <select value={form.riderId || ''} onChange={e => set('riderId', e.target.value)} className={inputCls}>
+          <option value="">Choose rider profile</option>
+          {riders.map(rider => <option key={rider._id} value={rider._id}>{rider.name || 'Rider'}{rider.phone ? ` · ${rider.phone}` : ''}</option>)}
+        </select>
+        <p className="mt-1 text-[11px] text-gray-500">This login can access orders assigned to the linked rider only.</p>
+      </div>}
       <div>
         <label className="block text-xs font-semibold text-gray-600 mb-1.5">Store Access</label>
         <select value={form.storeId} onChange={e => set('storeId', e.target.value)} className={inputCls}>

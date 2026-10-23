@@ -12,6 +12,12 @@
         {
           "photosPermission": "Allow Wepzo Admin to select product images."
         }
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Allow WEPZO to share your location with the customer and store while you are handling an active delivery."
+        }
       ]
     ],
     "ios": {

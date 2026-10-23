@@ -5,6 +5,7 @@ import 'leaflet/dist/leaflet.css';
 import { pointsForRoute } from '../utils/eta';
 
 function num(v) {
+  if (v === null || v === undefined || v === '') return null;
   const n = Number(v);
   return Number.isFinite(n) ? n : null;
 }
@@ -23,7 +24,7 @@ function isPickedUp(order) {
 }
 
 function hasAssignedRider(order) {
-  return !!(order?.rider?.name && asPoint(order.rider.lat, order.rider.lng));
+  return !!order?.rider?.name;
 }
 
 function teardrop(color, label, letter) {
@@ -57,10 +58,6 @@ function Fit({ points }) {
 
 const routeCache = new Map();
 
-function fallbackLine(from, to) {
-  return [[from.lat, from.lng], [to.lat, to.lng]];
-}
-
 function cacheKey(from, to) {
   return `${from.lng.toFixed(5)},${from.lat.toFixed(5)};${to.lng.toFixed(5)},${to.lat.toFixed(5)}`;
 }
@@ -79,9 +76,8 @@ async function fetchDrivingRoute(from, to) {
     routeCache.set(key, line);
     return line;
   } catch {
-    const line = fallbackLine(from, to);
-    routeCache.set(key, line);
-    return line;
+    routeCache.set(key, null);
+    return null;
   }
 }
 
@@ -91,10 +87,11 @@ export default function TrackMap({ order }) {
     || pts.find(p => p.kind === 'store');
   const customer = asPoint(order?.lat, order?.lng)
     || pts.find(p => p.kind === 'customer');
-  const rider = hasAssignedRider(order)
+  const assignedRider = hasAssignedRider(order);
+  const rider = assignedRider
     ? asPoint(order.rider.lat, order.rider.lng)
     : null;
-  const waiting = !rider;
+  const waiting = !assignedRider;
   const picked = isPickedUp(order);
 
   const [pickupPath, setPickupPath] = useState(null);
@@ -103,7 +100,7 @@ export default function TrackMap({ order }) {
   const routeKey = useMemo(() => {
     const parts = [
       waiting ? 'wait' : (picked ? 'drop' : 'pickup'),
-      rider ? `${rider.lat.toFixed(5)},${rider.lng.toFixed(5)}` : '',
+      rider ? `${rider.lat.toFixed(4)},${rider.lng.toFixed(4)}` : '',
       store ? `${store.lat.toFixed(5)},${store.lng.toFixed(5)}` : '',
       customer ? `${customer.lat.toFixed(5)},${customer.lng.toFixed(5)}` : '',
     ];
@@ -195,13 +192,20 @@ export default function TrackMap({ order }) {
             </Marker>
           )}
         </MapContainer>
-        {waiting && (
+          {waiting && (
           <div className="absolute top-3 left-3 right-3 z-[500] pointer-events-none">
             <div className="inline-flex items-center gap-2 rounded-full bg-amber-50/95 text-amber-800 text-xs font-semibold px-3 py-1.5 shadow border border-amber-200">
               Waiting for rider · store se aap tak ka route
             </div>
           </div>
         )}
+          {assignedRider && !rider && (
+            <div className="absolute top-3 left-3 right-3 z-[500] pointer-events-none">
+              <div className="inline-flex items-center gap-2 rounded-full bg-white/95 text-slate-700 text-xs font-semibold px-3 py-1.5 shadow border border-slate-200">
+                Rider assigned · live GPS is not available yet
+              </div>
+            </div>
+          )}
         <div className="absolute bottom-3 left-3 z-[500] rounded-xl bg-white/95 shadow-md border border-slate-200 px-3 py-2 text-[11px] space-y-1.5">
           <p className="font-bold text-slate-700 uppercase tracking-wide text-[10px]">Legend</p>
           <div className="flex items-center gap-2"><span className="w-2.5 h-2.5 rounded-full bg-emerald-600" /> Store</div>
@@ -214,6 +218,8 @@ export default function TrackMap({ order }) {
       <p className="text-[11px] text-slate-500 px-0.5">
         {waiting
           ? 'Rider assign hone ke baad live pickup route dikhega.'
+          : !rider
+            ? `Rider location unavailable${order.rider?.locationUpdatedAt ? ` · last updated ${new Date(order.rider.locationUpdatedAt).toLocaleString()}` : ''}.`
           : picked
             ? 'Order pick ho chuka hai — rider se aap tak ka live drop route.'
             : 'Pehle rider store tak (orange), phir store se aap tak (blue).'}

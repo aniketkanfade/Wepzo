@@ -145,46 +145,10 @@ function liveEtaMinutes({ remainingKm, scheduledEtaMin, originalKm, startedAt, s
   return minutes;
 }
 
-function interpolateToward(fromLat, fromLng, toLat, toLng, moveKm) {
-  const total = remainingKm({ fromLat, fromLng, toLat, toLng });
-  if (!total || total < 0.01) return { lat: Number(toLat), lng: Number(toLng) };
-  const frac = Math.min(1, Math.max(0, moveKm / total));
-  return {
-    lat: Number(fromLat) + (Number(toLat) - Number(fromLat)) * frac,
-    lng: Number(fromLng) + (Number(toLng) - Number(fromLng)) * frac,
-  };
-}
-
 function isOrderPicked(order) {
   const st = String(order?.status || '');
   if (/out for|on the way|on-the-way|ofd|handover|picked|deliver/i.test(st)) return true;
   return (order?.timeline || []).some(t => (t.key === 'picked' || t.key === 'ofd') && t.done);
-}
-
-function simulateRiderOnOrder(order) {
-  if (!order?.rider || order.rider.lat == null || order.rider.lng == null) return order;
-  const st = String(order.status || '');
-  if (/deliver|cancel/i.test(st)) return order;
-  const picked = isOrderPicked(order);
-  const destLat = picked || order.storeLat == null ? order.lat : order.storeLat;
-  const destLng = picked || order.storeLng == null ? order.lng : order.storeLng;
-  if (destLat == null || destLng == null) return order;
-  const last = Date.parse(order.rider.lastMovedAt || order.riderAssignedAt || '') || Date.now() - 9000;
-  const hours = Math.max((Date.now() - last) / 3600000, 8 / 3600);
-  const jitter = 0.75 + ((String(order.orderNo || '').length % 7) / 20);
-  const speed = BIKE_KMH * jitter;
-  const left = remainingKm({
-    fromLat: order.rider.lat, fromLng: order.rider.lng, toLat: destLat, toLng: destLng,
-  });
-  const moved = interpolateToward(order.rider.lat, order.rider.lng, destLat, destLng, Math.min(left || 0, speed * hours));
-  order.rider = {
-    ...order.rider,
-    lat: Number(moved.lat.toFixed(6)),
-    lng: Number(moved.lng.toFixed(6)),
-    lastMovedAt: new Date().toISOString(),
-    locationUpdatedAt: order.rider.locationUpdatedAt,
-  };
-  return order;
 }
 
 function enrichOrderEta(order) {
@@ -389,7 +353,6 @@ module.exports = {
   etaMinutesFromKm,
   remainingKm,
   liveEtaMinutes,
-  simulateRiderOnOrder,
   enrichOrderEta,
   BIKE_KMH,
 };

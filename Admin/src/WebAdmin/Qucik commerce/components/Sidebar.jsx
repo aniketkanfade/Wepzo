@@ -43,6 +43,7 @@ const menuItems = [
       { label: 'Bulk Export', path: '/products/setup/bulk-export', icon: Download },
     ]},
     { label: 'Order Management', staticGroup: true, children: [
+      { label: 'Live Deliveries', path: '/orders/live', icon: MapPin },
       { label: 'Orders', path: '#', icon: ShoppingCart, children: [
         { label: 'All Orders', path: '/quick-commerce/orders', icon: ListOrdered, badgeKey: 'orders-all', badgeTone: 'teal', showBadgeZero: true },
         { label: 'Scheduled', path: '/orders/scheduled', icon: CalendarDays, badgeKey: 'orders-scheduled', badgeTone: 'teal', showBadgeZero: true },

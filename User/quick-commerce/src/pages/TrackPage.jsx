@@ -1,26 +1,50 @@
 import { useEffect, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
-import { MessageCircle, Phone } from 'lucide-react';
+import { Link, useNavigate, useParams } from 'react-router-dom';
+import {
+  Bike, Check, ChevronRight, Clock3, MapPin, PackageCheck, Phone, RefreshCw,
+  ShieldCheck, Star, Store,
+} from 'lucide-react';
 import { shop } from '../api';
 import TrackMap from '../components/TrackMap';
 import { formatEta } from '../utils/eta';
 import { formatMoney, useSiteSettings } from '../store/siteSettings';
 
-const STEPS = [
-  { key: 'placed', label: 'Placed' },
-  { key: 'accepted', label: 'Accepted' },
-  { key: 'preparing', label: 'Preparing' },
-  { key: 'ofd', label: 'On the way' },
-  { key: 'delivered', label: 'Delivered' },
+const FALLBACK_TIMELINE = [
+  { key: 'placed', label: 'Order placed' },
+  { key: 'confirmed', label: 'Store accepted order' },
+  { key: 'preparing', label: 'Order being prepared' },
+  { key: 'riderAssigned', label: 'Rider assigned' },
+  { key: 'picked', label: 'Rider picked up order' },
+  { key: 'ofd', label: 'Rider on the way' },
+  { key: 'delivered', label: 'Order delivered' },
 ];
 
-function stepIndex(status) {
-  const s = (status || '').toLowerCase();
-  if (s.includes('deliver')) return 4;
-  if (s.includes('out for') || s.includes('on the way') || s.includes('on-the-way') || s.includes('ofd') || s.includes('handover')) return 3;
-  if (s.includes('process') || s.includes('prepar')) return 2;
-  if (s.includes('accept')) return 1;
-  return 0;
+function timelineFor(order) {
+  if (Array.isArray(order?.timeline) && order.timeline.length) {
+    return order.timeline.filter(item => item?.label || item?.key).map(item => ({
+      ...item,
+      label: item.label || FALLBACK_TIMELINE.find(step => step.key === item.key)?.label || item.key,
+    }));
+  }
+  const status = String(order?.status || '').toLowerCase();
+  const current = status.includes('deliver') ? 'delivered'
+    : status.includes('out for') || status.includes('on the way') ? 'ofd'
+      : status.includes('handover') ? 'picked'
+        : status.includes('process') || status.includes('prepar') ? 'preparing'
+          : status.includes('accept') ? 'confirmed' : 'placed';
+  const currentIndex = FALLBACK_TIMELINE.findIndex(step => step.key === current);
+  return FALLBACK_TIMELINE.slice(0, currentIndex + 1).map((step, index) => ({ ...step, done: index < currentIndex, current: index === currentIndex }));
+}
+
+function productId(item) {
+  return item?.productId || item?.product?._id || item?.id || item?._id || '';
+}
+
+function riderRating(rider) {
+  const value = Number(rider?.rating);
+  return rider?.rating !== null && rider?.rating !== undefined && Number.isFinite(value) && value > 0
+    ? value.toFixed(1)
+    : 'Not rated yet';
 }
 
 export default function TrackPage() {
@@ -28,127 +52,199 @@ export default function TrackPage() {
   const navigate = useNavigate();
   const [order, setOrder] = useState(null);
   const [query, setQuery] = useState(orderNo || '');
+  const [loading, setLoading] = useState(Boolean(orderNo));
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState('');
+  const [lastUpdated, setLastUpdated] = useState(null);
   const business = useSiteSettings(s => s.business);
 
-  const load = (id) => {
-    if (!id) return;
-    shop.order(id).then(setOrder).catch(() => setOrder(null));
-  };
-
-  useEffect(() => { if (orderNo) load(orderNo); }, [orderNo]);
-
   useEffect(() => {
-    if (!orderNo) return undefined;
-    const t = setInterval(() => load(orderNo), 8000);
-    return () => clearInterval(t);
+    setQuery(orderNo || '');
+    if (!orderNo) {
+      setOrder(null);
+      setLoading(false);
+      return undefined;
+    }
+    let live = true;
+    const load = async (initial = false) => {
+      if (initial) setLoading(true);
+      else setRefreshing(true);
+      try {
+        const data = await shop.order(orderNo);
+        if (!live) return;
+        setOrder(data);
+        setError('');
+        setLastUpdated(new Date());
+      } catch (requestError) {
+        if (!live) return;
+        setError(requestError.response?.status === 401
+          ? 'Sign in to view orders from your account.'
+          : requestError.response?.status === 404
+            ? 'This order could not be found in your account.'
+            : 'Live tracking is temporarily unavailable. We will keep trying.');
+      } finally {
+        if (live) {
+          setLoading(false);
+          setRefreshing(false);
+        }
+      }
+    };
+    load(true);
+    const timer = window.setInterval(() => load(false), 8000);
+    return () => {
+      live = false;
+      window.clearInterval(timer);
+    };
   }, [orderNo]);
 
-  const submit = (e) => {
-    e.preventDefault();
-    if (query.trim()) navigate(`/track/${query.trim()}`);
+  const submit = event => {
+    event.preventDefault();
+    if (query.trim()) navigate(`/track/${encodeURIComponent(query.trim())}`);
   };
 
-  const hasRider = !!(order?.rider?.name && order?.rider?.phone);
-  const idx = order ? stepIndex(order.status) : 0;
   const bill = order?.bill || null;
   const details = Array.isArray(order?.details) ? order.details : [];
   const itemsTotal = Number(order?.itemsTotal ?? bill?.itemsTotal) || 0;
-  const itemsPrice = details.length
-    ? details.reduce((total, item) => {
-      const price = Number(item.price) || 0;
-      return total + Math.max(Number(item.mrp) || price, price) * (Number(item.qty) || 1);
-    }, 0)
-    : itemsTotal;
+  const itemsPrice = details.reduce((total, item) => {
+    const price = Number(item.price) || 0;
+    const mrp = Number(item.mrp) || price;
+    return total + Math.max(mrp, price) * (Number(item.qty) || 1);
+  }, 0) || itemsTotal;
   const productDiscount = Math.max(0, itemsPrice - itemsTotal);
   const couponDiscount = Number(bill?.couponDiscount) || 0;
   const deliveryCharge = Number(order?.deliveryCharge ?? bill?.deliveryCharge) || 0;
   const freeDelivery = order?.freeDelivery || deliveryCharge === 0;
   const eta = formatEta(order?.etaMinutes);
-  const onTheWay = idx >= 3;
-  const routeEta = Number(order?.etaMinutes);
-  const storeEtaMin = Number(order?.remainingStoreEtaMin ?? order?.storeEtaMin) || 0;
-  const storeEtaMax = Number(order?.remainingStoreEtaMax ?? order?.storeEtaMax) || 0;
-  const preDispatchEta = eta && (storeEtaMin > 0 || storeEtaMax > 0)
-    ? `${(storeEtaMin || storeEtaMax) + routeEta} min`
-    : eta;
-  const displayEta = onTheWay ? eta : preDispatchEta;
+  const terminal = ['Delivered', 'Cancelled'].includes(order?.status);
+  const steps = timelineFor(order);
+  const store = order?.storeDetails || {};
+  const rider = order?.rider;
 
   return (
-    <div className="max-w-3xl mx-auto px-4 py-6 space-y-5">
-      <h1 className="text-xl font-bold">Track order</h1>
-      <form onSubmit={submit} className="flex gap-2">
-        <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Order #WZP…"
-          className="flex-1 px-3 py-2 border rounded-lg text-sm" />
-        <button className="px-4 py-2 rounded-lg bg-brand-600 text-white text-sm font-semibold">Track</button>
-      </form>
+    <div className="mx-auto max-w-[1320px] space-y-5 px-4 py-5 sm:py-8">
+      <header className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <p className="text-xs font-bold uppercase tracking-[.16em] text-brand-700">WEPZO delivery</p>
+          <h1 className="mt-1 text-2xl font-extrabold tracking-tight text-slate-900 sm:text-3xl">Track your order</h1>
+        </div>
+        <form onSubmit={submit} className="flex w-full gap-2 sm:w-auto">
+          <input value={query} onChange={event => setQuery(event.target.value)} placeholder="Order number"
+            aria-label="Order number" className="min-w-0 flex-1 rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm sm:w-52" />
+          <button className="rounded-xl bg-brand-600 px-4 py-2.5 text-sm font-bold text-white">Find order</button>
+        </form>
+      </header>
 
-      {!order && orderNo && <p className="text-slate-400 text-sm">Order nahi mili. Checkout ke baad yahan ID aayegi.</p>}
+      {loading && <div className="rounded-2xl border border-slate-200 bg-white p-10 text-center text-sm text-slate-500"><RefreshCw className="mx-auto mb-3 animate-spin" size={20} />Loading order details…</div>}
+      {!loading && error && <div role="alert" className="rounded-2xl border border-amber-200 bg-amber-50 p-5 text-sm text-amber-900">
+        <p>{error}</p>
+        {error.startsWith('Sign in') && <Link to={`/login?next=${encodeURIComponent(`/track/${orderNo || ''}`)}`} className="mt-2 inline-flex items-center gap-1 font-bold underline">Sign in <ChevronRight size={14} /></Link>}
+      </div>}
+      {!loading && !order && !error && orderNo && <p className="rounded-2xl border bg-white p-5 text-sm text-slate-500">Order not found.</p>}
 
       {order && (
-        <div className="bg-white rounded-2xl border p-5 space-y-5">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <p className="text-xs text-slate-400">Order #{order.orderNo}</p>
-              <p className="font-bold">{order.status}</p>
-              {(order.status === 'Pending' || !hasRider) && (
-                <p className="text-sm text-amber-700 mt-1">
-                  {order.status === 'Pending'
-                    ? 'Waiting for rider — store accept kare tabhi rider assign hoga.'
-                    : 'Waiting for rider — assign hone ke baad live route dikhega.'}
-                </p>
-              )}
-            </div>
-            {displayEta && (
-              <div className="text-right shrink-0">
-                <p className="text-xs text-slate-400">Delivery time</p>
-                <p className="text-2xl font-extrabold text-brand-700 leading-none">{displayEta}</p>
-                {order.remainingKm != null && (
-                  <p className="text-[11px] text-slate-500 mt-1">{order.remainingKm} km left</p>
-                )}
-              </div>
-            )}
-          </div>
-          <div className="flex justify-between gap-1">
-            {STEPS.map((s, i) => (
-              <div key={s.key} className="flex-1 text-center">
-                <div className={`h-2 rounded-full ${i <= idx ? 'bg-emerald-500' : 'bg-slate-200'}`} />
-                <p className="text-[10px] mt-1 text-slate-500">{s.label}</p>
-              </div>
-            ))}
-          </div>
-          <TrackMap order={order} />
-          {hasRider ? (
-            <div className="flex items-center justify-between border rounded-xl p-3">
+        <>
+          <section className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+            <div className="flex items-start gap-3">
+              <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-brand-50 text-brand-700"><PackageCheck size={21} /></span>
               <div>
-                <p className="text-xs text-slate-400">Delivery Partner</p>
-                <p className="font-semibold">{order.rider.name}</p>
-                <p className="text-xs text-slate-500">{order.rider.vehicle}</p>
-              </div>
-              <div className="flex gap-2">
-                <a href={`tel:${order.rider.phone}`} className="w-10 h-10 rounded-full bg-brand-50 text-brand-700 flex items-center justify-center"><Phone size={16} /></a>
-                <span className="w-10 h-10 rounded-full bg-slate-100 text-slate-500 flex items-center justify-center"><MessageCircle size={16} /></span>
+                <p className="text-xs font-medium text-slate-500">Order #{order.orderNo || order.orderId}</p>
+                <p className="mt-0.5 text-lg font-extrabold text-slate-900">{terminal && order.status === 'Delivered' ? 'Delivered successfully' : order.status}</p>
+                <p className="mt-1 text-xs text-slate-500">Placed {order.orderDate || order.createdAt || '—'}{lastUpdated ? ` · Updated ${lastUpdated.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : ''}</p>
               </div>
             </div>
-          ) : (
-            <p className="text-sm text-slate-500 border rounded-xl p-3">Rider abhi assign nahi hua. Time store se aapke pin tak ka estimate hai.</p>
-          )}
-          <ul className="text-sm text-slate-600">
-            {(order.details || []).map((d, i) => (
-              <li key={i}>{d.name} × {d.qty} — {formatMoney(d.price * d.qty, business)}</li>
-            ))}
-          </ul>
-          <div className="text-sm space-y-1 border-t pt-2">
-            <div className="flex justify-between"><span>Items price</span><span>{formatMoney(itemsPrice, business)}</span></div>
-            {productDiscount > 0 && <div className="flex justify-between text-emerald-600"><span>Product discount</span><span>− {formatMoney(productDiscount, business)}</span></div>}
-            <div className="flex justify-between"><span>Subtotal</span><span>{formatMoney(itemsTotal, business)}</span></div>
-            {couponDiscount > 0 && <div className="flex justify-between text-emerald-600"><span>Coupon discount</span><span>− {formatMoney(couponDiscount, business)}</span></div>}
-            <div className="flex justify-between"><span>Delivery{order.zone?.name ? ` · ${order.zone.name}` : ''}</span><span className={freeDelivery ? 'font-medium text-emerald-600' : ''}>{freeDelivery ? 'FREE' : formatMoney(deliveryCharge, business)}</span></div>
-            {order.searchCharge > 0 && <div className="flex justify-between"><span>Search Charge</span><span>{formatMoney(order.searchCharge, business)}</span></div>}
-            <div className="flex justify-between"><span>Platform Fee</span><span>{formatMoney(order.platformFee || 0, business)}</span></div>
-            {(Number(order.taxAmount ?? bill?.taxAmount) || 0) > 0 && <div className="flex justify-between"><span>{bill?.taxName || order.taxName || 'GST'}{bill?.taxPercent ? ` (${bill.taxPercent}%)` : ''}{bill?.taxIncluded ? ' (included)' : ''}</span><span>{formatMoney(order.taxAmount ?? bill?.taxAmount, business)}</span></div>}
-            <p className="flex justify-between pt-1 text-base font-bold"><span>Total Amount</span><span>{formatMoney(order.amount || order.total, business)}</span></p>
+            <div className="flex items-center gap-4">
+              {eta && !terminal && <div className="text-right"><p className="text-xs text-slate-500">Estimated delivery</p><p className="text-2xl font-extrabold text-brand-700">{eta}</p></div>}
+              <span className={`rounded-full px-3 py-1.5 text-xs font-bold ${refreshing ? 'bg-amber-50 text-amber-800' : 'bg-emerald-50 text-emerald-800'}`}>
+                {refreshing ? 'Updating' : 'Live updates'}
+              </span>
+            </div>
+          </section>
+
+          {terminal && order.status === 'Delivered' && <div className="flex items-center gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900"><ShieldCheck size={22} /><div><p className="font-bold">Your order has been delivered</p><p className="mt-0.5 text-emerald-800">Thanks for ordering with WEPZO.</p></div></div>}
+          {error && <p role="status" className="rounded-xl bg-amber-50 px-4 py-2.5 text-xs text-amber-900">{error} {lastUpdated && `Last successful update ${lastUpdated.toLocaleTimeString()}.`}</p>}
+
+          <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,1.4fr)_minmax(340px,.85fr)]">
+            <section className="space-y-3">
+              <TrackMap order={order} />
+              <div className="flex flex-wrap items-center justify-between gap-2 px-1 text-xs text-slate-500">
+                <span className="inline-flex items-center gap-1.5"><MapPin size={14} /> {order.remainingKm != null ? `${order.remainingKm} km remaining` : 'Distance unavailable'}</span>
+                <span>{rider?.locationUpdatedAt ? `Rider location updated ${new Date(rider.locationUpdatedAt).toLocaleString()}` : rider ? 'Rider location unavailable' : 'Waiting for rider assignment'}</span>
+              </div>
+            </section>
+
+            <aside className="space-y-4">
+              <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+                <div className="mb-4 flex items-center justify-between"><h2 className="font-extrabold text-slate-900">Delivery progress</h2><Clock3 size={17} className="text-slate-400" /></div>
+                <ol className="space-y-0">
+                  {steps.map((step, index) => {
+                    const done = step.done || (terminal && order.status === 'Delivered') || step.key === 'placed';
+                    const current = !done && (step.current || step.key === 'ofd' && order.status === 'Out for Delivery');
+                    return <li key={`${step.key}-${index}`} className="relative flex gap-3 pb-4 last:pb-0">
+                      {index < steps.length - 1 && <span className={`absolute left-[11px] top-6 h-[calc(100%-12px)] w-px ${done ? 'bg-emerald-300' : 'bg-slate-200'}`} />}
+                      <span className={`relative z-10 grid h-6 w-6 shrink-0 place-items-center rounded-full ${done ? 'bg-emerald-600 text-white' : current ? 'bg-brand-600 text-white' : 'bg-slate-100 text-slate-400'}`}>{done ? <Check size={14} /> : <span className="h-1.5 w-1.5 rounded-full bg-current" />}</span>
+                      <div className="min-w-0 flex-1 pt-0.5"><p className={`text-sm ${done || current ? 'font-bold text-slate-900' : 'text-slate-500'}`}>{step.label}</p>{step.at && <p className="mt-0.5 text-[11px] text-slate-400">{step.at}</p>}</div>
+                    </li>;
+                  })}
+                </ol>
+              </section>
+
+              {rider && <section className="overflow-hidden rounded-2xl border border-orange-200 bg-white shadow-sm">
+                <div className="flex items-center gap-3 bg-gradient-to-r from-orange-50 to-amber-50 p-4">
+                  <div className="grid h-14 w-14 shrink-0 place-items-center overflow-hidden rounded-full border-2 border-white bg-orange-100 text-orange-700 shadow-sm">
+                    {rider.photo ? <img src={rider.photo} alt="" className="h-full w-full object-cover" /> : <Bike size={25} />}
+                  </div>
+                  <div className="min-w-0 flex-1"><p className="text-[10px] font-extrabold uppercase tracking-wider text-orange-700">WEPZO delivery partner</p><h2 className="truncate text-lg font-extrabold text-slate-900">{rider.name || 'Your rider'}</h2><p className="mt-0.5 flex items-center gap-1 text-xs text-slate-600"><Star size={13} className="fill-amber-400 text-amber-400" />{riderRating(rider)} <span className="text-slate-400">·</span> {Number(rider.completedDeliveries) || 0} deliveries</p></div>
+                  {rider.phone && !terminal && <a href={`tel:${rider.phone}`} aria-label={`Call ${rider.name || 'rider'}`} className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-white text-brand-700 shadow-sm"><Phone size={17} /></a>}
+                </div>
+                <div className="grid grid-cols-2 gap-x-3 gap-y-3 p-4 text-xs">
+                  <div><p className="text-slate-400">Vehicle</p><p className="mt-0.5 font-semibold text-slate-800">{rider.vehicle || 'Not provided'}</p></div>
+                  <div><p className="text-slate-400">Registration</p><p className="mt-0.5 font-semibold text-slate-800">{rider.vehicleNumber || 'Not provided'}</p></div>
+                  <div className="col-span-2"><p className="text-slate-400">Delivery status</p><p className="mt-0.5 font-semibold text-slate-800">{order.status}</p></div>
+                </div>
+              </section>}
+
+              <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+                <div className="flex items-center gap-3">
+                  {store.logo ? <img src={store.logo} alt="" className="h-11 w-11 rounded-xl border border-slate-100 object-cover" /> : <span className="grid h-11 w-11 place-items-center rounded-xl bg-emerald-50 text-emerald-700"><Store size={20} /></span>}
+                  <div className="min-w-0 flex-1"><p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Your store</p><p className="truncate font-bold text-slate-900">{store.name || order.store}</p></div>
+                  {store.phone && <a href={`tel:${store.phone}`} aria-label="Call store" className="grid h-9 w-9 place-items-center rounded-full bg-slate-50 text-slate-600"><Phone size={15} /></a>}
+                </div>
+              </section>
+
+              <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+                <div className="mb-3 flex items-center justify-between"><h2 className="font-extrabold text-slate-900">Items in this order</h2><span className="text-xs text-slate-500">{details.length} items</span></div>
+                <div className="divide-y divide-slate-100">
+                  {details.map((item, index) => {
+                    const id = productId(item);
+                    const trackPath = `/track/${encodeURIComponent(order.orderNo || order.orderId || order._id)}`;
+                    const productPath = id ? `/p/${encodeURIComponent(id)}?returnTo=${encodeURIComponent(trackPath)}` : '';
+                    const image = item.image || item.thumbnail || item.images?.[0] || '';
+                    const info = <div className="flex min-w-0 items-center gap-3 py-3">
+                      {image ? <img src={image} alt="" className="h-14 w-14 shrink-0 rounded-xl bg-slate-50 object-cover" /> : <span className="grid h-14 w-14 shrink-0 place-items-center rounded-xl bg-slate-50 text-slate-300"><PackageCheck size={20} /></span>}
+                      <div className="min-w-0 flex-1"><p className="line-clamp-2 text-sm font-bold text-slate-800">{item.name || item.productName || 'Product'}</p><p className="mt-1 text-xs text-slate-500">{item.variantName || item.variant || item.unit || item.packSize || 'Standard'} · Qty {item.qty || 1}</p></div>
+                      <p className="shrink-0 text-sm font-bold text-slate-900">{formatMoney((Number(item.price) || 0) * (Number(item.qty) || 1), business)}</p>
+                    </div>;
+                    return id ? <Link key={item.lineId || item.id || item._id || index} to={productPath} className="block rounded-lg outline-none hover:bg-slate-50 focus-visible:ring-2 focus-visible:ring-brand-500">{info}</Link>
+                      : <div key={item.lineId || index}>{info}</div>;
+                  })}
+                  {!details.length && <p className="py-5 text-center text-sm text-slate-500">Item details are not available.</p>}
+                </div>
+                <div className="space-y-2 border-t border-slate-100 pt-3 text-xs text-slate-600">
+                  {itemsPrice > 0 && <div className="flex justify-between"><span>Items price</span><span>{formatMoney(itemsPrice, business)}</span></div>}
+                  {productDiscount > 0 && <div className="flex justify-between text-emerald-700"><span>Product discount</span><span>− {formatMoney(productDiscount, business)}</span></div>}
+                  <div className="flex justify-between"><span>Subtotal</span><span>{formatMoney(itemsTotal, business)}</span></div>
+                  {couponDiscount > 0 && <div className="flex justify-between text-emerald-700"><span>Coupon discount</span><span>− {formatMoney(couponDiscount, business)}</span></div>}
+                  <div className="flex justify-between"><span>Delivery{order.zone?.name ? ` · ${order.zone.name}` : ''}</span><span className={freeDelivery ? 'font-semibold text-emerald-700' : ''}>{freeDelivery ? 'FREE' : formatMoney(deliveryCharge, business)}</span></div>
+                  {Number(order.searchCharge) > 0 && <div className="flex justify-between"><span>Search charge</span><span>{formatMoney(order.searchCharge, business)}</span></div>}
+                  {Number(order.platformFee) > 0 && <div className="flex justify-between"><span>Platform fee</span><span>{formatMoney(order.platformFee, business)}</span></div>}
+                  {Number(order.taxAmount ?? bill?.taxAmount) > 0 && <div className="flex justify-between"><span>{bill?.taxName || order.taxName || 'Tax'}</span><span>{formatMoney(order.taxAmount ?? bill?.taxAmount, business)}</span></div>}
+                  <div className="flex justify-between border-t border-slate-100 pt-2 text-base font-extrabold text-slate-900"><span>Total</span><span>{formatMoney(order.amount || order.total, business)}</span></div>
+                  <div className="flex justify-between pt-1"><span>Payment</span><span className="font-semibold text-slate-800">{order.paymentStatus || order.payment || 'Pending'}</span></div>
+                </div>
+              </section>
+            </aside>
           </div>
-        </div>
+        </>
       )}
     </div>
   );

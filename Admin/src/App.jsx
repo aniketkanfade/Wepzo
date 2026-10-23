@@ -53,6 +53,7 @@ const MarketingSocialApisPage = lazy(() => import('./WebAdmin/Marketing/Marketin
 const InformationWebDashboardPage = lazy(() => import('./WebAdmin/informastion web/InformationWebDashboardPage'));
 const WebPageContentPage = lazy(() => import('./WebAdmin/informastion web/WebPageContentPage'));
 const OrderDetailPage = lazy(() => import('./WebAdmin/Qucik commerce/OrderDetailPage'));
+const LiveOrdersTrackingPage = lazy(() => import('./WebAdmin/Qucik commerce/LiveOrdersTrackingPage'));
 const RefundsPage = lazy(() => import('./WebAdmin/Qucik commerce/RefundsPage'));
 const RefundDetailPage = lazy(() => import('./WebAdmin/Qucik commerce/RefundDetailPage'));
 const FlashSalesPage = lazy(() => import('./WebAdmin/Qucik commerce/FlashSalesPage'));
@@ -221,6 +222,7 @@ export default function App() {
         <Route path="quick-commerce/flash-sales/:saleId/edit" element={<FlashSaleFormPage />} />
         <Route path="orders/flash-sales" element={<Navigate to="/quick-commerce/flash-sales" replace />} />
         <Route path="orders/view/:orderId" element={<OrderDetailPage />} />
+        <Route path="orders/live" element={<LiveOrdersTrackingPage />} />
         <Route path="orders/quick-commerce" element={<QuickCommerceOrders />} />
         <Route path="orders/:status" element={<StoreSingleOrdersPage />} />
         <Route path="orders" element={<StoreSingleOrdersPage />} />

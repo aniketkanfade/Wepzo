@@ -6,6 +6,7 @@ import {
 import { ORDER_STATUS_STYLE, ORDER_STATUS_OPTIONS, STATUSES_REQUIRING_RIDER, STATUSES_ALLOWING_ASSIGN } from '../../../../constants/orderStatus';
 import { printOrderInvoice } from './orderPrint';
 import AssignDeliveryManModal from './AssignDeliveryManModal';
+import OrderTrackingMap from './OrderTrackingMap';
 import TransferStoreModal from './TransferStoreModal';
 import ConfirmModal from '../ConfirmModal';
 
@@ -195,6 +196,8 @@ export default function OrderDetailView({ order, onStatusChange, onAssignRider, 
           </div>
         </div>
       </div>
+
+      <OrderTrackingMap order={order} />
 
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-5">
         <div className="xl:col-span-2 space-y-4">
@@ -405,44 +408,39 @@ export default function OrderDetailView({ order, onStatusChange, onAssignRider, 
               <div className="space-y-3">
                 <div className="flex items-start gap-3">
                   <div className="w-10 h-10 rounded-full bg-orange-50 border border-orange-100 flex items-center justify-center shrink-0">
-                    <Bike size={16} className="text-orange-500" />
+                    {rider.photo ? <img src={rider.photo} alt="" className="h-full w-full rounded-full object-cover" /> : <Bike size={16} className="text-orange-500" />}
                   </div>
                   <div className="space-y-1 text-sm min-w-0">
                     <p className="font-bold text-gray-900">{rider.name}</p>
+                    <p className="flex items-center gap-1 text-xs text-gray-600"><Star size={12} className="fill-amber-400 text-amber-400" />{rider.rating == null ? 'Not rated yet' : `${Number(rider.rating).toFixed(1)} / 5`} <span className="text-gray-300">·</span> {Number(rider.completedDeliveries) || 0} completed deliveries</p>
                     <p className="flex items-center gap-2 text-gray-600"><Phone size={13} className="text-gray-400 shrink-0" /> +91{rider.phone}</p>
                     {rider.vehicle && <p className="text-xs text-gray-500">{rider.vehicle}</p>}
+                    {rider.vehicleNumber && <p className="text-xs text-gray-500">Registration: {rider.vehicleNumber}</p>}
                     <span className="inline-block text-[10px] font-bold text-green-700 bg-green-50 border border-green-100 px-2 py-0.5 rounded-full uppercase tracking-wide">Assigned</span>
                   </div>
                 </div>
-                {(rider.location || rider.area) && (
+                {(rider.location || rider.area || rider.lat != null || rider.lng != null || rider.locationUpdatedAt) && (
                   <div className="rounded-lg border border-orange-100 bg-orange-50/40 p-3 space-y-2.5">
                     <div className="flex items-center justify-between gap-2">
                       <p className="text-[11px] font-semibold text-orange-700 uppercase tracking-wide">Track Rider</p>
-                      <span className="text-[10px] font-bold text-green-700 bg-green-50 border border-green-100 px-2 py-0.5 rounded-full flex items-center gap-1">
-                        <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" /> Live
-                      </span>
+                      {rider.lat != null && rider.lng != null
+                        ? <span className="text-[10px] font-bold text-green-700 bg-green-50 border border-green-100 px-2 py-0.5 rounded-full flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-green-500" /> GPS received</span>
+                        : <span className="text-[10px] font-bold text-amber-800 bg-amber-50 border border-amber-100 px-2 py-0.5 rounded-full">Location unavailable</span>}
                     </div>
                     {rider.area && (
                       <span className="inline-block text-[10px] font-bold text-orange-700 bg-white border border-orange-100 px-2 py-0.5 rounded-md">
                         {rider.area}
                       </span>
                     )}
-                    {rider.location && (
-                      <p className="flex items-start gap-2 text-xs text-gray-700 leading-relaxed">
-                        <MapPin size={13} className="text-orange-500 shrink-0 mt-0.5" />
-                        <span>{rider.location}</span>
-                      </p>
-                    )}
-                    {rider.lat && rider.lng && (
+                    {rider.location && rider.lat == null && rider.lng == null && <p className="text-xs text-gray-500">{rider.location}</p>}
+                    {rider.lat != null && rider.lng != null && (
                       <a href={`https://www.google.com/maps?q=${rider.lat},${rider.lng}`} target="_blank" rel="noreferrer"
                         className="flex items-center justify-center gap-2 w-full py-2.5 bg-white border border-orange-200 rounded-lg text-xs font-bold text-orange-700 hover:bg-orange-50 transition">
                         <Navigation size={14} />
                         Google Maps par track karein
                       </a>
                     )}
-                    {rider.locationUpdatedAt && (
-                      <p className="text-[10px] text-gray-400 text-center">Last updated: {rider.locationUpdatedAt}</p>
-                    )}
+                    <p className="text-[10px] text-gray-400 text-center">{rider.locationUpdatedAt ? `Last GPS update: ${rider.locationUpdatedAt}` : 'Waiting for rider GPS permission and first update.'}</p>
                   </div>
                 )}
                 {order.transferredFromRider && (

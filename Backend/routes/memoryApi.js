@@ -715,10 +715,11 @@ const auth = (req, res, next) => {
       return next();
     }
     const emp = (store.employees || []).find(e => e._id === decoded.id);
-    if (!emp) return res.status(401).json({ message: 'Invalid token' });
+    if (!emp || emp.status !== 'active' || emp.loginEnabled === false) return res.status(401).json({ message: 'Invalid or inactive employee session' });
     const role = (store.roles || []).find(r => r._id === emp.roleId || r.slug === emp.roleSlug);
     req.user = {
       _id: emp._id,
+      websiteId: emp.websiteId || '',
       websiteModuleSlug: emp.websiteModuleSlug || '',
       selectedModuleSlug: emp.websiteModuleSlug || '',
       name: emp.name,
@@ -726,6 +727,8 @@ const auth = (req, res, next) => {
       role: emp.roleSlug || 'employee',
       accessSections: role?.accessSections || [],
       employeeId: emp._id,
+      employeeStoreId: emp.storeId || null,
+      deliveryManId: emp.riderId || emp.deliveryManId || '',
     };
     next();
   } catch { res.status(401).json({ message: 'Invalid token' }); }
@@ -835,6 +838,9 @@ function isInAdminWebsiteModule(req, item, { includeShared = false } = {}) {
   // review and manage both shared records and records owned by tenant sites.
   // Tenant-owned records keep their websiteId when edited below.
   if (req.user?.role === 'main_admin') return true;
+  if (req.user?.employeeId && req.user.websiteId) {
+    return String(item?.websiteId || '') === String(req.user.websiteId);
+  }
   return !item?.websiteId;
 }
 function isInAdminWebsiteData(req, item) {
@@ -1084,6 +1090,94 @@ function publicEmployee(e) {
   return { ...rest, hasPassword: !!passwordHash };
 }
 
+const RIDER_ROLE = /(?:^|[-_ ])(?:rider|delivery[-_ ]?man)(?:$|[-_ ])/i;
+function riderEmployeeForRequest(req) {
+  const employeeId = String(req.user?.employeeId || '');
+  if (!employeeId) return null;
+  const employee = (store.employees || []).find(item => String(item._id) === employeeId);
+  if (!employee || employee.status !== 'active' || employee.loginEnabled === false) return null;
+  const roleSlug = String(employee.roleSlug || '').toLowerCase().replace(/\s+/g, '-');
+  if (!RIDER_ROLE.test(roleSlug) && !/deliveryman|rider/.test(roleSlug)) return null;
+  const riderId = String(employee.riderId || employee.deliveryManId || '');
+  if (!riderId) return null;
+  const rider = (store.deliveryMen || []).find(item => String(item._id) === riderId);
+  if (!rider) return null;
+  const websiteId = String(employee.websiteId || '');
+  if (String(rider.websiteId || '') !== websiteId) return null;
+  const employeeModule = normalizeWebsiteModuleSlug(employee.websiteModuleSlug || '');
+  const riderModule = normalizeWebsiteModuleSlug(rider.websiteModuleSlug || quickCommerceWebsiteModuleSlug());
+  if (employeeModule && riderModule !== employeeModule) return null;
+  return { employee, rider };
+}
+
+function riderOwnsOrder(req, rider, order) {
+  if (!order || !isInAdminWebsiteModule(req, order)) return false;
+  if (String(order.websiteId || '') !== String(rider.websiteId || '')) return false;
+  if (normalizeWebsiteModuleSlug(order.websiteModuleSlug || '')
+    !== normalizeWebsiteModuleSlug(rider.websiteModuleSlug || quickCommerceWebsiteModuleSlug())) return false;
+  if (String(order.rider?._id || '') !== String(rider._id)) return false;
+  if (rider.storeId && String(order.storeId || '') !== String(rider.storeId)) return false;
+  return true;
+}
+
+function riderTimelineEvent(order, key, label, timestamp) {
+  const timeline = Array.isArray(order.timeline) ? [...order.timeline] : [];
+  const index = timeline.findIndex(item => item.key === key);
+  const event = { ...(index >= 0 ? timeline[index] : {}), key, label, at: timestamp, done: true };
+  if (index >= 0) timeline[index] = event;
+  else timeline.push(event);
+  return timeline;
+}
+
+function riderCompletedCount(riderId, websiteId, moduleSlug) {
+  return (store.orders || []).filter(order => order.status === 'Delivered'
+    && String(order.websiteId || '') === String(websiteId || '')
+    && normalizeWebsiteModuleSlug(order.websiteModuleSlug || '') === normalizeWebsiteModuleSlug(moduleSlug || '')
+    && String(order.rider?._id || '') === String(riderId)).length;
+}
+
+function safeTrackingOrder(order) {
+  if (!order?.rider || hasFreshRiderGps(order.rider)) return order;
+  return {
+    ...order,
+    rider: { ...order.rider, lat: null, lng: null, accuracy: null, locationUpdatedAt: null },
+  };
+}
+
+function panelTrackingOrder(order) {
+  const safe = safeTrackingOrder(order);
+  if (!safe?.rider?._id) return safe;
+  const rider = (store.deliveryMen || []).find(item => String(item._id) === String(safe.rider._id)
+    && String(item.websiteId || '') === String(safe.websiteId || '')
+    && normalizeWebsiteModuleSlug(item.websiteModuleSlug || quickCommerceWebsiteModuleSlug())
+      === normalizeWebsiteModuleSlug(safe.websiteModuleSlug || quickCommerceWebsiteModuleSlug()));
+  if (!rider) return safe;
+  const rating = rider.rating !== null && rider.rating !== undefined && Number.isFinite(Number(rider.rating))
+    ? Number(rider.rating)
+    : null;
+  return {
+    ...safe,
+    rider: {
+      ...safe.rider,
+      photo: rider.photo || rider.image || rider.profileImage || safe.rider.photo || '',
+      rating,
+      completedDeliveries: riderCompletedCount(rider._id, safe.websiteId, safe.websiteModuleSlug),
+      vehicleNumber: safe.rider.vehicleNumber || rider.vehicleNumber || rider.vehicleNo || rider.vehicle_number || rider.vehicle_no || rider.registrationNumber || rider.registrationNo || rider.registration_number || rider.vehicleRegistration || rider.vehicleRegistrationNumber || rider.vehicleRegNo || rider.plateNumber || '',
+    },
+  };
+}
+
+function hasFreshRiderGps(rider) {
+  if (!rider || rider.locationSource !== 'rider-app') return false;
+  const lat = Number(rider.lat);
+  const lng = Number(rider.lng);
+  const updated = Date.parse(rider.locationUpdatedAt || '');
+  const staleAfter = Math.max(30000, Math.min(15 * 60 * 1000, Number(process.env.RIDER_LOCATION_STALE_MS) || 2 * 60 * 1000));
+  return Number.isFinite(lat) && lat >= -90 && lat <= 90
+    && Number.isFinite(lng) && lng >= -180 && lng <= 180
+    && Number.isFinite(updated) && updated <= Date.now() + 60000 && Date.now() - updated <= staleAfter;
+}
+
 function recordEmployeeLogin(emp, { status, ip, device }) {
   const row = {
     _id: uuidv4(),
@@ -1216,6 +1310,9 @@ router.post('/auth/login', async (req, res) => {
       employeeId: emp._id,
       selectedModuleSlug: emp.websiteModuleSlug || quickCommerceWebsiteModuleSlug(),
       websiteModuleSlug: emp.websiteModuleSlug || quickCommerceWebsiteModuleSlug(),
+      websiteId: emp.websiteId || '',
+      websiteModuleId: emp.websiteModuleId || '',
+      deliveryManId: emp.riderId || emp.deliveryManId || '',
       selectedModuleName: (store.websiteModules || []).find(module => String(module.slug || '').toLowerCase() === String(emp.websiteModuleSlug || quickCommerceWebsiteModuleSlug()).toLowerCase())?.name || 'Quick Commerce',
     },
   });
@@ -1998,6 +2095,12 @@ function formatNow() {
 router.get('/orders', auth, (req, res) => {
   ensureOrders();
   let list = store.orders.filter(order => isInAdminWebsiteData(req, order));
+  if (req.user?.role === 'main_admin' && req.query.websiteId) {
+    const websiteId = String(req.query.websiteId);
+    const website = (store.websites || []).find(item => String(item._id) === websiteId
+      && normalizeWebsiteModuleSlug(item.websiteModuleSlug || item.moduleType || '') === adminWebsiteModuleSlug(req));
+    list = website ? list.filter(order => String(order.websiteId || '') === websiteId) : [];
+  }
   const slug = req.query.status;
   if (slug && STATUS_SLUGS[slug]) {
     list = list.filter(o => o.status === STATUS_SLUGS[slug]);
@@ -2033,7 +2136,7 @@ router.get('/orders', auth, (req, res) => {
       return (db?.getTime() || 0) - (da?.getTime() || 0);
     });
   }
-  res.json(list);
+  res.json(list.map(safeTrackingOrder));
 });
 
 function orderCreatedMs(o) {
@@ -2097,7 +2200,7 @@ router.get('/orders/detail/:id', auth, (req, res) => {
   const id = req.params.id;
   const order = store.orders.find(o => isInAdminWebsiteData(req, o) && (o._id === id || String(o.orderNo) === id || String(o.orderId) === id));
   if (!order) return res.status(404).json({ message: 'Order not found' });
-  res.json(order);
+  res.json(panelTrackingOrder(order));
 });
 
 function matchOrderProductsToCatalog(orderProducts, catalog) {
@@ -2173,7 +2276,10 @@ router.get('/delivery-men', auth, (req, res) => {
   const pickupRadiusKm = Number(order?.pickupRadiusKm ?? order?.bill?.pickupRadiusKm);
   const search = (req.query.search || '').toLowerCase().trim();
 
-  let list = store.deliveryMen.filter(d => d.online && isInAdminWebsiteModule(req, d));
+  let list = store.deliveryMen.filter(d => (req.query.includeOffline === '1' || d.online) && isInAdminWebsiteModule(req, d));
+  if (req.user?.role === 'website_user') {
+    list = list.filter(d => String(d.websiteId || '') === String(req.user.websiteId || ''));
+  }
   let zone = area
     ? (store.deliveryZones || []).find(z => isInAdminWebsiteModule(req, z) && (z.name === area || z.displayName === area))
     : null;
@@ -2198,12 +2304,16 @@ router.get('/delivery-men', auth, (req, res) => {
   }
 
   list = list.map(d => {
+    const freshGps = hasFreshRiderGps(d);
     let distanceM = null;
-    if (!Number.isNaN(refLat) && !Number.isNaN(refLng) && d.lat && d.lng) {
+    if (!Number.isNaN(refLat) && !Number.isNaN(refLng) && freshGps) {
       distanceM = distanceMeters(refLat, refLng, d.lat, d.lng);
     }
     return {
       ...d,
+      lat: freshGps ? d.lat : null,
+      lng: freshGps ? d.lng : null,
+      locationUpdatedAt: d.locationUpdatedAt || null,
       distanceM,
       distanceLabel: formatDistance(distanceM),
       nearStore: distanceM != null && distanceM <= 500,
@@ -2222,6 +2332,134 @@ router.get('/delivery-men', auth, (req, res) => {
   }
 
   res.json(list);
+});
+
+const riderLocationLastWrite = new Map();
+const activeRiderStatuses = new Set(['Accepted', 'Processing', 'Handover', 'Out for Delivery']);
+
+router.get('/rider/orders', auth, (req, res) => {
+  const context = riderEmployeeForRequest(req);
+  if (!context) return res.status(403).json({ message: 'This employee account is not linked to an active delivery rider.' });
+  const { employee, rider } = context;
+  const websiteId = String(employee.websiteId || '');
+  const moduleSlug = normalizeWebsiteModuleSlug(employee.websiteModuleSlug || rider.websiteModuleSlug || '');
+  const orders = (store.orders || [])
+    .filter(order => activeRiderStatuses.has(order.status)
+      && riderOwnsOrder(req, rider, order)
+      && String(order.websiteId || '') === websiteId
+      && normalizeWebsiteModuleSlug(order.websiteModuleSlug || '') === moduleSlug)
+    .map(order => ({
+      ...order,
+      customerEmail: undefined,
+      paymentGateway: undefined,
+      gatewayOrderId: undefined,
+      rider: {
+        ...order.rider,
+        rating: rider.rating !== null && rider.rating !== undefined && Number.isFinite(Number(rider.rating)) ? Number(rider.rating) : null,
+        completedDeliveries: riderCompletedCount(rider._id, websiteId, moduleSlug),
+      },
+    }))
+    .map(order => {
+      const { customerId: _customerId, customerEmail: _customerEmail, paymentGateway: _paymentGateway, gatewayOrderId: _gatewayOrderId, ...safeOrder } = order;
+      return safeOrder;
+    });
+  res.json(orders);
+});
+
+router.post('/rider/orders/:id/location', auth, (req, res) => {
+  const context = riderEmployeeForRequest(req);
+  if (!context) return res.status(403).json({ message: 'This employee account is not linked to an active delivery rider.' });
+  const { rider } = context;
+  const lat = Number(req.body?.lat);
+  const lng = Number(req.body?.lng);
+  const accuracy = Number(req.body?.accuracy);
+  const capturedAt = Date.parse(req.body?.timestamp || '');
+  const now = Date.now();
+  if (!Number.isFinite(lat) || lat < -90 || lat > 90 || !Number.isFinite(lng) || lng < -180 || lng > 180) {
+    return res.status(400).json({ message: 'Valid GPS latitude and longitude are required.' });
+  }
+  if (!Number.isFinite(accuracy) || accuracy < 0 || accuracy > 5000) {
+    return res.status(400).json({ message: 'GPS accuracy must be between 0 and 5000 meters.' });
+  }
+  if (!Number.isFinite(capturedAt) || capturedAt < now - 5 * 60 * 1000 || capturedAt > now + 60 * 1000) {
+    return res.status(400).json({ message: 'GPS timestamp is missing, too old, or in the future.' });
+  }
+  const minimumInterval = Math.max(1000, Math.min(60000, Number(process.env.RIDER_LOCATION_MIN_INTERVAL_MS) || 5000));
+  const writeKey = String(rider._id);
+  if (now - (riderLocationLastWrite.get(writeKey) || 0) < minimumInterval) {
+    return res.status(429).json({ message: 'Location update received too recently. Try again shortly.' });
+  }
+  const order = (store.orders || []).find(item => String(item._id) === String(req.params.id)
+    && activeRiderStatuses.has(item.status) && riderOwnsOrder(req, rider, item));
+  if (!order) return res.status(404).json({ message: 'Active order not found for this rider.' });
+  riderLocationLastWrite.set(writeKey, now);
+  const location = {
+    lat: Number(lat.toFixed(6)),
+    lng: Number(lng.toFixed(6)),
+    accuracy: Number(accuracy.toFixed(1)),
+    timestamp: new Date(capturedAt).toISOString(),
+  };
+  order.rider = { ...order.rider, ...location, locationUpdatedAt: location.timestamp, locationSource: 'rider-app' };
+  rider.lat = location.lat;
+  rider.lng = location.lng;
+  rider.locationAccuracy = location.accuracy;
+  rider.locationUpdatedAt = location.timestamp;
+  rider.locationSource = 'rider-app';
+  res.json({ locationUpdatedAt: location.timestamp });
+});
+
+router.patch('/rider/orders/:id/status', auth, (req, res) => {
+  const context = riderEmployeeForRequest(req);
+  if (!context) return res.status(403).json({ message: 'This employee account is not linked to an active delivery rider.' });
+  const { rider } = context;
+  const order = (store.orders || []).find(item => String(item._id) === String(req.params.id)
+    && riderOwnsOrder(req, rider, item));
+  if (!order) return res.status(404).json({ message: 'Assigned order not found.' });
+  const action = String(req.body?.action || '').trim().toLowerCase();
+  const nowIso = new Date().toISOString();
+  const nowLabel = formatNow();
+  const accepted = !!order.rider?.acceptedAt;
+  const reached = !!order.rider?.reachedStoreAt;
+  const pickedUp = (order.timeline || []).some(item => item.key === 'picked' && item.done);
+  if (action === 'accept' && activeRiderStatuses.has(order.status) && !accepted) {
+    order.rider = { ...order.rider, acceptedAt: nowIso };
+    order.timeline = riderTimelineEvent(order, 'riderAccepted', 'Rider accepted', nowLabel);
+  } else if (action === 'reach-store' && accepted && order.status !== 'Out for Delivery') {
+    order.rider = { ...order.rider, reachedStoreAt: nowIso };
+    order.timeline = riderTimelineEvent(order, 'reachedStore', 'Rider reached store', nowLabel);
+  } else if (action === 'picked-up' && reached && order.status !== 'Out for Delivery') {
+    order.rider = { ...order.rider, pickedUpAt: nowIso };
+    order.timeline = riderTimelineEvent(order, 'picked', 'Rider picked up order', nowLabel);
+  } else if (action === 'start-delivery' && pickedUp && ['Accepted', 'Processing', 'Handover'].includes(order.status)) {
+    order.status = 'Out for Delivery';
+    order.rider = { ...order.rider, deliveryStartedAt: nowIso };
+    order.timeline = riderTimelineEvent(order, 'ofd', 'Rider on the way', nowLabel);
+  } else if (action === 'delivered' && order.status === 'Out for Delivery') {
+    order.status = 'Delivered';
+    order.deliveredAt = nowIso;
+    order.rider = { ...order.rider, deliveredAt: nowIso };
+    order.timeline = riderTimelineEvent(order, 'delivered', 'Order delivered', nowLabel);
+  } else {
+    return res.status(409).json({ message: 'That delivery action is not available at the current order stage.' });
+  }
+  res.json(order);
+});
+
+router.get('/rider/profile', auth, (req, res) => {
+  const context = riderEmployeeForRequest(req);
+  if (!context) return res.status(403).json({ message: 'This employee account is not linked to an active delivery rider.' });
+  const { employee, rider } = context;
+  const websiteId = String(employee.websiteId || '');
+  const moduleSlug = normalizeWebsiteModuleSlug(employee.websiteModuleSlug || rider.websiteModuleSlug || '');
+  res.json({
+    _id: rider._id,
+    name: rider.name || employee.name,
+    photo: rider.photo || rider.image || rider.profileImage || '',
+    rating: rider.rating !== null && rider.rating !== undefined && Number.isFinite(Number(rider.rating)) ? Number(rider.rating) : null,
+    completedDeliveries: riderCompletedCount(rider._id, websiteId, moduleSlug),
+    vehicle: rider.vehicle || '',
+    vehicleNumber: rider.vehicleNumber || rider.vehicleNo || rider.vehicle_number || rider.vehicle_no || rider.registrationNumber || rider.registrationNo || rider.registration_number || rider.vehicleRegistration || rider.vehicleRegistrationNumber || rider.vehicleRegNo || rider.plateNumber || '',
+  });
 });
 
 const STATUSES_NEED_RIDER = ['Out for Delivery', 'Delivered'];
@@ -2267,6 +2505,12 @@ router.put('/orders/:id/assign-rider', auth, (req, res) => {
   }
   const rider = store.deliveryMen.find(d => d._id === req.body.riderId && isInAdminWebsiteModule(req, d));
   if (!rider) return res.status(404).json({ message: 'Rider not found' });
+  if (String(rider.websiteId || '') !== String(current.websiteId || '')) {
+    return res.status(403).json({ message: 'Rider and order must belong to the same website.' });
+  }
+  if (rider.storeId && current.storeId && String(rider.storeId) !== String(current.storeId)) {
+    return res.status(403).json({ message: 'Rider is not assigned to this store.' });
+  }
   const shopStore = (store.stores || []).find(s => isInAdminWebsiteModule(req, s) && (
     s.name === current.store || String(s.storeId) === String(current.storeId)
   ));
@@ -2275,7 +2519,7 @@ router.put('/orders/:id/assign-rider', auth, (req, res) => {
   const { distanceMeters } = require('../lib/geoUtils');
   const pickupRadiusKm = Number(current.pickupRadiusKm ?? current.bill?.pickupRadiusKm);
   if (Number.isFinite(pickupRadiusKm) && pickupRadiusKm > 0) {
-    if (rider.lat == null || rider.lng == null || storeLat == null || storeLng == null) {
+    if (!hasFreshRiderGps(rider) || storeLat == null || storeLng == null) {
       return res.status(400).json({ message: 'Pickup radius configured hai, rider/store location required hai.' });
     }
     const pickupKm = distanceMeters(Number(rider.lat), Number(rider.lng), Number(storeLat), Number(storeLng)) / 1000;
@@ -2294,6 +2538,8 @@ router.put('/orders/:id/assign-rider', auth, (req, res) => {
     }
   }
   const prevRider = isTransfer ? current.rider.name : null;
+  const nowLabel = formatNow();
+  const riderAssignmentTimeline = riderTimelineEvent(current, 'riderAssigned', 'Rider assigned', nowLabel);
   store.orders[idx] = {
     ...current,
     storeLat,
@@ -2304,13 +2550,18 @@ router.put('/orders/:id/assign-rider', auth, (req, res) => {
       _id: rider._id,
       area: rider.area,
       location: rider.location,
-      lat: rider.lat,
-      lng: rider.lng,
+      // Assignment is not a GPS observation. The active map stays empty until
+      // the rider app sends a permission-backed location fix.
+      lat: null,
+      lng: null,
+      accuracy: null,
+      locationSource: null,
       vehicle: rider.vehicle,
       vehicleNumber: rider.vehicleNumber || rider.vehicleNo || rider.vehicle_number || rider.vehicle_no || rider.registrationNumber || rider.registrationNo || rider.registration_number || rider.vehicleRegistration || rider.vehicleRegistrationNumber || rider.vehicleRegNo || rider.plateNumber || '',
-      locationUpdatedAt: formatNow(),
-      lastMovedAt: new Date().toISOString(),
+      photo: rider.photo || rider.image || rider.profileImage || '',
+        rating: rider.rating !== null && rider.rating !== undefined && Number.isFinite(Number(rider.rating)) ? Number(rider.rating) : null,
     },
+    timeline: riderAssignmentTimeline,
     riderAssignedAt: current.riderAssignedAt || new Date().toISOString(),
     transferredFromRider: prevRider,
     riderTransferredAt: prevRider ? formatNow() : current.riderTransferredAt,
@@ -2381,6 +2632,14 @@ router.put('/orders/:id', auth, (req, res) => {
   if (idx === -1) return res.status(404).json({ message: 'Order not found' });
   const updates = { ...req.body };
   const current = store.orders[idx];
+
+  // Live GPS is written only by the assigned rider endpoint. Generic order
+  // edits must never be able to replace a rider identity or GPS fix.
+  delete updates.rider;
+  delete updates.riderLocation;
+  if (updates.status === 'Delivered' && req.user?.employeeStoreId) {
+    return res.status(403).json({ message: 'Store-scoped staff cannot mark a delivery complete.' });
+  }
 
   const hasRider = !!(current.rider?.name && current.rider?.phone);
   const hasPartnerDelivery = !!current.partnerDelivery?.bookingReference;
@@ -3223,7 +3482,7 @@ router.get('/stores/:id/orders', auth, (req, res) => {
   const s = getStoreRecord(req.params.id, req);
   if (!s) return res.status(404).json({ message: 'Store not found' });
   const orders = store.orders.filter(o => isInAdminWebsiteData(req, o) && belongsToStore(o, s));
-  res.json(orders);
+  res.json(orders.map(safeTrackingOrder));
 });
 
 router.get('/stores/:id/reviews', auth, (req, res) => {
@@ -6300,16 +6559,48 @@ router.delete('/website-modules/:id', auth, (req, res) => {
   res.json({ message: 'Deleted' });
 });
 
+function employeeIsInAdminScope(req, employee) {
+  if (req.user?.role === 'website_user') {
+    return !!req.user.websiteId && String(employee.websiteId || '') === String(req.user.websiteId);
+  }
+  if (req.user?.role === 'main_admin') return isInAdminWebsiteModule(req, employee);
+  return String(employee._id) === String(req.user?.employeeId || '');
+}
+
+function linkedRiderIdForEmployee(req, body, employee = null) {
+  const riderId = String(body.riderId || body.deliveryManId || '').trim();
+  if (!riderId) return '';
+  const rider = (store.deliveryMen || []).find(item => String(item._id) === riderId
+    && isInAdminWebsiteModule(req, item));
+  if (!rider) return null;
+  const tenantId = String(req.user?.role === 'website_user' ? req.user.websiteId : (employee?.websiteId || '') || '');
+  if (String(rider.websiteId || '') !== tenantId) return null;
+  if (employee?.storeId && rider.storeId && String(employee.storeId) !== String(rider.storeId)) return null;
+  return riderId;
+}
+
+function employeeStoreAccess(req, storeId) {
+  if (storeId === undefined || storeId === null || String(storeId).trim() === '') {
+    return { storeId: null, storeName: 'All Stores' };
+  }
+  const value = String(storeId).trim();
+  const selected = (store.stores || []).find(item => isInAdminWebsiteModule(req, item)
+    && (req.user?.role !== 'website_user' || String(item.websiteId || '') === String(req.user.websiteId || ''))
+    && (String(item.storeId || '') === value || String(item._id || '') === value));
+  if (!selected) return null;
+  return { storeId: selected.storeId ?? selected._id, storeName: selected.name || 'Store' };
+}
+
 router.get('/employees', auth, (req, res) => {
   const { storeId, status } = req.query;
-  let list = (store.employees || []).filter(employee => isInAdminWebsiteModule(req, employee));
+  let list = (store.employees || []).filter(employee => employeeIsInAdminScope(req, employee));
   if (storeId) list = list.filter(e => String(e.storeId) === String(storeId));
   if (status) list = list.filter(e => e.status === status);
   res.json(list.map(publicEmployee));
 });
 
 router.get('/employees/:id', auth, (req, res) => {
-  const emp = (store.employees || []).find(e => e._id === req.params.id && isInAdminWebsiteModule(req, e));
+  const emp = (store.employees || []).find(e => e._id === req.params.id && employeeIsInAdminScope(req, e));
   if (!emp) return res.status(404).json({ message: 'Employee not found' });
   res.json(publicEmployee(emp));
 });
@@ -6318,17 +6609,22 @@ router.post('/employees', auth, async (req, res) => {
   const body = req.body || {};
   const role = store.roles.find(r => isInAdminWebsiteModule(req, r) && (r._id === body.roleId || r.slug === body.roleSlug));
   const password = (body.password || 'emp123').trim() || 'emp123';
+  const storeAccess = employeeStoreAccess(req, body.storeId);
+  if (!storeAccess) return res.status(400).json({ message: 'Select a store from this website.' });
+  const riderId = linkedRiderIdForEmployee(req, body);
+  if (riderId === null) return res.status(400).json({ message: 'Select a delivery rider from this website and store.' });
   const item = {
     _id: uuidv4(),
     websiteModuleSlug: adminWebsiteModuleSlug(req),
+    ...(req.user?.role === 'website_user' && req.user.websiteId ? { websiteId: String(req.user.websiteId) } : {}),
     name: body.name || 'Employee',
     email: body.email || '',
     phone: body.phone || '',
     roleId: role?._id || body.roleId,
     roleSlug: role?.slug || body.roleSlug || 'employee',
     roleName: role?.name || body.roleName || 'Employee',
-    storeId: body.storeId || null,
-    storeName: body.storeName || 'All Stores',
+    ...storeAccess,
+    riderId: riderId || '',
     status: body.status || 'active',
     loginEnabled: body.loginEnabled !== false,
     passwordHash: await bcrypt.hash(password, 8),
@@ -6341,9 +6637,23 @@ router.post('/employees', auth, async (req, res) => {
 });
 
 router.put('/employees/:id', auth, async (req, res) => {
-  const idx = (store.employees || []).findIndex(e => e._id === req.params.id && isInAdminWebsiteModule(req, e));
+  const idx = (store.employees || []).findIndex(e => e._id === req.params.id && employeeIsInAdminScope(req, e));
   if (idx === -1) return res.status(404).json({ message: 'Employee not found' });
   const body = { ...(req.body || {}) };
+  const existing = store.employees[idx];
+  if (Object.hasOwn(body, 'storeId')) {
+    const storeAccess = employeeStoreAccess(req, body.storeId);
+    if (!storeAccess) return res.status(400).json({ message: 'Select a store from this website.' });
+    Object.assign(body, storeAccess);
+  } else {
+    delete body.storeName;
+  }
+  if (Object.hasOwn(body, 'riderId') || Object.hasOwn(body, 'deliveryManId')) {
+    const riderId = linkedRiderIdForEmployee(req, body, { ...existing, ...body });
+    if (riderId === null) return res.status(400).json({ message: 'Select a delivery rider from this website and store.' });
+    body.riderId = riderId;
+    delete body.deliveryManId;
+  }
   if (body.roleId || body.roleSlug) {
     const role = store.roles.find(r => isInAdminWebsiteModule(req, r) && (r._id === body.roleId || r.slug === body.roleSlug));
     if (role) {
@@ -6358,12 +6668,20 @@ router.put('/employees/:id', auth, async (req, res) => {
   }
   delete body._id;
   delete body.hasPassword;
-  store.employees[idx] = { ...store.employees[idx], ...body, websiteModuleSlug: adminWebsiteModuleSlug(req), _id: store.employees[idx]._id };
+  delete body.websiteId;
+  delete body.websiteModuleSlug;
+  store.employees[idx] = {
+    ...existing,
+    ...body,
+    websiteModuleSlug: adminWebsiteModuleSlug(req),
+    ...(req.user?.role === 'website_user' && req.user.websiteId ? { websiteId: String(req.user.websiteId) } : {}),
+    _id: existing._id,
+  };
   res.json(publicEmployee(store.employees[idx]));
 });
 
 router.delete('/employees/:id', auth, (req, res) => {
-  store.employees = (store.employees || []).filter(e => e._id !== req.params.id || !isInAdminWebsiteModule(req, e));
+  store.employees = (store.employees || []).filter(e => e._id !== req.params.id || !employeeIsInAdminScope(req, e));
   res.json({ message: 'Deleted' });
 });
 
@@ -9043,22 +9361,25 @@ router.post('/shop/payments/verify', shopAuth, async (req, res) => {
   }
 });
 
-router.get('/shop/orders/:id', (req, res) => {
-  // Public track-by-id — do not use admin `auth` (shop JWT would look like Invalid token).
+router.get('/shop/orders/:id', shopAuth, (req, res) => {
+  // Customer-authenticated tracking stays scoped to this customer and website.
   ensureOrders();
-  const { simulateRiderOnOrder, enrichOrderEta } = require('../lib/shopQuote');
-  const websiteContext = websiteContextForRequest(req, { requirePublished: !!(req.get('X-Website-Id') || req.query?.websiteId) });
-  if (websiteContext.error) return res.status(websiteContext.error.status).json({ message: websiteContext.error.message });
+  const { enrichOrderEta } = require('../lib/shopQuote');
   const id = req.params.id;
+  const customerId = String(req.customer._id || '');
+  const customerEmail = String(req.customer.email || '').trim().toLowerCase();
+  const websiteId = String(req.customer.websiteId || '');
   const idx = store.orders.findIndex(o =>
-    isQuickCommerceWebsiteRecord(o)
-    && (websiteContext.websiteId ? String(o.websiteId || '') === websiteContext.websiteId : !o.websiteId)
+    isShopWebsiteRecord(o, req.websiteContext)
+    && String(o.websiteId || '') === websiteId
+    && (String(o.customerId || '') === customerId
+      || (customerEmail && String(o.customerEmail || '').trim().toLowerCase() === customerEmail))
     && (o._id === id || String(o.orderNo) === id || String(o.orderId) === id)
   );
   if (idx === -1) return res.status(404).json({ message: 'Order not found' });
   let order = store.orders[idx];
   if (Array.isArray(order.details) && order.details.some(detail => detail.mrp == null)) {
-    const catalog = qcCatalog(websiteContext.websiteId || '', websiteContext);
+    const catalog = qcCatalog(websiteId, req.websiteContext);
     order.details.forEach(detail => {
       if (detail.mrp != null) return;
       const product = catalog.find(item => item._id === detail.id || String(item.productId) === String(detail.productId));
@@ -9070,7 +9391,9 @@ router.get('/shop/orders/:id', (req, res) => {
     });
   }
   if (order.store && (order.storeLat == null || order.storeLng == null || order.storeEtaMin == null || order.storeEtaMax == null)) {
-    const st = (store.stores || []).find(s => isQuickCommerceWebsiteRecord(s) && (s.name === order.store || String(s.storeId) === String(order.storeId)));
+    const st = (store.stores || []).find(s => isShopWebsiteRecord(s, req.websiteContext)
+      && String(s.websiteId || '') === websiteId
+      && (s.name === order.store || String(s.storeId) === String(order.storeId)));
     if (st) {
       if (order.storeLat == null) order.storeLat = st.lat;
       if (order.storeLng == null) order.storeLng = st.lng;
@@ -9085,10 +9408,47 @@ router.get('/shop/orders/:id', (req, res) => {
       }
     }
   }
-  simulateRiderOnOrder(order);
   enrichOrderEta(order);
   store.orders[idx] = order;
-  res.json(order);
+  const storeRecord = (store.stores || []).find(item => isShopWebsiteRecord(item, req.websiteContext)
+    && String(item.websiteId || '') === websiteId
+    && (String(item.storeId || '') === String(order.storeId || '') || item.name === order.store));
+  const riderRecord = order.rider?._id
+    ? (store.deliveryMen || []).find(item => String(item._id) === String(order.rider._id)
+      && isShopWebsiteRecord(item, req.websiteContext)
+      && String(item.websiteId || '') === websiteId)
+    : null;
+  const { customerId: _customerId, customerEmail: _customerEmail, paymentGateway: _paymentGateway, gatewayOrderId: _gatewayOrderId, ...customerOrder } = order;
+  const completedDeliveries = riderRecord
+    ? riderCompletedCount(riderRecord._id, websiteId, riderRecord.websiteModuleSlug || order.websiteModuleSlug)
+    : 0;
+  res.json({
+    ...customerOrder,
+    storeDetails: storeRecord ? {
+      name: storeRecord.name || order.store,
+      logo: storeRecord.logo || storeRecord.image || storeRecord.storeLogo || '',
+      phone: storeRecord.phone || storeRecord.mobile || storeRecord.phoneNumber || '',
+      lat: order.storeLat ?? storeRecord.lat ?? null,
+      lng: order.storeLng ?? storeRecord.lng ?? null,
+    } : { name: order.store || '', lat: order.storeLat ?? null, lng: order.storeLng ?? null },
+    rider: order.rider ? {
+      _id: order.rider._id,
+      name: order.rider.name || riderRecord?.name || '',
+      phone: ['Delivered', 'Cancelled'].includes(order.status) ? '' : order.rider.phone || riderRecord?.phone || '',
+      photo: riderRecord?.photo || riderRecord?.image || riderRecord?.profileImage || order.rider.photo || '',
+      vehicle: order.rider.vehicle || riderRecord?.vehicle || '',
+      vehicleNumber: order.rider.vehicleNumber || '',
+      rating: riderRecord?.rating !== null && riderRecord?.rating !== undefined && Number.isFinite(Number(riderRecord.rating)) ? Number(riderRecord.rating) : null,
+      completedDeliveries,
+      lat: hasFreshRiderGps(order.rider) && order.rider.lat !== null && order.rider.lat !== undefined && Number.isFinite(Number(order.rider.lat)) ? Number(order.rider.lat) : null,
+      lng: hasFreshRiderGps(order.rider) && order.rider.lng !== null && order.rider.lng !== undefined && Number.isFinite(Number(order.rider.lng)) ? Number(order.rider.lng) : null,
+      accuracy: hasFreshRiderGps(order.rider) && order.rider.accuracy !== null && order.rider.accuracy !== undefined && Number.isFinite(Number(order.rider.accuracy)) ? Number(order.rider.accuracy) : null,
+      locationUpdatedAt: hasFreshRiderGps(order.rider) ? order.rider.locationUpdatedAt || null : null,
+      acceptedAt: order.rider.acceptedAt || null,
+      reachedStoreAt: order.rider.reachedStoreAt || null,
+      pickedUpAt: order.rider.pickedUpAt || null,
+    } : null,
+  });
 });
 
 module.exports = router;

@@ -32,6 +32,19 @@ export default function OrderDetailPage() {
 
   useEffect(() => { loadOrder(); }, [loadOrder]);
 
+  useEffect(() => {
+    if (!order || ['Delivered', 'Cancelled'].includes(order.status)) return undefined;
+    let live = true;
+    const timer = window.setInterval(() => {
+      api.get(`/orders/detail/${encodeURIComponent(orderId)}`).then(({ data }) => {
+        if (!live) return;
+        setOrder(data);
+        setAllOrders(previous => previous.map(item => item._id === data._id ? data : item));
+      }).catch(() => {});
+    }, 8000);
+    return () => { live = false; window.clearInterval(timer); };
+  }, [orderId, order?.status]);
+
   const currentIndex = order ? allOrders.findIndex(o => o._id === order._id) : -1;
 
   const updateStatus = async (id, newStatus) => {
