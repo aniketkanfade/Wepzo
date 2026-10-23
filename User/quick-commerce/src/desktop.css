@@ -1,4 +1,8 @@
 @media (min-width: 641px) {
+  .qc-header .qc-location-saved-label {
+    display: none;
+  }
+
   html,
   body,
   #root {
@@ -557,6 +561,103 @@
 
   .qc-product-benefits > div:first-child {
     border-top: 0;
+  }
+}
+
+@media (min-width: 641px) {
+  .qc-header-main {
+    box-sizing: border-box;
+    width: 100%;
+    max-width: 1280px !important;
+    margin-right: auto !important;
+    margin-left: auto !important;
+    padding-right: clamp(16px, 1.8vw, 24px) !important;
+    padding-left: clamp(16px, 1.8vw, 24px) !important;
+    min-height: 50px !important;
+    padding-top: 3px !important;
+    padding-bottom: 3px !important;
+    position: relative;
+    border-bottom: 0;
+  }
+
+  .qc-header-main::after {
+    position: absolute;
+    bottom: 0;
+    left: 50%;
+    width: 100vw;
+    height: 1px;
+    background: color-mix(in srgb, var(--header-text, #172744) 14%, transparent);
+    content: '';
+    pointer-events: none;
+    transform: translateX(-50%);
+  }
+
+  .qc-header-main .qc-header-logo {
+    font-size: 18px;
+  }
+
+  .qc-header-main .qc-header-brand-image {
+    max-height: 32px;
+  }
+
+  .qc-header-main .qc-header-profile-trigger > span:first-child {
+    width: 26px;
+    height: 26px;
+  }
+
+  .qc-header-main .qc-header-search form {
+    gap: 4px;
+    padding: 1px 4px;
+  }
+
+  .qc-header-main .qc-header-search form > input:not([type='file']) {
+    height: 32px;
+  }
+
+  .qc-header-main .qc-header-search form > button {
+    height: 30px !important;
+  }
+
+  .qc-header-cats {
+    box-sizing: border-box;
+    width: 100%;
+    max-width: 1280px !important;
+    margin-right: auto !important;
+    margin-left: auto !important;
+    padding-right: clamp(16px, 1.8vw, 24px) !important;
+    padding-left: clamp(16px, 1.8vw, 24px) !important;
+    gap: 10px;
+    padding-top: 3px !important;
+    padding-bottom: 2px !important;
+  }
+
+  .qc-header-cats .qc-header-module {
+    gap: 1px;
+  }
+
+  .qc-header-cats .qc-header-module img,
+  .qc-header-cats .qc-header-all-icon {
+    width: 30px;
+    height: 22px;
+  }
+
+  .qc-header-cats .qc-header-module span {
+    font-size: 11px;
+    line-height: 1.2;
+  }
+
+  .qc-header-cats.is-compact .qc-header-module span:last-child {
+    font-size: 11px;
+    line-height: 1.2;
+  }
+
+  .qc-header .qc-header-cats .qc-header-module.active {
+    background: transparent !important;
+    box-shadow: none !important;
+  }
+
+  .qc-header-cats .qc-header-module.active::after {
+    border-radius: 999px;
   }
 }
 
