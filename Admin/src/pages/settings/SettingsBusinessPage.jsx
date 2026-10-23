@@ -149,8 +149,8 @@ function LiveWebsitePreview({ src, moduleName, viewMode, refreshKey, theme, load
       window.removeEventListener('resize', resize);
     };
   }, [viewMode, viewport.width]);
-  if (loading) return <div className="grid min-h-[420px] place-items-center rounded-xl border border-slate-200 bg-slate-50 p-6 text-center text-sm text-slate-500">Loading {moduleName || 'storefront'} preview...</div>;
-  if (error || !src) return <div role={error ? 'alert' : undefined} className="grid min-h-[420px] place-items-center rounded-xl border border-slate-200 bg-slate-50 p-6 text-center text-sm text-slate-500">{error || `This account does not have a tenant website ID for ${moduleName || 'the selected module'}.`}</div>;
+  if (loading) return <div className="grid min-h-[190px] place-items-center rounded-xl border border-slate-200 bg-slate-50 p-4 text-center text-xs text-slate-500">Loading {moduleName || 'storefront'} preview...</div>;
+  if (error || !src) return <div role={error ? 'alert' : undefined} className="grid min-h-[190px] place-items-center rounded-xl border border-slate-200 bg-slate-50 p-4 text-center text-xs text-slate-500">{error || `This account does not have a tenant website ID for ${moduleName || 'the selected module'}.`}</div>;
   return <div className="rounded-xl bg-slate-100 p-2 sm:p-3">
     <div ref={viewportRef} className="flex w-full justify-center overflow-hidden">
       <div className="shrink-0 overflow-hidden rounded-lg border border-slate-300 bg-white shadow-lg" style={{ width: viewport.width * scale, height: viewport.height * scale }}>
@@ -491,9 +491,19 @@ export default function SettingsBusinessPage({ colorsOnly = false }) {
       if (!current) return;
       const websites = Array.isArray(data) ? data : [];
       const preferredId = String(user?.websiteId || activeModule?.websiteId || activeModule?.tenantId || '');
-      const website = websites.find(item => preferredId && String(item._id || '') === preferredId)
-        || websites.find(item => String(item.userId || '') === String(user?.id || user?._id || ''))
-        || websites[0];
+      const moduleId = String(user?.selectedModuleId || user?.websiteModuleId || activeModule?._id || '');
+      const moduleSlug = getAdminModuleKey(activeModule);
+      const belongsToSelectedModule = item => moduleId && item.websiteModuleId
+        ? String(item.websiteModuleId) === moduleId
+        : getAdminModuleKey({ slug: item.websiteModuleSlug || item.moduleType, name: item.moduleName }) === moduleSlug;
+      const ownedWebsites = websites.filter(item =>
+        String(item.userId || '') === String(user?.id || user?._id || '')
+        && belongsToSelectedModule(item)
+      );
+      const website = websites.find(item => preferredId
+        && String(item._id || '') === preferredId
+        && belongsToSelectedModule(item))
+        || ownedWebsites.find(belongsToSelectedModule);
       const websiteId = String(website?._id || '').trim();
       setResolvedPreviewWebsite(website || null);
       if (websiteId) useAuthStore.getState().setWebsiteId(websiteId);
@@ -505,7 +515,7 @@ export default function SettingsBusinessPage({ colorsOnly = false }) {
   const previewWebsite = isMainAdmin ? mainAdminPreview.website : resolvedPreviewWebsite;
   const previewWebsiteId = isMainAdmin
     ? String(mainAdminPreview.website?.websiteId || '').trim()
-    : String(user?.websiteId || activeModule?.websiteId || activeModule?.tenantId || resolvedPreviewWebsite?._id || '').trim();
+    : String(resolvedPreviewWebsite?._id || user?.websiteId || activeModule?.websiteId || activeModule?.tenantId || '').trim();
   const livePreviewUrl = useMemo(() => {
     if (isMainAdmin && !mainAdminPreview.website) return '';
     if (!isMainAdmin && !previewWebsiteId) return '';
@@ -519,16 +529,13 @@ export default function SettingsBusinessPage({ colorsOnly = false }) {
     };
     try {
       let previewBase = previewBases[moduleKey];
-      if (moduleKey === 'e-commerce' && !import.meta.env.DEV) {
-        const websiteUrl = previewWebsite?.hosting?.status === 'active'
-          ? previewWebsite.hosting.url
-          : ['active', 'published'].includes(String(previewWebsite?.domain?.status || '').toLowerCase())
-            ? previewWebsite.domain.fullDomain
-            : '';
-        if (websiteUrl) {
-          const liveUrl = new URL(/^https?:\/\//i.test(websiteUrl) ? websiteUrl : `https://${websiteUrl}`);
-          if (liveUrl.origin !== window.location.origin) previewBase = liveUrl.href;
-        }
+      const websiteUrl = previewWebsite?.hosting?.url
+        || previewWebsite?.domain?.fullDomain
+        || (String(previewWebsite?.domain?.name || '').includes('.') ? previewWebsite.domain.name : '')
+        || '';
+      if (websiteUrl) {
+        const liveUrl = new URL(/^https?:\/\//i.test(websiteUrl) ? websiteUrl : `https://${websiteUrl}`);
+        previewBase = liveUrl.href;
       }
       if (!previewBase) return '';
       const url = new URL(previewBase, window.location.origin);
@@ -546,21 +553,22 @@ export default function SettingsBusinessPage({ colorsOnly = false }) {
         url.searchParams.set('published', '1');
         url.searchParams.set('websiteId', previewWebsiteId);
         url.searchParams.set('builderPreview', '1');
-        if (activeModule?._id) url.searchParams.set('websiteModuleId', String(activeModule._id));
-        if (moduleKey === 'e-commerce' && activeModule?._id) url.searchParams.set('moduleId', String(activeModule._id));
+        const websiteModuleId = resolvedPreviewWebsite?.websiteModuleId || user?.selectedModuleId || user?.websiteModuleId || activeModule?._id;
+        if (websiteModuleId) url.searchParams.set('websiteModuleId', String(websiteModuleId));
+        if (moduleKey === 'e-commerce' && websiteModuleId) url.searchParams.set('moduleId', String(websiteModuleId));
       }
       return url.href;
     } catch {
       return '';
     }
-  }, [activeModule?._id, isMainAdmin, mainAdminPreview.website, moduleKey, previewWebsite, previewWebsiteId]);
+  }, [activeModule?._id, isMainAdmin, mainAdminPreview.website, moduleKey, previewWebsite, previewWebsiteId, resolvedPreviewWebsite?.websiteModuleId, user?.selectedModuleId, user?.websiteModuleId]);
   const missingEcommercePreviewUrl = moduleKey === 'e-commerce'
     && !livePreviewUrl
     && (isMainAdmin ? !!mainAdminPreview.website : !!previewWebsiteId);
   const livePreviewError = isMainAdmin
-    ? mainAdminPreview.error || (missingEcommercePreviewUrl ? 'The live E-Commerce preview URL is unavailable. Publish a website domain or configure VITE_ECOMMERCE_PREVIEW_URL in Vercel.' : '')
+    ? mainAdminPreview.error || (missingEcommercePreviewUrl ? 'The E-Commerce preview URL is not configured and no live website domain is linked to this module.' : '')
     : missingEcommercePreviewUrl
-      ? 'The live E-Commerce preview URL is unavailable. Publish a website domain or configure VITE_ECOMMERCE_PREVIEW_URL in Vercel.'
+      ? 'The E-Commerce preview URL is not configured and no live website domain is linked to this module.'
       : '';
   const themeColorControls = [
     ['primaryColor', 'Brand and active accent'], ['priceColor', 'Product price'],
