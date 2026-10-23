@@ -8,6 +8,7 @@ import { listBtnNavy, listBtnOutline, LIST_CARD_BORDER } from '../../constants/l
 import { getAdminModuleKey } from '../../constants/adminModules';
 import { useAuthStore, useModuleStore } from '../../store/useStore';
 import { numericInputValue } from '../../utils/numericInput';
+import { assignedWebsiteDomainUrl } from '../../utils/ecommercePreviewUrl';
 
 const DEFAULT_FORM = {
   platformName: '',
@@ -531,8 +532,9 @@ export default function SettingsBusinessPage({ colorsOnly = false }) {
       'information-web': import.meta.env.VITE_GENERAL_PREVIEW_URL || 'http://localhost:5174/',
     };
     try {
-      let previewBase = previewBases[moduleKey];
-      const websiteUrl = previewWebsite?.hosting?.url
+      const assignedDomain = !isMainAdmin ? assignedWebsiteDomainUrl(previewWebsite) : '';
+      let previewBase = assignedDomain || previewBases[moduleKey];
+      const websiteUrl = assignedDomain ? '' : previewWebsite?.hosting?.url
         || previewWebsite?.domain?.fullDomain
         || (String(previewWebsite?.domain?.name || '').includes('.') ? previewWebsite.domain.name : '')
         || '';
@@ -557,11 +559,17 @@ export default function SettingsBusinessPage({ colorsOnly = false }) {
         if (moduleKey === 'e-commerce' && websiteModuleId) url.searchParams.set('moduleId', String(websiteModuleId));
       } else {
         url.searchParams.set('published', '1');
-        url.searchParams.set('websiteId', previewWebsiteId);
         url.searchParams.set('builderPreview', '1');
-        const websiteModuleId = resolvedPreviewWebsite?.websiteModuleId || user?.selectedModuleId || user?.websiteModuleId || activeModule?._id;
-        if (websiteModuleId) url.searchParams.set('websiteModuleId', String(websiteModuleId));
-        if (moduleKey === 'e-commerce' && websiteModuleId) url.searchParams.set('moduleId', String(websiteModuleId));
+        if (assignedDomain) {
+          url.searchParams.delete('websiteId');
+          url.searchParams.delete('websiteModuleId');
+          url.searchParams.delete('moduleId');
+        } else {
+          url.searchParams.set('websiteId', previewWebsiteId);
+          const websiteModuleId = resolvedPreviewWebsite?.websiteModuleId || user?.selectedModuleId || user?.websiteModuleId || activeModule?._id;
+          if (websiteModuleId) url.searchParams.set('websiteModuleId', String(websiteModuleId));
+          if (moduleKey === 'e-commerce' && websiteModuleId) url.searchParams.set('moduleId', String(websiteModuleId));
+        }
       }
       return url.href;
     } catch {
