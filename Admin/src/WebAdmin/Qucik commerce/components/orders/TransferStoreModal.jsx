@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { X, Store, MapPin, Phone, CheckCircle, Loader2, Search, Package, BookOpen } from 'lucide-react';
 import api from '../../../../api/axios';
+import OrderModalPortal from './OrderModalPortal';
 
 export default function TransferStoreModal({ order, onClose, onTransfer }) {
   const [stores, setStores] = useState([]);
@@ -92,8 +93,8 @@ export default function TransferStoreModal({ order, onClose, onTransfer }) {
   );
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" onClick={onClose}>
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[85vh] flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
+    <OrderModalPortal zIndex="z-50" backdropClassName="bg-black/50 backdrop-blur-sm" onBackdropClick={onClose}>
+      <div className="flex max-h-full w-full max-w-lg flex-col overflow-hidden rounded-2xl bg-white shadow-2xl sm:max-h-[85vh]" onClick={e => e.stopPropagation()}>
         <div className="px-5 py-4 bg-gradient-to-r from-sky-600 to-sky-700 shrink-0">
           <div className="flex items-center justify-between mb-3">
             <div>
@@ -158,6 +159,6 @@ export default function TransferStoreModal({ order, onClose, onTransfer }) {
           <span>{order?.customer}</span>
         </div>
       </div>
-    </div>
+    </OrderModalPortal>
   );
 }

@@ -4,14 +4,15 @@ import api from '../../../../api/axios';
 import { searchAddress } from '../../../../utils/geocode';
 import RiderAvailabilityMap from './RiderAvailabilityMap';
 import RouteMapView from '../RouteMapView';
+import OrderModalPortal from './OrderModalPortal';
 
 function RiderMapPopup({ rider, storeRef, onClose, onAssign, assigning, isTransfer }) {
   if (!rider?.lat || !rider?.lng || !storeRef?.lat) return null;
   const mapsUrl = `https://www.google.com/maps/dir/${storeRef.lat},${storeRef.lng}/${rider.lat},${rider.lng}`;
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/60" onClick={onClose}>
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden" onClick={e => e.stopPropagation()}>
+    <OrderModalPortal zIndex="z-[60]" backdropClassName="bg-black/60" onBackdropClick={onClose}>
+      <div className="max-h-full w-full max-w-md overflow-y-auto rounded-2xl bg-white shadow-2xl" onClick={e => e.stopPropagation()}>
         <div className="px-4 py-3 bg-gradient-to-r from-orange-500 to-orange-600 flex items-center justify-between">
           <div>
             <p className="font-bold text-white text-sm">{rider.name}</p>
@@ -58,7 +59,7 @@ function RiderMapPopup({ rider, storeRef, onClose, onAssign, assigning, isTransf
           </button>
         </div>
       </div>
-    </div>
+    </OrderModalPortal>
   );
 }
 
@@ -226,8 +227,8 @@ export default function AssignDeliveryManModal({ order, onClose, onAssign, onAss
 
   return (
     <>
-      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" onClick={onClose}>
-        <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[85vh] flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
+      <OrderModalPortal zIndex="z-50" backdropClassName="bg-black/50 backdrop-blur-sm" onBackdropClick={onClose}>
+        <div className="flex max-h-full w-full max-w-lg flex-col overflow-hidden rounded-2xl bg-white shadow-2xl sm:max-h-[85vh]" onClick={e => e.stopPropagation()}>
           <div className="px-5 py-4 bg-gradient-to-r from-primary-600 to-primary-700 shrink-0">
             <div className="flex items-center justify-between mb-3">
               <div>
@@ -351,7 +352,7 @@ export default function AssignDeliveryManModal({ order, onClose, onAssign, onAss
             <span>{order?.customer}</span>
           </div>
         </div>
-      </div>
+      </OrderModalPortal>
 
       {mapRider && (
         <RiderMapPopup

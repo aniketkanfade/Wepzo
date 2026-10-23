@@ -9,6 +9,7 @@ import api from '../../../../api/axios';
 import { printOrderInvoice } from './orderPrint';
 import AssignDeliveryManModal from './AssignDeliveryManModal';
 import OrderItemsEditor from './OrderItemsEditor';
+import OrderModalPortal from './OrderModalPortal';
 import OrderTrackingMap from './OrderTrackingMap';
 import TransferStoreModal from './TransferStoreModal';
 import ConfirmModal from '../ConfirmModal';
@@ -566,8 +567,8 @@ export default function OrderDetailView({ order, onStatusChange, onAssignRider, 
       )}
 
       {detailProduct && (
-        <div className="fixed inset-0 z-[105] flex items-center justify-center bg-slate-950/55 p-4" role="dialog" aria-modal="true" aria-labelledby="order-product-detail-title" onClick={() => setDetailProduct(null)}>
-          <section className="relative max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl bg-white shadow-2xl" onClick={event => event.stopPropagation()}>
+        <OrderModalPortal zIndex="z-[105]" backdropClassName="bg-slate-950/55" onBackdropClick={() => setDetailProduct(null)} contentClassName="p-2 sm:p-4">
+          <section role="dialog" aria-modal="true" aria-labelledby="order-product-detail-title" className="relative max-h-full w-full max-w-2xl overflow-y-auto rounded-2xl bg-white shadow-2xl sm:max-h-[90vh]" onClick={event => event.stopPropagation()}>
             <button type="button" onClick={() => setDetailProduct(null)} aria-label="Close product details" className="absolute right-3 top-3 z-10 rounded-lg bg-white/90 p-2 text-slate-500 shadow-sm hover:bg-slate-100"><X size={17} /></button>
             {detailProduct.image ? <button type="button" onClick={() => setImagePreview(detailProduct.image)} className="block w-full bg-slate-50"><img src={detailProduct.image} alt={detailProduct.name || 'Product'} className="h-64 w-full object-contain p-4 sm:h-80" /></button>
               : <div className="grid h-40 place-items-center bg-slate-50 text-slate-300"><ImageIcon size={32} /></div>}
@@ -591,7 +592,7 @@ export default function OrderDetailView({ order, onStatusChange, onAssignRider, 
               {detailProduct._id && <a href={`/products/setup/view/${encodeURIComponent(detailProduct._id)}`} target="_blank" rel="noreferrer" className="inline-flex rounded-lg border border-primary-200 px-3 py-2 text-xs font-bold text-primary-700 hover:bg-primary-50">Open full product page</a>}
             </div>
           </section>
-        </div>
+        </OrderModalPortal>
       )}
 
       {!isEcommerceOrder && showAssignModal && (

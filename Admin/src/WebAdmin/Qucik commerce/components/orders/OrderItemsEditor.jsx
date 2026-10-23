@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
-import { createPortal } from 'react-dom';
 import { Loader2, Minus, Plus, Search, Trash2, X } from 'lucide-react';
 import api from '../../../../api/axios';
+import OrderModalPortal from './OrderModalPortal';
 
 function money(value) {
   return `₹ ${(Number(value) || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
@@ -202,9 +202,9 @@ export default function OrderItemsEditor({ order, onClose, onSave, onPreviewImag
   const paidOnline = String(order.paymentStatus || '').toLowerCase() === 'paid'
     && (String(order.payment || '').toLowerCase() === 'online' || !!order.paymentGateway);
 
-  return createPortal(
-    <div className="fixed inset-x-0 top-16 bottom-12 z-[100] flex items-center justify-center bg-slate-950/55 p-2 sm:inset-0 sm:p-5" role="dialog" aria-modal="true" aria-labelledby="order-items-title">
-      <section className="flex max-h-full w-full max-w-5xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl sm:max-h-[94vh]">
+  return (
+    <OrderModalPortal zIndex="z-[100]" backdropClassName="bg-slate-950/55" onBackdropClick={onClose} contentClassName="p-2 sm:p-5">
+      <section role="dialog" aria-modal="true" aria-labelledby="order-items-title" className="flex max-h-full w-full max-w-5xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl sm:max-h-[94vh]">
         <header className="flex items-start justify-between gap-3 border-b border-slate-100 px-3 py-3 sm:gap-4 sm:px-5 sm:py-4">
           <div>
             <h2 id="order-items-title" className="text-base font-bold text-slate-900 sm:text-lg">Add or remove products</h2>
@@ -276,7 +276,6 @@ export default function OrderItemsEditor({ order, onClose, onSave, onPreviewImag
           {error && <p role="alert" className="mt-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">{error}</p>}
         </footer>
       </section>
-    </div>,
-    document.body,
+    </OrderModalPortal>
   );
 }

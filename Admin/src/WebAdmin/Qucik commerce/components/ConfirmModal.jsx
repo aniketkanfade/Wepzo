@@ -1,8 +1,9 @@
 import { X, AlertTriangle, CheckCircle, Trash2 } from 'lucide-react';
+import OrderModalPortal from './orders/OrderModalPortal';
 
 export default function ConfirmModal({ title, message, confirmLabel = 'Yes, Confirm', cancelLabel = 'No', onConfirm, onClose, danger, busy = false, error = '' }) {
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/55 p-4 backdrop-blur-sm" onClick={() => !busy && onClose()}>
+    <OrderModalPortal zIndex="z-[100]" backdropClassName="bg-slate-950/55 backdrop-blur-sm" contentClassName="p-4 sm:p-4" onBackdropClick={() => !busy && onClose()}>
       <div role="alertdialog" aria-modal="true" aria-labelledby="confirm-modal-title" aria-describedby="confirm-modal-message" className="w-full max-w-sm overflow-hidden rounded-2xl bg-white shadow-2xl ring-1 ring-black/5" onClick={event => event.stopPropagation()}>
         <div className="flex justify-end px-4 pt-4">
           <button type="button" disabled={busy} aria-label="Close dialog" onClick={onClose} className="rounded-lg p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 disabled:opacity-50">
@@ -29,6 +30,6 @@ export default function ConfirmModal({ title, message, confirmLabel = 'Yes, Conf
           </button>
         </div>
       </div>
-    </div>
+    </OrderModalPortal>
   );
 }
