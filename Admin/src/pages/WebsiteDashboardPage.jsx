@@ -58,20 +58,28 @@ export default function WebsiteDashboardPage() {
     return Number(purchase.amount || purchase.totalAmount || website?.totalAmount || 0);
   }, [purchase.amount, purchase.totalAmount, purchase.type, website?.totalAmount]);
   const websiteModuleKey = getAdminModuleKey({ slug: website?.websiteModuleSlug || website?.moduleType, name: website?.moduleName });
-  const viewUrl = website?.hosting?.status === 'active' && website.hosting.url
-    ? website.hosting.url
-    : website?.domain?.fullDomain
-      ? `${/^https?:\/\//i.test(website.domain.fullDomain) ? '' : 'https://'}${website.domain.fullDomain}`
-    : websiteModuleKey === 'e-commerce'
-      ? (() => {
-          const baseUrl = ecommercePreviewBase(website, { mainAdmin: user?.role === 'main_admin' });
-          if (!baseUrl) return '';
-          const url = new URL(baseUrl, window.location.origin);
-          url.searchParams.set('published', '1');
-          url.searchParams.set('websiteId', website?._id || '');
-          if (website?.websiteModuleId) url.searchParams.set('moduleId', website.websiteModuleId);
-          return url.href;
-        })()
+  const viewUrl = websiteModuleKey === 'e-commerce'
+    ? (() => {
+        const domain = website?.domain?.fullDomain || website?.domain?.name || '';
+        const liveBase = website?.hosting?.status === 'active' && website.hosting.url
+          ? website.hosting.url
+          : domain
+            ? `${/^https?:\/\//i.test(domain) ? '' : 'https://'}${domain}`
+            : ecommercePreviewBase(website, { mainAdmin: user?.role === 'main_admin' });
+        if (!liveBase) return '';
+        const url = new URL(liveBase, window.location.origin);
+        url.searchParams.set('published', '1');
+        if (website?._id) url.searchParams.set('websiteId', website._id);
+        if (website?.websiteModuleId) {
+          url.searchParams.set('moduleId', website.websiteModuleId);
+          url.searchParams.set('websiteModuleId', website.websiteModuleId);
+        }
+        return url.href;
+      })()
+    : website?.hosting?.status === 'active' && website.hosting.url
+      ? website.hosting.url
+      : website?.domain?.fullDomain
+        ? `${/^https?:\/\//i.test(website.domain.fullDomain) ? '' : 'https://'}${website.domain.fullDomain}`
       : websiteModuleKey === 'store-single'
         ? (() => {
             const url = new URL(import.meta.env.VITE_STORE_SINGLE_PREVIEW_URL || 'http://localhost:5175/', window.location.origin);

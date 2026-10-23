@@ -933,6 +933,18 @@ function normalizeWebsiteHost(value) {
     .replace(/^https?:\/\//, '').split(/[/?#]/)[0].replace(/:\d+$/, '').replace(/\.$/, '');
 }
 
+function websiteHosts(website) {
+  return [
+    website?.domain?.fullDomain,
+    website?.domain?.name,
+    website?.hosting?.domain,
+  ].map(normalizeWebsiteHost).filter(Boolean);
+}
+
+function canonicalWebsiteHost(host) {
+  return normalizeWebsiteHost(host).replace(/^www\./, '');
+}
+
 function websiteSubscriptionExpired(website) {
   const expiresAt = website?.purchase?.expiresAt;
   return website?.purchase?.type === 'subscription'
@@ -965,11 +977,17 @@ function websiteContextForRequest(req, { requirePublished = false } = {}) {
     };
   }
   const requestHost = normalizeWebsiteHost(req.get('X-Website-Host') || req.get('X-Forwarded-Host') || req.get('Origin') || req.get('Host') || req.hostname);
-  const matchedHostWebsite = requestHost ? (store.websites || []).find(item =>
-    normalizeWebsiteHost(item.domain?.fullDomain || item.domain?.name) === requestHost
-  ) : null;
+  const websites = store.websites || [];
+  const exactHostMatches = requestHost ? websites.filter(item => websiteHosts(item).includes(requestHost)) : [];
+  const canonicalHostMatches = requestHost && exactHostMatches.length === 0
+    ? websites.filter(item => websiteHosts(item).some(host => canonicalWebsiteHost(host) === canonicalWebsiteHost(requestHost)))
+    : [];
+  // Prefer an exact assigned domain. Use www/root aliases only when they map
+  // to one website, so two separate tenants can never be guessed together.
+  const matchedHostWebsite = exactHostMatches[0]
+    || (canonicalHostMatches.length === 1 ? canonicalHostMatches[0] : null);
   const mainWebsiteDomain = normalizeWebsiteHost(process.env.MAIN_WEBSITE_DOMAIN || 'wepzo.in');
-  const mainDomainHost = requestHost === mainWebsiteDomain;
+  const mainDomainHost = canonicalWebsiteHost(requestHost) === canonicalWebsiteHost(mainWebsiteDomain);
   const localPreviewHost = process.env.NODE_ENV !== 'production'
     && !requestedWebsiteId
     && ['localhost', '127.0.0.1'].includes(requestHost);
