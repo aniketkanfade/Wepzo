@@ -2,7 +2,7 @@ import React, { createContext, useContext, useEffect, useState } from 'react'
 import { mergeMarketingSiteContent } from './siteDefaults.js'
 
 const BrandingContext = createContext({ businessName: 'Wepzo', businessLogo: '', primaryColor: '', themeColors: {} })
-const API = (import.meta.env.VITE_MARKETING_API_URL || import.meta.env.VITE_API_URL || '/api').replace(/\/$/, '')
+const API = '/api'
 const routeQuery = window.location.hash.includes('?') ? window.location.hash.slice(window.location.hash.indexOf('?') + 1) : ''
 const params = new URLSearchParams(`${window.location.search.replace(/^\?/, '')}&${routeQuery}`)
 const explicitWebsiteId = params.get('websiteId') || params.get('tenantId') || import.meta.env.VITE_WEBSITE_ID || ''

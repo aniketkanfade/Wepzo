@@ -87,77 +87,30 @@ export function FlashDealsSection({ sales = [], products = [], ...props }) {
 }
 
 export function ProductGridSection(props) {
-  return <ProductSection {...props} title="Products" hideTitle sectionId="collection" />
+  return <ProductSection {...props} title="Products" hideTitle sectionId={props.sectionId ?? 'collection'} />
 }
 
 export function TrendingProductsSection({ city, ...props }) {
   return <ProductSection {...props} title={`Trending Products${city ? ` in ${city}` : ''}`} prefix="trending" sectionId="collection" />
 }
 
-const metric = (product, keys) => {
-  for (const key of keys) {
-    const value = Number(product?.[key])
-    if (Number.isFinite(value) && value > 0) return value
-  }
-  return 0
-}
-
-export function CategoryRecommendationsSection({ products = [], categoryLabel, moduleSlug, interactions = {}, ...props }) {
-  if (!products.length) return null
-  const salesKeys = ['salesCount', 'soldCount', 'totalSold', 'unitsSold', 'orderCount', 'ordersCount', 'purchaseCount', 'purchases', 'sales']
-  const reviewKeys = ['reviewCount', 'reviewsCount', 'totalReviews']
-  const ratingOf = product => Number(product.rating || product.averageRating || 0)
-  const reviewCountOf = product => metric(product, reviewKeys)
-    || (Array.isArray(product.reviews) ? product.reviews.length : Number(product.reviews) || 0)
-  const popular = [...products].sort((a, b) =>
-    metric(b, salesKeys) - metric(a, salesKeys)
-    || ratingOf(b) - ratingOf(a)
-    || reviewCountOf(b) - reviewCountOf(a)
-  ).slice(0, 6)
-  const popularIds = new Set(popular.map(product => String(product._id || product.id || '')))
-  const normalizeScope = value => String(value || '').trim().toLowerCase().replace(/\s*\/\s*/g, '/')
-  const scopedInteractions = Object.fromEntries(Object.entries(interactions).filter(([, entry]) => categoryLabel
-    ? normalizeScope(entry.categoryPath) === normalizeScope(categoryLabel)
-      || normalizeScope(entry.categoryPath).startsWith(`${normalizeScope(categoryLabel)}/`)
-    : moduleSlug
-      ? String(entry.moduleSlug || '').toLowerCase() === String(moduleSlug).toLowerCase()
-      : true
-  ))
-  const seenIds = new Set(Object.keys(scopedInteractions))
-  const unseen = products.filter(product => !seenIds.has(String(product._id || product.id || '')))
-  const distinctProducts = products.filter(product => !popularIds.has(String(product._id || product.id || '')))
-  const unseenDistinct = unseen.filter(product => !popularIds.has(String(product._id || product.id || '')))
-  const recommendationPool = unseenDistinct.length ? unseenDistinct : distinctProducts
-  const recentInteractions = Object.values(scopedInteractions)
-    .filter(entry => entry && (entry.categoryPath || entry.moduleSlug))
-    .sort((a, b) => (Number(b.lastViewed) || 0) - (Number(a.lastViewed) || 0))
-    .slice(0, 5)
-  const productCategoryPath = product => [product.mainCategory || product.category, product.subCategory, product.childCategory]
-    .filter(Boolean).join(' / ')
-  const productModuleSlug = product => String(product.moduleSlug || product.module?.slug || (typeof product.module === 'string' ? product.module : ''))
-    .trim().toLowerCase()
-  const suitabilityScore = product => {
-    const path = normalizeScope(productCategoryPath(product))
-    const module = productModuleSlug(product)
-    const affinity = recentInteractions.reduce((score, interaction, index) => {
-      const weight = 1 / (index + 1)
-      const previousPath = normalizeScope(interaction.categoryPath)
-      const categoryMatch = path && previousPath && (path === previousPath || path.startsWith(`${previousPath}/`) || previousPath.startsWith(`${path}/`))
-      const moduleMatch = module && String(interaction.moduleSlug || '').trim().toLowerCase() === module
-      return score + (categoryMatch ? 3 * weight : 0) + (moduleMatch ? 2 * weight : 0)
-    }, 0)
-    return affinity * 4
-      + ratingOf(product)
-      + Math.log1p(metric(product, salesKeys)) * 0.6
-      + Math.log1p(reviewCountOf(product)) * 0.5
-  }
-  const suitable = [...recommendationPool].sort((a, b) => {
-    return suitabilityScore(b) - suitabilityScore(a)
-  }).slice(0, 6)
-
+export function CategoryRecommendationsSection({
+  popularProducts = [], popularSections = [], recommendedProducts = [], recentlyViewedProducts = [], moduleLabel = '', categoryLabel = '', ...props
+}) {
+  if (!popularProducts.length && !popularSections.length && !recommendedProducts.length && !recentlyViewedProducts.length) return null
+  const scope = categoryLabel || moduleLabel
   return <>
-    <ProductSection {...props} title="Popular Products" products={popular} prefix="category-popular" />
-    {suitable.length > 0 && <ProductSection {...props} title="Recommended for You" products={suitable} prefix="category-suitable" />}
+    {popularSections.length > 0
+      ? popularSections.map(section => <ProductSection
+        {...props}
+        key={section.slug || section.id || section.name}
+        title={`Popular in ${scope || section.name}`}
+        products={section.products}
+        prefix={`for-you-popular-${section.slug || section.id || section.name}`}
+      />)
+      : popularProducts.length > 0 && <ProductSection {...props} title={scope ? `Popular in ${scope}` : 'Popular Products'} products={popularProducts} prefix="for-you-popular" />}
+    {recommendedProducts.length > 0 && <ProductSection {...props} title="Recommended for You" products={recommendedProducts} prefix="for-you-recommended" />}
+    {recentlyViewedProducts.length > 0 && <ProductSection {...props} title="Recently Viewed" products={recentlyViewedProducts} prefix="for-you-recently-viewed" />}
   </>
 }
 

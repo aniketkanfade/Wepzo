@@ -1,16 +1,14 @@
-import { defineConfig, loadEnv } from 'vite'
+import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
+import { API_SERVER_ORIGIN } from '../../apiTarget.mjs'
 
-export default defineConfig(({ mode }) => {
-  const env = loadEnv(mode, process.cwd(), '')
-  return {
+export default defineConfig({
     plugins: [react()],
     server: {
       port: 5174,
-      proxy: env.VITE_API_PROXY_TARGET ? {
-        '/api': { target: env.VITE_API_PROXY_TARGET, changeOrigin: true },
-        '/uploads': { target: env.VITE_API_PROXY_TARGET, changeOrigin: true },
-      } : undefined,
+      proxy: {
+        '/api': { target: API_SERVER_ORIGIN, changeOrigin: true },
+        '/uploads': { target: API_SERVER_ORIGIN, changeOrigin: true },
+      },
     },
-  }
 })

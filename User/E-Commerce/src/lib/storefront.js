@@ -1,6 +1,6 @@
 const params = new URLSearchParams(window.location.search)
 
-export const API = (import.meta.env.VITE_E_COMMERCE_API_URL || import.meta.env.VITE_API_URL || '/api').replace(/\/$/, '')
+export const API = '/api'
 export const BUILDER_PREVIEW = params.get('builderPreview') === '1'
 export const ADMIN_PREVIEW = params.get('adminPreview') === '1'
 export const WEBSITE_ID = (params.get('websiteId') || import.meta.env.VITE_WEBSITE_ID) || ''

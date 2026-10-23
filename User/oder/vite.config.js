@@ -1,16 +1,14 @@
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
-import { defineConfig, loadEnv } from 'vite'
+import { defineConfig } from 'vite'
+import { API_SERVER_ORIGIN } from '../../apiTarget.mjs'
 
-export default defineConfig(({ mode }) => {
-  const env = loadEnv(mode, process.cwd(), '')
-  return {
-    plugins: [react(), tailwindcss()],
-    server: {
-      proxy: env.VITE_API_PROXY_TARGET ? {
-        '/api': { target: env.VITE_API_PROXY_TARGET, changeOrigin: true },
-        '/uploads': { target: env.VITE_API_PROXY_TARGET, changeOrigin: true },
-      } : undefined,
+export default defineConfig({
+  plugins: [react(), tailwindcss()],
+  server: {
+    proxy: {
+      '/api': { target: API_SERVER_ORIGIN, changeOrigin: true },
+      '/uploads': { target: API_SERVER_ORIGIN, changeOrigin: true },
     },
-  }
+  },
 })

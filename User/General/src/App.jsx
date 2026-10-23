@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import defaults from '../../../shared/webPageDefaults.json'
 import './style.css'
 
-const API = (import.meta.env.VITE_GENERAL_API_URL || import.meta.env.VITE_API_URL || '/api').replace(/\/$/, '')
+const API = '/api'
 const query = new URLSearchParams(`${window.location.search.replace(/^\?/, '')}&${window.location.hash.includes('?') ? window.location.hash.slice(window.location.hash.indexOf('?') + 1) : ''}`)
 const websiteId = import.meta.env.VITE_WEBSITE_ID || query.get('websiteId') || query.get('tenantId') || ''
 const previewMode = query.get('preview') === '1'

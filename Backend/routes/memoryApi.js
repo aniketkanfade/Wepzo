@@ -875,6 +875,15 @@ function isShopWebsiteRecord(item, websiteContext) {
   const moduleSlug = normalizeWebsiteModuleSlug(
     websiteContext?.website?.websiteModuleSlug || websiteContext?.website?.moduleType || websiteContext?.moduleSlug || ''
   );
+  const isEcommerce = ['ecommerce', 'e-commerce'].includes(moduleSlug);
+  const seedKey = String(item?.mainAdminSeedKey || item?.seedKey || item?.catalogSeedKey || '').toLowerCase();
+  if (isEcommerce && (
+    String(item?.catalogSource || '').toLowerCase() === 'starter-data'
+    || String(item?.verificationStatus || '').toLowerCase() === 'unverified-starter'
+    || !!item?.mainAdminSeedKey
+    || seedKey.startsWith('main-admin-ecommerce-')
+    || seedKey.startsWith('e-commerce:')
+  )) return false;
   if (!moduleSlug || ['qcommerce', 'quick-commerce', 'quick_commerce'].includes(moduleSlug)) {
     return isQuickCommerceWebsiteRecord(item);
   }
@@ -8275,9 +8284,10 @@ const emptyShopperState = () => ({
   cart: { items: [], couponCode: '', pendingPaymentOrder: null },
   wishlist: { items: [] },
   location: { current: null, saved: [], gps: null, pickup: null },
+  recentlyViewed: [],
 });
 
-router.get('/shop/state', async (req, res) => {
+router.get('/shop/state', shopAuthIfPresent, async (req, res) => {
   if (mongoose.connection.readyState !== 1) {
     return res.status(503).json({ message: 'MongoDB is required to load shopper data.' });
   }
@@ -8286,14 +8296,37 @@ router.get('/shop/state', async (req, res) => {
   const sessionId = shopperStateSession(req, res);
   const stateScope = { websiteId: websiteContext.websiteId || '', websiteModuleId: websiteContext.moduleId || '', sessionId };
   try {
-    const record = await ShopperState.findOne(stateScope).lean();
-    return res.json(record?.state || emptyShopperState());
+    const [record, customerRecords] = await Promise.all([
+      ShopperState.findOne(stateScope).lean(),
+      req.customer?._id
+        ? ShopperState.find({
+          websiteId: stateScope.websiteId,
+          websiteModuleId: stateScope.websiteModuleId,
+          customerId: String(req.customer._id),
+        }).sort({ updatedAt: -1 }).lean()
+        : Promise.resolve([]),
+    ]);
+    const recentByProduct = new Map();
+    [record, ...customerRecords].filter(Boolean).forEach(shopper => {
+      (Array.isArray(shopper.state?.recentlyViewed) ? shopper.state.recentlyViewed : []).forEach(item => {
+        const productId = String(item?.productId || '').trim();
+        const viewedAt = Date.parse(item?.viewedAt || '') || 0;
+        if (!productId) return;
+        const existing = recentByProduct.get(productId);
+        if (!existing || viewedAt > existing.viewedAt) recentByProduct.set(productId, { productId, viewedAt });
+      });
+    });
+    const recentlyViewed = [...recentByProduct.values()]
+      .sort((a, b) => b.viewedAt - a.viewedAt)
+      .slice(0, 60)
+      .map(item => ({ productId: item.productId, viewedAt: item.viewedAt ? new Date(item.viewedAt).toISOString() : '' }));
+    return res.json({ ...emptyShopperState(), ...(record?.state || {}), recentlyViewed });
   } catch (error) {
     return res.status(503).json({ message: error.message || 'Shopper data could not be loaded from MongoDB.' });
   }
 });
 
-router.put('/shop/state', async (req, res) => {
+router.put('/shop/state', shopAuthIfPresent, async (req, res) => {
   if (mongoose.connection.readyState !== 1) {
     return res.status(503).json({ message: 'MongoDB is required to save shopper data.' });
   }
@@ -8307,6 +8340,20 @@ router.put('/shop/state', async (req, res) => {
     return res.status(400).json({ message: 'Shopper data is invalid or too large.' });
   }
   try {
+    const recentByProduct = new Map();
+    (Array.isArray(state.recentlyViewed) ? state.recentlyViewed : []).forEach(item => {
+      const productId = String(item?.productId || '').trim().slice(0, 128);
+      if (!productId) return;
+      const timestamp = Date.parse(item?.viewedAt || '') || 0;
+      const existing = recentByProduct.get(productId);
+      if (!existing || timestamp > existing.timestamp) {
+        recentByProduct.set(productId, {
+          productId,
+          timestamp,
+          viewedAt: timestamp ? new Date(timestamp).toISOString() : '',
+        });
+      }
+    });
     const normalized = {
       cart: {
         items: Array.isArray(state.cart?.items) ? state.cart.items.slice(0, 100) : [],
@@ -8327,11 +8374,17 @@ router.put('/shop/state', async (req, res) => {
         gps: state.location?.gps || null,
         pickup: state.location?.pickup || null,
       },
+      recentlyViewed: [...recentByProduct.values()]
+        .sort((a, b) => b.timestamp - a.timestamp)
+        .slice(0, 60)
+        .map(({ productId, viewedAt }) => ({ productId, viewedAt })),
       cookieAccepted: state.cookieAccepted === true,
     };
+    const update = { $set: { state: normalized }, $setOnInsert: stateScope };
+    if (req.customer?._id) update.$set.customerId = String(req.customer._id);
     await ShopperState.findOneAndUpdate(
       stateScope,
-      { $set: { state: normalized }, $setOnInsert: stateScope },
+      update,
       { upsert: true, new: true, runValidators: true },
     );
     return res.json({ ok: true });
@@ -8468,7 +8521,7 @@ router.get('/shop/coupons', shopAuthIfPresent, (req, res) => {
     expiry: coupon.expiry || '',
   })));
 });
-router.get('/shop/home', async (req, res) => {
+router.get('/shop/home', shopAuthIfPresent, async (req, res) => {
   const websiteContext = websiteContextForRequest(req);
   if (websiteContext.error) return res.status(websiteContext.error.status).json({ message: websiteContext.error.message });
   const websiteId = websiteContext.websiteId;
@@ -8501,8 +8554,10 @@ router.get('/shop/home', async (req, res) => {
     : quickCommerceStorefront
       ? quickCommerceCatalogForRequest(req.query.lat, req.query.lng, websiteId, websiteContext)
       : quickCommerceCatalogForLocation(req.query.lat, req.query.lng, websiteId);
-  const activeStores = catalog.stores;
   const requestedModule = String(req.query.module || '').trim().toLowerCase();
+  const requestedCategory = String(req.query.category || '').trim().toLowerCase();
+  const requestedSubCategory = String(req.query.subCategory || '').trim().toLowerCase();
+  const requestedChildCategory = String(req.query.childCategory || '').trim().toLowerCase();
   const homeCatalog = quickCommerceStorefront ? catalog.products : qcCatalog(websiteId, websiteContext);
   const storefrontStats = {
     ...store,
@@ -8511,17 +8566,52 @@ router.get('/shop/home', async (req, res) => {
   };
   const list = homeCatalog
     .filter(product => !requestedModule || shopModuleSlug(product, websiteContext) === requestedModule)
+    .filter(product => !requestedCategory || String(product.mainCategory || product.category || '').trim().toLowerCase() === requestedCategory)
+    .filter(product => !requestedSubCategory || String(product.subCategory || '').trim().toLowerCase() === requestedSubCategory)
+    .filter(product => !requestedChildCategory || String(product.childCategory || '').trim().toLowerCase() === requestedChildCategory)
     .map(product => {
       const { unitsSold, orderCount, reviewCount } = getProductStats(storefrontStats, product);
       return { ...toShopProduct(product, websiteContext), unitsSold, orderCount, reviewCount };
     });
+  const customerOrders = req.customer?._id
+    ? (store.orders || []).filter(order => String(order.customerId || '') === String(req.customer._id)
+      && belongsToWebsite(order, websiteId, websiteContext.allowSharedCatalog)
+      && isShopWebsiteRecord(order, websiteContext)
+      && !['cancelled', 'failed', 'payment pending'].includes(String(order.status || '').toLowerCase()))
+    : [];
+  const customerOrderLines = customerOrders.flatMap(order => [
+    ...(Array.isArray(order.products) ? order.products : []),
+    ...(Array.isArray(order.details) ? order.details : []),
+    ...(Array.isArray(order.details?.products) ? order.details.products : []),
+  ]);
+  const customerPurchasedProducts = homeCatalog.filter(product => customerOrderLines.some(line =>
+    (line.id && String(line.id) === String(product._id))
+    || (line.productId && [product._id, product.productId].some(id => id != null && String(id) === String(line.productId)))
+    || (line.sku && product.sku && String(line.sku).toLowerCase() === String(product.sku).toLowerCase())
+    || (line.name && product.name && String(line.name).trim().toLowerCase() === String(product.name).trim().toLowerCase())
+  ));
+  const customerInsights = {
+    purchasedProductIds: customerPurchasedProducts.map(product => String(product._id)),
+    categoryPaths: [...new Set(customerPurchasedProducts.map(product => [product.mainCategory, product.subCategory, product.childCategory]
+      .filter(Boolean).join(' / ')))].filter(Boolean),
+    moduleSlugs: [...new Set(customerPurchasedProducts.map(product => shopModuleSlug(product, websiteContext)).filter(Boolean))],
+  };
+  const activeStores = ecommerceStorefront
+    ? catalog.stores.filter(storeRecord => homeCatalog.some(product =>
+      (product.storeId != null && String(product.storeId) === String(storeRecord.storeId))
+      || (product.store && String(product.store).trim().toLowerCase() === String(storeRecord.name || '').trim().toLowerCase())
+    ))
+    : catalog.stores;
   const moduleSlugsWithProducts = new Set(list.map(product => String(product.moduleSlug || '').trim().toLowerCase()).filter(Boolean));
+  const productCategoryIds = new Set(homeCatalog.flatMap(product => [product.categoryId, product.mainCategoryId].filter(Boolean).map(String)));
+  const productSubCategoryIds = new Set(homeCatalog.map(product => product.subCategoryId).filter(Boolean).map(String));
+  const productChildCategoryIds = new Set(homeCatalog.map(product => product.childCategoryId).filter(Boolean).map(String));
   const modulesWithProducts = (store.systemModules || [])
     .filter(module => belongsToWebsite(module, websiteId, websiteContext.allowSharedCatalog)
       && !['false', 'inactive', 'disabled', '0'].includes(String(module.status ?? '').trim().toLowerCase())
       && isShopWebsiteRecord(module, websiteContext))
     .map(({ _id, name, slug, image }) => ({ _id, name, slug, image: image || '' }))
-    .filter(module => websiteContext.isMainWebsite
+    .filter(module => (!ecommerceStorefront && websiteContext.isMainWebsite)
       || moduleSlugsWithProducts.has(String(module.slug || '').trim().toLowerCase()));
   const activeBrands = (store.brands || []).filter(b => belongsToWebsite(b, websiteId, websiteContext.allowSharedCatalog) && isShopWebsiteRecord(b, websiteContext) && b.status !== false && !['inactive', 'false', 'disabled'].includes(String(b.status || '').trim().toLowerCase()));
   const homeBanners = (store.banners || [])
@@ -8572,7 +8662,14 @@ router.get('/shop/home', async (req, res) => {
   const storefrontBanners = eligibleBanners(['store page', 'storefront']);
   const categoryBanners = eligibleBanners(['category']);
   const flash = [...list].sort((a, b) => b.discount - a.discount).slice(0, 6);
-  const best = [...list].sort((a, b) => b.rating - a.rating).slice(0, 8);
+  const popularitySort = (a, b) =>
+    b.unitsSold - a.unitsSold
+    || b.orderCount - a.orderCount
+    || b.rating - a.rating
+    || b.reviewCount - a.reviewCount;
+  const best = [...list].sort(popularitySort).slice(0, 8);
+  const popularByModule = Object.fromEntries([...new Set(list.map(product => product.moduleSlug).filter(Boolean))]
+    .map(moduleSlug => [moduleSlug, list.filter(product => product.moduleSlug === moduleSlug).sort(popularitySort).slice(0, 4)]));
   const newest = list.slice(0, 12);
   const settingsModuleSlug = normalizeWebsiteModuleSlug(
     websiteContext.website?.websiteModuleSlug || websiteContext.website?.moduleType || websiteContext.moduleSlug || ''
@@ -8656,10 +8753,18 @@ router.get('/shop/home', async (req, res) => {
     promotionalBanners,
     storefrontBanners,
     categoryBanners,
-    categories: (store.categories || []).filter(category => belongsToWebsite(category, websiteId, websiteContext.allowSharedCatalog) && isShopWebsiteRecord(category, websiteContext) && category.status !== false),
-    subCategories: (store.subCategories || []).filter(category => belongsToWebsite(category, websiteId, websiteContext.allowSharedCatalog) && isShopWebsiteRecord(category, websiteContext) && category.status !== false),
-    childCategories: (store.childCategories || []).filter(category => belongsToWebsite(category, websiteId, websiteContext.allowSharedCatalog) && isShopWebsiteRecord(category, websiteContext) && category.status !== false),
+    categories: (store.categories || []).filter(category => belongsToWebsite(category, websiteId, websiteContext.allowSharedCatalog)
+      && isShopWebsiteRecord(category, websiteContext) && category.status !== false
+      && (!ecommerceStorefront || productCategoryIds.has(String(category._id)))),
+    subCategories: (store.subCategories || []).filter(category => belongsToWebsite(category, websiteId, websiteContext.allowSharedCatalog)
+      && isShopWebsiteRecord(category, websiteContext) && category.status !== false
+      && (!ecommerceStorefront || productSubCategoryIds.has(String(category._id)))),
+    childCategories: (store.childCategories || []).filter(category => belongsToWebsite(category, websiteId, websiteContext.allowSharedCatalog)
+      && isShopWebsiteRecord(category, websiteContext) && category.status !== false
+      && (!ecommerceStorefront || productChildCategoryIds.has(String(category._id)))),
     modules: modulesWithProducts,
+    popularByModule,
+    customerInsights,
     flashSales: (store.flashSales || [])
       .filter(sale => belongsToWebsite(sale, websiteId, websiteContext.allowSharedCatalog)
         && isShopWebsiteRecord(sale, websiteContext)
@@ -8705,7 +8810,15 @@ router.get('/shop/products', (req, res) => {
     (p.mainCategory || '').toLowerCase().includes(q)
   );
   if (req.query.maxPrice) list = list.filter(p => shopPrice(p) <= Number(req.query.maxPrice));
-  let out = list.map(product => toShopProduct(product, websiteContext));
+  const stats = {
+    ...store,
+    orders: (store.orders || []).filter(order => belongsToWebsite(order, websiteContext.websiteId, websiteContext.allowSharedCatalog) && isShopWebsiteRecord(order, websiteContext)),
+    productReviews: (store.productReviews || []).filter(review => belongsToWebsite(review, websiteContext.websiteId, websiteContext.allowSharedCatalog) && isShopWebsiteRecord(review, websiteContext)),
+  };
+  let out = list.map(product => {
+    const { unitsSold, orderCount, reviewCount } = getProductStats(stats, product);
+    return { ...toShopProduct(product, websiteContext), unitsSold, orderCount, reviewCount };
+  });
   if (req.query.sort === 'price-asc') out.sort((a, b) => a.price - b.price);
   else if (req.query.sort === 'price-desc') out.sort((a, b) => b.price - a.price);
   else if (req.query.sort === 'rating') out.sort((a, b) => b.rating - a.rating);

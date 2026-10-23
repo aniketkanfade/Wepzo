@@ -63,6 +63,7 @@ export default function useStorefront() {
   const [couponCode, setCouponCode] = useState('')
   const [paymentMethod, setPaymentMethod] = useState('COD')
   const [pendingPaymentOrder, setPendingPaymentOrder] = useState(null)
+  const [recentlyViewed, setRecentlyViewed] = useState([])
   const [cookieAccepted, setCookieAccepted] = useState(false)
   const [shopperStateReady, setShopperStateReady] = useState(false)
   const [shopperPersistenceEnabled, setShopperPersistenceEnabled] = useState(false)
@@ -83,13 +84,14 @@ export default function useStorefront() {
     let active = true
     const loadShopperState = async () => {
       try {
-        const [state, auth] = await Promise.all([
-          request('/shop/state'),
-          request('/shop/auth/me').then(result => result.user || null).catch(error => {
-            if (error.status === 401) return null
-            throw error
-          }),
-        ])
+        let auth = null
+        try {
+          auth = (await request('/shop/auth/me')).user || null
+        } catch (error) {
+          if (error.status !== 401) throw error
+          await request('/shop/auth/logout', { method: 'POST' })
+        }
+        const state = await request('/shop/state')
         if (!active) return
         const nextLocation = state.location?.current && typeof state.location.current === 'object'
           ? state.location.current
@@ -106,6 +108,7 @@ export default function useStorefront() {
         setAddressDetails(savedAddress)
         setAddress(String(savedAddress?.address || ''))
         setPhone(String(savedAddress?.phone || auth?.phone || ''))
+        setRecentlyViewed(Array.isArray(state.recentlyViewed) ? state.recentlyViewed : [])
         setCookieAccepted(state.cookieAccepted === true)
         setCustomer(auth)
         setShopperStateError('')
@@ -128,6 +131,7 @@ export default function useStorefront() {
         body: JSON.stringify({ state: {
           cart: { items: cart, couponCode, pendingPaymentOrder },
           wishlist: { items: favorites },
+          recentlyViewed,
           location: {
             current: location,
             saved: [],
@@ -142,7 +146,7 @@ export default function useStorefront() {
       })
     }, 250)
     return () => window.clearTimeout(timer)
-  }, [shopperStateReady, shopperPersistenceEnabled, cart, couponCode, pendingPaymentOrder, favorites, location, address, phone, addressDetails, cookieAccepted])
+  }, [shopperStateReady, shopperPersistenceEnabled, cart, couponCode, pendingPaymentOrder, favorites, recentlyViewed, location, address, phone, addressDetails, cookieAccepted, customer?._id])
 
   const checkServiceArea = useCallback(async (pincode, state = '') => {
     const pin = String(pincode || '').trim()
@@ -161,9 +165,21 @@ export default function useStorefront() {
     return match ? decodeURIComponent(match[1]) : ''
   }
 
+  const recordProductView = useCallback(product => {
+    const productId = String(product?._id || product?.id || '').trim()
+    if (!productId) return
+    const viewedAt = new Date().toISOString()
+    setRecentlyViewed(current => {
+      const latest = current[0]
+      if (String(latest?.productId || '') === productId && Date.now() - (Date.parse(latest.viewedAt || '') || 0) < 60_000) return current
+      return [{ productId, viewedAt }, ...current.filter(item => String(item.productId) !== productId)].slice(0, 60)
+    })
+  }, [])
+
   const openProduct = product => {
     const id = product?._id || product?.id
     if (!id) return
+    recordProductView(product)
     window.history.pushState({ ...(window.history.state || {}), wepzoProductDetail: true }, '', `/product/${encodeURIComponent(id)}${window.location.search}`)
     setSelected(product)
     setCurrentPage('product')
@@ -210,12 +226,14 @@ export default function useStorefront() {
     const syncProductRoute = () => {
       const id = productRouteId()
       setCurrentPage(currentPageFromPath())
-      setSelected(id ? products.find(product => String(product._id || product.id) === id) || null : null)
+      const product = id ? products.find(item => String(item._id || item.id) === id) || null : null
+      setSelected(product)
+      if (product) recordProductView(product)
     }
     syncProductRoute()
     window.addEventListener('popstate', syncProductRoute)
     return () => window.removeEventListener('popstate', syncProductRoute)
-  }, [products])
+  }, [products, recordProductView])
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
@@ -234,6 +252,7 @@ export default function useStorefront() {
         setCheckout(false)
         navigatePage('orders')
         setMessage(`Payment received. Order ${result.order?.orderNo || ''} is confirmed.`)
+        load()
       })
       .catch(paymentError => setMessage(paymentError.message))
       .finally(() => setBusy(false))
@@ -258,8 +277,13 @@ export default function useStorefront() {
     setError('')
     try {
       const [shop, catalog, publishedWebsite] = await Promise.all([
-        request('/shop/home'),
-        request(`/shop/products?${new URLSearchParams({ ...(selectedModule ? { module: selectedModule } : {}), ...(sort ? { sort } : {}) })}`),
+        request(`/shop/home?${new URLSearchParams({
+          ...(selectedModule ? { module: selectedModule } : {}),
+          ...(category ? { category } : {}),
+          ...(subCategory ? { subCategory } : {}),
+          ...(childCategory ? { childCategory } : {}),
+        })}`),
+        request(`/shop/products?${new URLSearchParams({ ...(sort ? { sort } : {}) })}`),
         WEBSITE_ID ? request(`/public/published-websites/${WEBSITE_ID}`).catch(() => null) : Promise.resolve(null),
       ])
       if (!shop || typeof shop !== 'object' || Array.isArray(shop)) {
@@ -291,9 +315,9 @@ export default function useStorefront() {
     } finally {
       setLoading(false)
     }
-  }, [sort, selectedModule])
+  }, [sort, selectedModule, category, subCategory, childCategory])
 
-  useEffect(() => { load() }, [load])
+  useEffect(() => { if (shopperStateReady) load() }, [load, shopperStateReady])
   useEffect(() => {
     if (!favorites.length) {
       setFavoriteCatalog([])
@@ -364,17 +388,22 @@ export default function useStorefront() {
       && String(item.subCategory || '').trim().toLowerCase() === subCategory.trim().toLowerCase())
     .map(item => item.name).filter(Boolean))], [home, category, subCategory])
   const shown = useMemo(() => products.filter(item => {
+    const productModule = String(item.moduleSlug || item.module?.slug || (typeof item.module === 'string' ? item.module : '')).trim().toLowerCase()
+    const matchesModule = !selectedModule || productModule === String(selectedModule).trim().toLowerCase()
     const productCategory = item.mainCategory || item.category
     const matchesCategory = (!category || String(productCategory || '').trim().toLowerCase() === category.trim().toLowerCase())
       && (!subCategory || String(item.subCategory || '').trim().toLowerCase() === subCategory.trim().toLowerCase())
       && (!childCategory || String(item.childCategory || '').trim().toLowerCase() === childCategory.trim().toLowerCase())
     const term = query.trim().toLowerCase()
-    return matchesCategory && (!term || `${item.name} ${item.brand} ${productCategory || ''}`.toLowerCase().includes(term))
-  }), [products, category, subCategory, childCategory, query])
+    return matchesModule && matchesCategory && (!term || `${item.name} ${item.brand} ${productCategory || ''}`.toLowerCase().includes(term))
+  }), [products, selectedModule, category, subCategory, childCategory, query])
   const deals = useMemo(() => [...products.filter(item => Number(item.discount) > 0), ...products]
     .filter((item, index, list) => list.findIndex(entry => (entry._id || entry.id) === (item._id || item.id)) === index)
     .slice(0, 6), [products])
-  const bestsellers = useMemo(() => [...products].sort((a, b) => Number(b.rating || 0) - Number(a.rating || 0)).slice(0, 6), [products])
+  const bestsellers = useMemo(() => {
+    if (home?.popularByModule && typeof home.popularByModule === 'object') return Object.values(home.popularByModule).flat()
+    return Array.isArray(home?.bestsellers) ? home.bestsellers : []
+  }, [home])
   const heroBanner = home?.banners?.[0]
   const categoryProduct = name => products.find(item => [item.mainCategory || item.category, item.subCategory, item.childCategory]
     .some(value => String(value || '').trim().toLowerCase() === String(name).trim().toLowerCase()))
@@ -476,6 +505,7 @@ export default function useStorefront() {
         body: JSON.stringify({ name: form.get('name'), email: form.get('email'), phone: form.get('phone'), password: form.get('password') }),
       })
       setCustomer(result.user)
+      load()
       setAuthOpen(false)
       setMessage(`Welcome ${result.user.name}`)
       if (checkoutAfterLogin) {
@@ -501,7 +531,9 @@ export default function useStorefront() {
   }
 
   const signOut = () => {
-    request('/shop/auth/logout', { method: 'POST' }).catch(error => setMessage(error.message))
+    request('/shop/auth/logout', { method: 'POST' })
+      .then(() => load())
+      .catch(error => setMessage(error.message))
     setPendingPaymentOrder(null)
     setCustomer(null)
     setMessage('You have been signed out.')
@@ -621,6 +653,7 @@ export default function useStorefront() {
                 setCheckout(false)
                 navigatePage('orders')
                 setMessage(`Payment received. Order ${order.orderNo} is confirmed.`)
+                load()
               } catch (paymentError) {
                 setPaymentWindowOpen(false)
                 setMessage(paymentError.message)
@@ -649,6 +682,7 @@ export default function useStorefront() {
         setCheckout(false)
         navigatePage('orders')
         setMessage(`Order ${order.orderNo || order.orderId} placed successfully.`)
+        load()
       }
     } catch (orderError) {
       setMessage(orderError.message)
@@ -667,7 +701,7 @@ export default function useStorefront() {
     customer, message, setMessage, checkout, setCheckout, address, setAddress, addressDetails, phone, setPhone,
     addressOpen, setAddressOpen, startCheckout, closeAuth, saveDeliveryAddress, saveDetectedLocation,
     busy: busy || paymentWindowOpen, quote, setQuote, couponCode, setCouponCode, applyCoupon, removeCoupon, paymentMethod, setPaymentMethod: choosePaymentMethod,
-    cookieAccepted, setCookieAccepted, categories, modules, shown, deals,
+    cookieAccepted, setCookieAccepted, recentlyViewed, categories, modules, shown, deals,
     bestsellers, heroBanner, categoryProduct, count, subtotal, cartItem, changeQty, toggleFavorite,
     calculateQuote, submitAuth, placeOrder, signOut,
   }
