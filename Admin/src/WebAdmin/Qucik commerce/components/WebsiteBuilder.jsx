@@ -8,6 +8,7 @@ import api from '../../../api/axios';
 import { useAuthStore, useBuilderStore, useModuleStore } from '../../../store/useStore';
 import { getAdminModuleKey } from '../../../constants/adminModules';
 import { clearPaymentReturnDetails, launchPaymentCheckout, paymentReturnDetails, paymentReturnUrl } from '../../../utils/paymentCheckout';
+import { ecommercePreviewBase } from '../../../utils/ecommercePreviewUrl';
 
 const MODULES = [
   { type: 'quick-commerce', name: 'Quick Commerce', icon: ShoppingBag, color: 'bg-emerald-600', desc: 'Build your Quick Commerce storefront' },
@@ -338,7 +339,9 @@ export default function WebsiteBuilder() {
       return;
     }
     if (previewModuleKey === 'e-commerce') {
-      const url = new URL(import.meta.env.VITE_ECOMMERCE_PREVIEW_URL || 'http://localhost:5173/', window.location.origin);
+      const baseUrl = ecommercePreviewBase(data, { mainAdmin: !isWebsiteUser });
+      if (!baseUrl) return;
+      const url = new URL(baseUrl, window.location.origin);
       url.searchParams.set('published', '1');
       url.searchParams.set('websiteId', data._id);
       if (data.websiteModuleId) url.searchParams.set('moduleId', data.websiteModuleId);
@@ -431,12 +434,15 @@ export default function WebsiteBuilder() {
   if (isWebsiteUser && website && !hasPurchasedWebsite) quickCommercePreviewUrl.searchParams.set('templatePreview', '1');
   if (website?._id && (!isWebsiteUser || hasPurchasedWebsite)) quickCommercePreviewUrl.searchParams.set('websiteId', website._id);
   if (website?.websiteModuleId && (!isWebsiteUser || hasPurchasedWebsite)) quickCommercePreviewUrl.searchParams.set('websiteModuleId', website.websiteModuleId);
-  const ecommercePreviewUrl = new URL(import.meta.env.VITE_ECOMMERCE_PREVIEW_URL || 'http://localhost:5173/', window.location.origin);
-  if (website?._id) ecommercePreviewUrl.searchParams.set('websiteId', website._id);
+  const ecommercePreviewBaseUrl = ecommercePreviewBase(website, { mainAdmin: !isWebsiteUser });
+  const ecommercePreviewUrl = ecommercePreviewBaseUrl
+    ? new URL(ecommercePreviewBaseUrl, window.location.origin)
+    : null;
+  if (website?._id && ecommercePreviewUrl) ecommercePreviewUrl.searchParams.set('websiteId', website._id);
   const ecommerceModuleId = website?.websiteModuleId || user?.selectedModuleId;
-  if (ecommerceModuleId) ecommercePreviewUrl.searchParams.set('moduleId', ecommerceModuleId);
-  ecommercePreviewUrl.searchParams.set('builderPreview', '1');
-  if (!isWebsiteUser) ecommercePreviewUrl.searchParams.set('adminPreview', '1');
+  if (ecommerceModuleId && ecommercePreviewUrl) ecommercePreviewUrl.searchParams.set('moduleId', ecommerceModuleId);
+  ecommercePreviewUrl?.searchParams.set('builderPreview', '1');
+  if (!isWebsiteUser) ecommercePreviewUrl?.searchParams.set('adminPreview', '1');
   const storeSinglePreviewUrl = new URL(import.meta.env.VITE_STORE_SINGLE_PREVIEW_URL || 'http://localhost:5175/', window.location.origin);
   const storeSingleWebsiteId = website?._id || user?.websiteId;
   const storeSingleModuleId = website?.websiteModuleId || user?.selectedModuleId || selectedModule?._id;
@@ -448,10 +454,10 @@ export default function WebsiteBuilder() {
   const sendEcommercePreview = () => ecommercePreviewRef.current?.contentWindow?.postMessage({
     type: 'wepzo:builder-preview',
     components: website?.components || [],
-  }, ecommercePreviewUrl.origin);
+  }, ecommercePreviewUrl?.origin);
   useEffect(() => {
     sendEcommercePreview();
-  }, [website?.components, ecommercePreviewUrl.origin]);
+  }, [website?.components, ecommercePreviewUrl?.origin]);
   const sendStoreSinglePreview = () => storeSinglePreviewRef.current?.contentWindow?.postMessage({
     type: 'wepzo:builder-preview',
     components,
@@ -804,7 +810,7 @@ export default function WebsiteBuilder() {
                 className="block w-full border-0 bg-white"
                 style={{ height: '70vh', minHeight: '500px' }}
               />
-            ) : previewModuleKey === 'e-commerce' ? (
+            ) : previewModuleKey === 'e-commerce' && ecommercePreviewUrl ? (
               <iframe
                 ref={ecommercePreviewRef}
                 key={ecommercePreviewUrl.href}
@@ -814,6 +820,10 @@ export default function WebsiteBuilder() {
                 className="block w-full border-0 bg-white"
                 style={{ height: '70vh', minHeight: '500px' }}
               />
+            ) : previewModuleKey === 'e-commerce' ? (
+              <div className="grid h-full min-h-[500px] place-items-center px-6 text-center text-sm text-slate-500">
+                Set the E-Commerce preview URL or publish this website on its domain to preview it here.
+              </div>
             ) : previewModuleKey === 'store-single' ? (
               <iframe
                 ref={storeSinglePreviewRef}

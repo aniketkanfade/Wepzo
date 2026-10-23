@@ -94,6 +94,9 @@ export async function request(path, options = {}) {
   const headers = {
     'Content-Type': 'application/json',
     'X-Website-Module': 'e-commerce',
+    // The API is reverse-proxied on Vercel. Send the browser's original host
+    // explicitly so the backend can resolve the correct published tenant.
+    'X-Website-Host': window.location.host,
     ...(ADMIN_PREVIEW ? { 'X-Admin-Preview': '1' } : {}),
     ...(WEBSITE_ID ? { 'X-Website-Id': WEBSITE_ID } : {}),
     ...(WEBSITE_MODULE_ID ? { 'X-Website-Module-Id': WEBSITE_MODULE_ID } : {}),

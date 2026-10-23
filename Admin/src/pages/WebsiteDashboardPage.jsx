@@ -6,6 +6,7 @@ import { useAuthStore, useBuilderStore } from '../store/useStore';
 import { getAdminModuleKey } from '../constants/adminModules';
 import OnDomainDownloadCard from '../components/OnDomainDownloadCard';
 import { hasWebsiteServiceEnded } from '../utils/websiteService';
+import { ecommercePreviewBase } from '../utils/ecommercePreviewUrl';
 
 const daysUntil = value => {
   if (!value) return null;
@@ -63,7 +64,9 @@ export default function WebsiteDashboardPage() {
       ? `${/^https?:\/\//i.test(website.domain.fullDomain) ? '' : 'https://'}${website.domain.fullDomain}`
     : websiteModuleKey === 'e-commerce'
       ? (() => {
-          const url = new URL(import.meta.env.VITE_ECOMMERCE_PREVIEW_URL || 'http://localhost:5173/', window.location.origin);
+          const baseUrl = ecommercePreviewBase(website, { mainAdmin: user?.role === 'main_admin' });
+          if (!baseUrl) return '';
+          const url = new URL(baseUrl, window.location.origin);
           url.searchParams.set('published', '1');
           url.searchParams.set('websiteId', website?._id || '');
           if (website?.websiteModuleId) url.searchParams.set('moduleId', website.websiteModuleId);

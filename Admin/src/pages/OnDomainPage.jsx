@@ -5,6 +5,7 @@ import api from '../api/axios';
 import { useAuthStore, useBuilderStore } from '../store/useStore';
 import { getAdminModuleKey } from '../constants/adminModules';
 import { clearPaymentReturnDetails, launchPaymentCheckout, paymentReturnDetails, paymentReturnUrl } from '../utils/paymentCheckout';
+import { ecommercePreviewBase } from '../utils/ecommercePreviewUrl';
 
 const amountText = value => `\u20B9${Number(value || 0).toLocaleString('en-IN')}`;
 
@@ -176,7 +177,8 @@ export default function OnDomainPage() {
       return url.href;
     };
     if (moduleKey === 'e-commerce') {
-      return configurePreview(new URL(import.meta.env.VITE_ECOMMERCE_PREVIEW_URL || 'http://localhost:5173/', window.location.origin), 'moduleId');
+      const baseUrl = ecommercePreviewBase(previewWebsite, { mainAdmin: !previewIsTenant });
+      return baseUrl ? configurePreview(new URL(baseUrl, window.location.origin), 'moduleId') : '';
     }
     if (moduleKey === 'store-single') {
       return configurePreview(new URL(import.meta.env.VITE_STORE_SINGLE_PREVIEW_URL || 'http://localhost:5175/', window.location.origin));

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import api from '../api/axios';
 import { getAdminModuleKey } from '../constants/adminModules';
+import { ecommercePreviewBase } from '../utils/ecommercePreviewUrl';
 
 export default function PublishedWebsitePage() {
   const { websiteId } = useParams();
@@ -33,7 +34,9 @@ export default function PublishedWebsitePage() {
       return url.href;
     }
     if (moduleKey === 'e-commerce') {
-      const url = new URL(import.meta.env.VITE_ECOMMERCE_PREVIEW_URL || 'http://localhost:5173/', window.location.origin);
+      const baseUrl = ecommercePreviewBase(website, { mainAdmin: website?.domain?.fullDomain === 'wepzo.in' });
+      if (!baseUrl) return '';
+      const url = new URL(baseUrl, window.location.origin);
       url.searchParams.set('published', '1');
       url.searchParams.set('websiteId', website._id);
       if (website.websiteModuleId) url.searchParams.set('moduleId', website.websiteModuleId);

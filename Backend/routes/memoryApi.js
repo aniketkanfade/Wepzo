@@ -964,7 +964,7 @@ function websiteContextForRequest(req, { requirePublished = false } = {}) {
       allowSharedCatalog: true,
     };
   }
-  const requestHost = normalizeWebsiteHost(req.get('X-Forwarded-Host') || req.get('Origin') || req.get('Host') || req.hostname);
+  const requestHost = normalizeWebsiteHost(req.get('X-Website-Host') || req.get('X-Forwarded-Host') || req.get('Origin') || req.get('Host') || req.hostname);
   const matchedHostWebsite = requestHost ? (store.websites || []).find(item =>
     normalizeWebsiteHost(item.domain?.fullDomain || item.domain?.name) === requestHost
   ) : null;
