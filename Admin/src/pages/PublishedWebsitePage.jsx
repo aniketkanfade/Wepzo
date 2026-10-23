@@ -58,7 +58,8 @@ export default function PublishedWebsitePage() {
     url.searchParams.set('published', '1');
     url.searchParams.set('websiteId', website._id);
     if (website.websiteModuleId) url.searchParams.set('websiteModuleId', website.websiteModuleId);
-    url.searchParams.set('components', components.join(','));
+    if (components.length) url.searchParams.set('components', components.join(','));
+    else url.searchParams.delete('components');
     return url.href;
   }, [website, moduleKey]);
 

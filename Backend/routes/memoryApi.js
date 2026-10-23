@@ -7224,6 +7224,10 @@ async function shopGatewaySettings(req, { decryptSecrets = false } = {}) {
 async function sendShopOrderNotifications(order) {
   const moduleSlug = normalizeWebsiteModuleSlug(order.websiteModuleSlug || 'e-commerce');
   const website = (store.websites || []).find(item => String(item._id) === String(order.websiteId || ''));
+  const tenantOrder = !!order.websiteId && order.websiteIsMain !== true;
+  const websiteOwner = website
+    ? (store.users || []).find(user => String(user._id) === String(website.userId || ''))
+    : null;
   const websiteContext = {
     website,
     websiteId: order.websiteId || '',
@@ -7248,22 +7252,38 @@ async function sendShopOrderNotifications(order) {
     return;
   }
 
+  const storeBelongsToOrderWebsite = item => {
+    if (!order.websiteId) return !item.websiteId;
+    if (String(item.websiteId || '') === String(order.websiteId)) return true;
+    return !item.websiteId && (order.websiteIsMain === true || order.websiteAllowsSharedCatalog === true);
+  };
   const matchingStore = (store.stores || []).find(item =>
     String(item.storeId || item._id) === String(order.storeId || '')
-    && (!order.websiteId || !item.websiteId || String(item.websiteId) === String(order.websiteId))
+    && storeBelongsToOrderWebsite(item)
   ) || (store.stores || []).find(item =>
     String(item.name || '').trim().toLowerCase() === String(order.store || '').trim().toLowerCase()
-    && (!order.websiteId || !item.websiteId || String(item.websiteId) === String(order.websiteId))
+    && storeBelongsToOrderWebsite(item)
   );
-  const adminRecipients = (store.users || [])
-    .filter(user => user.role === 'main_admin')
-    .map(user => user.email);
+  let tenantScopedSettings = {};
+  if (tenantOrder) {
+    const settingsScope = `website-user:${order.websiteId}:${moduleSlug}`;
+    tenantScopedSettings = { ...(store.businessSettingsByModule?.[settingsScope] || {}) };
+    if (process.env.MONGODB_URI) {
+      await ensureBusinessSettingsDatabase();
+      const record = await BusinessSettings.findOne({ scope: settingsScope }).lean();
+      Object.assign(tenantScopedSettings, record?.settings || {});
+    }
+  }
+  const adminRecipients = tenantOrder
+    ? [websiteOwner?.email]
+    : (store.users || []).filter(user => user.role === 'main_admin').map(user => user.email);
   const recipients = [...new Set([
     matchingStore?.email,
     matchingStore?.ownerEmail,
     matchingStore?.businessEmail,
-    settings.businessEmail,
-    settings.supportEmail,
+    ...(tenantOrder
+      ? [tenantScopedSettings.businessEmail, tenantScopedSettings.supportEmail]
+      : [settings.businessEmail, settings.supportEmail]),
     ...adminRecipients,
   ].map(email => String(email || '').trim().toLowerCase()).filter(Boolean))];
 
@@ -9600,10 +9620,15 @@ router.get('/shop/orders', shopAuth, (req, res) => {
 router.post('/shop/orders', shopAuth, async (req, res) => {
   ensureOrders();
   const body = req.body || {};
+  const orderWebsiteId = String(req.websiteContext?.websiteId || req.customer.websiteId || '');
+  const orderWebsiteModuleId = String(req.websiteContext?.moduleId || req.customer.websiteModuleId || '');
+  const orderWebsiteModuleSlug = normalizeWebsiteModuleSlug(
+    req.websiteContext?.moduleSlug || req.customer.websiteModuleSlug || quickCommerceWebsiteModuleSlug()
+  );
   let quoteResult;
   let paymentSettings;
   try {
-    quoteResult = await shopQuoteFor(body, req.customer.websiteId || '', req.websiteContext, req.customer);
+    quoteResult = await shopQuoteFor(body, orderWebsiteId, req.websiteContext, req.customer);
     paymentSettings = await shopGatewaySettings(req);
   } catch (error) {
     return res.status(error.status || 503).json({ message: error.message || 'Business settings could not be loaded.' });
@@ -9677,14 +9702,14 @@ router.post('/shop/orders', shopAuth, async (req, res) => {
     instruction: body.instruction || '',
     orderDate: formatNow(),
     date: formatNow(),
-    source: ['ecommerce', 'e-commerce'].includes(normalizeWebsiteModuleSlug(req.customer.websiteModuleSlug))
+    source: ['ecommerce', 'e-commerce'].includes(orderWebsiteModuleSlug)
       ? 'e_commerce'
-      : normalizeWebsiteModuleSlug(req.customer.websiteModuleSlug) === 'store-single'
+      : orderWebsiteModuleSlug === 'store-single'
         ? 'store_single'
         : 'quick_commerce',
-    websiteId: req.customer.websiteId || '',
-    websiteModuleId: req.customer.websiteModuleId || '',
-    websiteModuleSlug: req.customer.websiteModuleSlug || quickCommerceWebsiteModuleSlug(),
+    websiteId: orderWebsiteId,
+    websiteModuleId: orderWebsiteModuleId,
+    websiteModuleSlug: orderWebsiteModuleSlug,
     rider: null,
     timeline: [
       { key: 'placed', label: 'Order Placed', at: formatNow(), done: true },
@@ -9702,7 +9727,7 @@ router.post('/shop/orders', shopAuth, async (req, res) => {
     });
   }
   if (quote.couponCode && paymentMethod !== 'ONLINE') {
-    const couponContext = { websiteId: req.customer.websiteId || '', moduleSlug: req.customer.websiteModuleSlug || 'quick-commerce' };
+    const couponContext = { websiteId: orderWebsiteId, moduleSlug: orderWebsiteModuleSlug };
     const coupon = store.coupons.find(item => belongsToWebsite(item, couponContext.websiteId, couponContext.allowSharedCatalog) && isShopWebsiteRecord(item, couponContext) && String(item.code || '').trim().toUpperCase() === quote.couponCode);
     if (coupon) coupon.usedCount = (Number(coupon.usedCount) || 0) + 1;
   }

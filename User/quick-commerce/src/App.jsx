@@ -61,7 +61,8 @@ export default function App() {
     ? searchParams.get('components')
     : savedContext?.components?.join(',') || '';
   const selectedComponents = new Set(componentList.split(',').filter(Boolean));
-  const componentEnabled = slug => (adminPreview || !websiteContextActive || selectedComponents.has(slug))
+  const hasSelectedComponents = selectedComponents.size > 0;
+  const componentEnabled = slug => (adminPreview || !websiteContextActive || !hasSelectedComponents || selectedComponents.has(slug))
     && !(templatePreview && ['quick-commerce-profile', 'quick-commerce-account'].includes(slug));
 
   useEffect(() => {
