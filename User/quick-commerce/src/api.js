@@ -11,7 +11,15 @@ api.interceptors.request.use((config) => {
   config.headers['X-Website-Module'] = 'quick-commerce';
   const urlParams = new URLSearchParams(window.location.search);
   const templatePreview = urlParams.get('templatePreview') === '1';
-  const adminPreview = urlParams.get('adminPreview') === '1';
+  const savedContext = getWebsiteContext();
+  const savedAdminPreview = savedContext?.previewFlags?.includes('adminPreview') || savedContext?.mode === 'adminPreview';
+  const adminPreview = urlParams.get('adminPreview') === '1' || savedAdminPreview;
+  const queryWebsiteId = urlParams.get('websiteId') || '';
+  const domainBasedPreview = !queryWebsiteId && (
+    savedContext?.domainBased
+    || (!adminPreview && (urlParams.get('published') === '1' || urlParams.get('builderPreview') === '1'))
+  );
+  config.headers['X-Website-Host'] = window.location.host;
   if (templatePreview) {
     delete config.headers.Authorization;
     delete config.headers['X-Website-Id'];
@@ -21,9 +29,9 @@ api.interceptors.request.use((config) => {
   const token = readQcToken();
   if (token) config.headers.Authorization = `Bearer ${token}`;
   else delete config.headers.Authorization;
-  const savedContext = getWebsiteContext();
-  const websiteId = urlParams.get('websiteId') || (!adminPreview ? savedContext?.websiteId || import.meta.env.VITE_WEBSITE_ID : '');
-  const websiteModuleId = urlParams.get('websiteModuleId') || (!adminPreview ? savedContext?.websiteModuleId || import.meta.env.VITE_WEBSITE_MODULE_ID : '');
+  const canUseSavedTenant = !adminPreview || savedAdminPreview;
+  const websiteId = queryWebsiteId || (canUseSavedTenant ? savedContext?.websiteId : '') || (!adminPreview && !domainBasedPreview ? import.meta.env.VITE_WEBSITE_ID : '');
+  const websiteModuleId = urlParams.get('websiteModuleId') || (canUseSavedTenant ? savedContext?.websiteModuleId : '') || (!adminPreview && !domainBasedPreview ? import.meta.env.VITE_WEBSITE_MODULE_ID : '');
   if (websiteId) config.headers['X-Website-Id'] = websiteId;
   if (websiteModuleId) config.headers['X-Website-Module-Id'] = websiteModuleId;
   if (adminPreview) {

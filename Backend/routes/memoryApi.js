@@ -8940,7 +8940,7 @@ router.post('/shop/auth/register', async (req, res) => {
     : !customer.websiteId;
   if ((em && store.customers.some(c => sameWebsite(c) && (c.email || '').toLowerCase() === em))
     || (ph && store.customers.some(c => sameWebsite(c) && String(c.phone || '') === ph))) {
-    return res.status(400).json({ message: 'Email already registered' });
+    return res.status(400).json({ message: 'Email or phone number already registered on this website' });
   }
   const customer = {
     _id: uuidv4(),

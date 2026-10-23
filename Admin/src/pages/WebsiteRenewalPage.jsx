@@ -3,9 +3,14 @@ import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, CalendarClock, RefreshCw } from 'lucide-react';
 import api from '../api/axios';
 import { clearPaymentReturnDetails, launchPaymentCheckout, paymentReturnDetails, paymentReturnUrl } from '../utils/paymentCheckout';
+import { getWebsiteAdminPath } from '../constants/adminModules';
+import { useAuthStore } from '../store/useStore';
 
 export default function WebsiteRenewalPage() {
   const navigate = useNavigate();
+  const user = useAuthStore(state => state.user);
+  const websiteAdminPath = getWebsiteAdminPath(user);
+  const openWebsiteAdmin = () => navigate(websiteAdminPath, { replace: true });
   const [website, setWebsite] = useState(null);
   const [plans, setPlans] = useState([]);
   const [planId, setPlanId] = useState('');
@@ -47,10 +52,10 @@ export default function WebsiteRenewalPage() {
         if (!pendingWebsite) throw new Error('The renewal linked to this payment could not be found.');
         return api.post(`/websites/${pendingWebsite._id}/checkout/verify`, { purchaseId });
       })
-      .then(() => navigate('/website-dashboard', { replace: true }))
+      .then(() => navigate(websiteAdminPath, { replace: true }))
       .catch(requestError => setError(requestError.response?.data?.message || requestError.message || 'Renewal payment could not be verified.'))
       .finally(() => { clearPaymentReturnDetails(); setPaying(false); });
-  }, [navigate]);
+  }, [navigate, websiteAdminPath]);
 
   const renew = async () => {
     if (!website || !selectedPlan) return;
@@ -59,7 +64,7 @@ export default function WebsiteRenewalPage() {
     try {
       const { data: order } = await api.post(`/websites/${website._id}/checkout`, { purchaseType: 'subscription', planId: selectedPlan._id, renewal: true, returnUrl: paymentReturnUrl() });
       if (order.free) {
-        navigate('/website-dashboard', { replace: true });
+        openWebsiteAdmin();
         return;
       }
       await launchPaymentCheckout(order, {
@@ -68,7 +73,7 @@ export default function WebsiteRenewalPage() {
         onFailure: paymentError => { setError(paymentError.message || 'Payment failed. You can retry.'); setPaying(false); },
         onVerified: async response => {
           await api.post(`/websites/${website._id}/checkout/verify`, response);
-          navigate('/website-dashboard', { replace: true });
+          openWebsiteAdmin();
         },
       });
     } catch (requestError) {
@@ -79,7 +84,7 @@ export default function WebsiteRenewalPage() {
 
   return <main className="grid min-h-screen place-items-center bg-[#090f1b] px-4 py-8 text-white">
     <section className="w-full max-w-lg rounded-2xl border border-slate-700 bg-[#111a2a] p-6 shadow-2xl">
-      <button type="button" onClick={() => navigate('/website-dashboard')} className="mb-6 inline-flex items-center gap-2 text-sm text-slate-300 hover:text-white"><ArrowLeft size={16}/> Back to website</button>
+      <button type="button" onClick={openWebsiteAdmin} className="mb-6 inline-flex items-center gap-2 text-sm text-slate-300 hover:text-white"><ArrowLeft size={16}/> Back to Admin</button>
       <div className="mb-5 flex items-center gap-3"><span className="rounded-xl bg-orange-500/15 p-3 text-orange-300"><CalendarClock size={20}/></span><div><h1 className="text-xl font-bold">Renew subscription</h1><p className="mt-1 text-sm text-slate-400">{website?.name || 'Your website'}</p></div></div>
       {loading ? <p className="text-sm text-slate-400">Loading renewal plans...</p> : <>
         {!plans.length && <p className="text-sm text-slate-300">No active renewal plans are available. Contact your administrator.</p>}

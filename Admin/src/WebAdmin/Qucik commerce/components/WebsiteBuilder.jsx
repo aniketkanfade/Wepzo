@@ -6,9 +6,9 @@ import {
 } from 'lucide-react';
 import api from '../../../api/axios';
 import { useAuthStore, useBuilderStore, useModuleStore } from '../../../store/useStore';
-import { getAdminModuleKey } from '../../../constants/adminModules';
+import { getAdminModuleKey, getWebsiteAdminPath } from '../../../constants/adminModules';
 import { clearPaymentReturnDetails, launchPaymentCheckout, paymentReturnDetails, paymentReturnUrl } from '../../../utils/paymentCheckout';
-import { ecommercePreviewBase } from '../../../utils/ecommercePreviewUrl';
+import { applyPublishedWebsiteContext, assignedWebsiteDomainUrl, ecommercePreviewBase } from '../../../utils/ecommercePreviewUrl';
 
 const MODULES = [
   { type: 'quick-commerce', name: 'Quick Commerce', icon: ShoppingBag, color: 'bg-emerald-600', desc: 'Build your Quick Commerce storefront' },
@@ -325,16 +325,16 @@ export default function WebsiteBuilder() {
   };
 
   const openPublishedWebsite = data => {
+    const assignedDomain = assignedWebsiteDomainUrl(data);
     if (previewModuleKey === 'quick-commerce') {
-      const url = new URL(import.meta.env.VITE_QC_PREVIEW_URL || 'http://localhost:3001/', window.location.origin);
+      const url = new URL(assignedDomain || import.meta.env.VITE_QC_PREVIEW_URL || 'http://localhost:3001/', window.location.origin);
       const publishedSlugs = [...new Set((data.components || []).flatMap(({ componentId }) => {
         const slug = componentId?.slug;
         return LEGACY_PREVIEW_COMPONENTS[slug] || (slug ? [slug] : []);
       }))];
-      url.searchParams.set('published', '1');
-      url.searchParams.set('websiteId', data._id);
-      if (data.websiteModuleId) url.searchParams.set('websiteModuleId', data.websiteModuleId);
       url.searchParams.set('components', publishedSlugs.join(','));
+      applyPublishedWebsiteContext(url, data);
+      if (!assignedDomain && !isWebsiteUser) url.searchParams.set('adminPreview', '1');
       window.location.assign(url.href);
       return;
     }
@@ -342,19 +342,15 @@ export default function WebsiteBuilder() {
       const baseUrl = ecommercePreviewBase(data, { mainAdmin: !isWebsiteUser });
       if (!baseUrl) return;
       const url = new URL(baseUrl, window.location.origin);
-      url.searchParams.set('published', '1');
-      url.searchParams.set('websiteId', data._id);
-      if (data.websiteModuleId) url.searchParams.set('moduleId', data.websiteModuleId);
-      if (!isWebsiteUser) url.searchParams.set('adminPreview', '1');
+      applyPublishedWebsiteContext(url, data, 'moduleId');
+      if (!assignedDomain && !isWebsiteUser) url.searchParams.set('adminPreview', '1');
       window.location.assign(url.href);
       return;
     }
     if (previewModuleKey === 'store-single') {
-      const url = new URL(import.meta.env.VITE_STORE_SINGLE_PREVIEW_URL || 'http://localhost:5175/', window.location.origin);
-      url.searchParams.set('published', '1');
-      url.searchParams.set('websiteId', data._id);
-      if (data.websiteModuleId) url.searchParams.set('websiteModuleId', data.websiteModuleId);
-      if (!isWebsiteUser) url.searchParams.set('adminPreview', '1');
+      const url = new URL(assignedDomain || import.meta.env.VITE_STORE_SINGLE_PREVIEW_URL || 'http://localhost:5175/', window.location.origin);
+      applyPublishedWebsiteContext(url, data);
+      if (!assignedDomain && !isWebsiteUser) url.searchParams.set('adminPreview', '1');
       window.location.assign(url.href);
       return;
     }
@@ -366,7 +362,7 @@ export default function WebsiteBuilder() {
     try {
       const { data } = await api.post('/websites/' + website._id + '/publish');
       setWebsite(data);
-      if (isWebsiteUser) navigate('/website-dashboard');
+      if (isWebsiteUser) navigate(getWebsiteAdminPath(user), { replace: true });
       else openPublishedWebsite(data);
     } catch (err) {
       console.error(err);
@@ -378,7 +374,7 @@ export default function WebsiteBuilder() {
     setWebsite(verifiedWebsite);
     const { data: publishedWebsite } = await api.post(`/websites/${websiteId}/publish`);
     setWebsite(publishedWebsite);
-    if (isWebsiteUser) navigate('/website-dashboard');
+    if (isWebsiteUser) navigate(getWebsiteAdminPath(user), { replace: true });
     else openPublishedWebsite(publishedWebsite);
     return publishedWebsite;
   };
@@ -404,7 +400,7 @@ export default function WebsiteBuilder() {
       });
       if (order.free) {
         setWebsite(order.website);
-        navigate('/website-dashboard');
+        navigate(getWebsiteAdminPath(user), { replace: true });
         return;
       }
       await launchPaymentCheckout(order, {

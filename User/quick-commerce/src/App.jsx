@@ -55,7 +55,12 @@ export default function App() {
   const templatePreview = searchParams.get('templatePreview') === '1';
   const publishedPreview = searchParams.get('published') === '1';
   const savedContext = getWebsiteContext();
-  const activeWebsiteMode = adminPreview ? null : publishedPreview || builderPreview ? (publishedPreview ? 'published' : 'builder') : savedContext?.mode;
+  const previewFlags = ['published', 'builderPreview', 'adminPreview']
+    .filter(flag => searchParams.get(flag) === '1');
+  const previewFlagsKey = previewFlags.join(',');
+  const savedPreviewFlags = savedContext?.previewFlags || (savedContext?.mode ? [savedContext.mode] : []);
+  const activeAdminPreview = adminPreview || savedPreviewFlags.includes('adminPreview');
+  const activeWebsiteMode = activeAdminPreview ? null : publishedPreview || builderPreview ? (publishedPreview ? 'published' : 'builder') : savedContext?.mode;
   const websiteContextActive = activeWebsiteMode === 'published' || activeWebsiteMode === 'builder';
   const componentList = searchParams.has('components')
     ? searchParams.get('components')
@@ -135,23 +140,35 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (!templatePreview && (publishedPreview || builderPreview) && searchParams.get('websiteId')) {
+    const activePreviewFlags = previewFlags.length
+      ? previewFlags
+      : (searchParams.get('websiteId') ? ['published'] : []);
+    if (!templatePreview && activePreviewFlags.length) {
+      const websiteId = searchParams.get('websiteId') || '';
       setWebsiteContext({
-        mode: publishedPreview ? 'published' : 'builder',
-        websiteId: searchParams.get('websiteId'),
+        mode: publishedPreview ? 'published' : builderPreview ? 'builder' : adminPreview ? 'adminPreview' : 'published',
+        previewFlags: activePreviewFlags,
+        websiteId,
+        domainBased: !websiteId,
         websiteModuleId: searchParams.get('websiteModuleId') || '',
         components: [...selectedComponents],
       });
       return;
     }
-    if (adminPreview || templatePreview || !savedContext?.websiteId || !savedContext?.mode) return;
+    if (templatePreview || (!savedContext?.websiteId && !savedContext?.domainBased) || !savedContext?.mode) return;
     const params = new URLSearchParams(location.search);
-    params.set(savedContext.mode, '1');
-    params.set('websiteId', savedContext.websiteId);
+    const flagsToRestore = savedContext.previewFlags?.length
+      ? savedContext.previewFlags
+      : [savedContext.mode === 'builder' ? 'builderPreview' : savedContext.mode];
+    flagsToRestore.forEach(flag => params.set(flag, '1'));
+    if (savedContext.websiteId) params.set('websiteId', savedContext.websiteId);
+    else params.delete('websiteId');
     if (savedContext.websiteModuleId) params.set('websiteModuleId', savedContext.websiteModuleId);
+    else params.delete('websiteModuleId');
     params.set('components', (savedContext.components || []).join(','));
+    if (params.toString() === location.search.replace(/^\?/, '')) return;
     navigate({ pathname: location.pathname, search: params.toString(), hash: location.hash }, { replace: true });
-  }, [adminPreview, builderPreview, location.hash, location.pathname, location.search, navigate, publishedPreview, savedContext?.websiteId, templatePreview]);
+  }, [adminPreview, builderPreview, location.hash, location.pathname, location.search, navigate, previewFlagsKey, publishedPreview, savedContext?.websiteId, savedContext?.mode, savedContext?.websiteModuleId, savedContext?.components, templatePreview]);
 
   const featureRoute = (slug, page) => componentEnabled(slug) ? page : <UnavailableFeature />;
 

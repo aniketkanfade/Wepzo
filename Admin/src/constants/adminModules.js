@@ -59,6 +59,14 @@ export function getAdminModulePath(module) {
   return MODULES[key].path;
 }
 
+export function getWebsiteAdminPath(user) {
+  return getAdminModulePath({
+    slug: user?.selectedModuleSlug || user?.websiteModuleSlug,
+    type: user?.selectedModuleType || user?.selectedModuleSlug || user?.websiteModuleSlug,
+    name: user?.selectedModuleName || '',
+  });
+}
+
 export function getAdminModuleLabel(module) {
   return MODULES[getAdminModuleKey(module)].label;
 }

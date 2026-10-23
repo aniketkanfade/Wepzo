@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import api from '../api/axios';
 import { getAdminModuleKey } from '../constants/adminModules';
-import { ecommercePreviewBase } from '../utils/ecommercePreviewUrl';
+import { applyPublishedWebsiteContext, assignedWebsiteDomainUrl, ecommercePreviewBase } from '../utils/ecommercePreviewUrl';
 
 export default function PublishedWebsitePage() {
   const { websiteId } = useParams();
@@ -26,40 +26,29 @@ export default function PublishedWebsitePage() {
   });
   const storefrontUrl = useMemo(() => {
     if (!website || !['quick-commerce', 'e-commerce', 'store-single', 'information-web'].includes(moduleKey)) return '';
+    const assignedDomain = assignedWebsiteDomainUrl(website);
     if (moduleKey === 'information-web') {
-      const url = new URL(import.meta.env.VITE_GENERAL_PREVIEW_URL || 'http://localhost:5174/', window.location.origin);
-      url.searchParams.set('published', '1');
-      url.searchParams.set('websiteId', website._id);
-      if (website.websiteModuleId) url.searchParams.set('websiteModuleId', website.websiteModuleId);
-      return url.href;
+      const url = new URL(assignedDomain || import.meta.env.VITE_GENERAL_PREVIEW_URL || 'http://localhost:5174/', window.location.origin);
+      return applyPublishedWebsiteContext(url, website).href;
     }
     if (moduleKey === 'e-commerce') {
       const baseUrl = ecommercePreviewBase(website, { mainAdmin: website?.domain?.fullDomain === 'wepzo.in' });
       if (!baseUrl) return '';
       const url = new URL(baseUrl, window.location.origin);
-      url.searchParams.set('published', '1');
-      url.searchParams.set('websiteId', website._id);
-      if (website.websiteModuleId) url.searchParams.set('moduleId', website.websiteModuleId);
-      return url.href;
+      return applyPublishedWebsiteContext(url, website, 'moduleId').href;
     }
     if (moduleKey === 'store-single') {
-      const url = new URL(import.meta.env.VITE_STORE_SINGLE_PREVIEW_URL || 'http://localhost:5175/', window.location.origin);
-      url.searchParams.set('published', '1');
-      url.searchParams.set('websiteId', website._id);
-      if (website.websiteModuleId) url.searchParams.set('websiteModuleId', website.websiteModuleId);
-      return url.href;
+      const url = new URL(assignedDomain || import.meta.env.VITE_STORE_SINGLE_PREVIEW_URL || 'http://localhost:5175/', window.location.origin);
+      return applyPublishedWebsiteContext(url, website).href;
     }
-    const url = new URL(import.meta.env.VITE_QC_PREVIEW_URL || 'http://localhost:3001/', window.location.origin);
+    const url = new URL(assignedDomain || import.meta.env.VITE_QC_PREVIEW_URL || 'http://localhost:3001/', window.location.origin);
     const components = [...new Set((website.components || []).flatMap(({ componentId }) => {
       const slug = componentId?.slug;
       if (slug === 'quick-commerce-favorites-cart') return ['quick-commerce-favorites', 'quick-commerce-cart'];
       return slug ? [slug] : [];
     }))];
-    url.searchParams.set('published', '1');
-    url.searchParams.set('websiteId', website._id);
-    if (website.websiteModuleId) url.searchParams.set('websiteModuleId', website.websiteModuleId);
     url.searchParams.set('components', components.join(','));
-    return url.href;
+    return applyPublishedWebsiteContext(url, website).href;
   }, [website, moduleKey]);
 
   useEffect(() => {

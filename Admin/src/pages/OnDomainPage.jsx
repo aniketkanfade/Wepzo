@@ -5,7 +5,7 @@ import api from '../api/axios';
 import { useAuthStore, useBuilderStore } from '../store/useStore';
 import { getAdminModuleKey } from '../constants/adminModules';
 import { clearPaymentReturnDetails, launchPaymentCheckout, paymentReturnDetails, paymentReturnUrl } from '../utils/paymentCheckout';
-import { ecommercePreviewBase } from '../utils/ecommercePreviewUrl';
+import { assignedWebsiteDomainUrl, ecommercePreviewBase, isAssignedWebsiteDomain } from '../utils/ecommercePreviewUrl';
 
 const amountText = value => `\u20B9${Number(value || 0).toLocaleString('en-IN')}`;
 
@@ -163,15 +163,22 @@ export default function OnDomainPage() {
     const moduleKey = getAdminModuleKey({ slug: previewWebsite.websiteModuleSlug, name: previewWebsite.moduleName });
     const previewId = previewIsTenant ? previewWebsite.id : previewWebsite.websiteId;
     const configurePreview = (url, moduleParam = 'websiteModuleId') => {
-      if (previewId) url.searchParams.set('websiteId', previewId);
-      if (previewWebsite.websiteModuleId) {
-        url.searchParams.set(moduleParam, previewWebsite.websiteModuleId);
-        if (moduleParam !== 'websiteModuleId') url.searchParams.set('websiteModuleId', previewWebsite.websiteModuleId);
-      }
       if (previewIsTenant) {
         url.searchParams.set('published', '1');
         url.searchParams.set('components', (previewWebsite.components || []).join(','));
+        if (!isAssignedWebsiteDomain(url.href, previewWebsite)) {
+          if (previewId) url.searchParams.set('websiteId', previewId);
+          if (previewWebsite.websiteModuleId) {
+            url.searchParams.set(moduleParam, previewWebsite.websiteModuleId);
+            if (moduleParam !== 'websiteModuleId') url.searchParams.set('websiteModuleId', previewWebsite.websiteModuleId);
+          }
+        }
       } else {
+        if (previewId) url.searchParams.set('websiteId', previewId);
+        if (previewWebsite.websiteModuleId) {
+          url.searchParams.set(moduleParam, previewWebsite.websiteModuleId);
+          if (moduleParam !== 'websiteModuleId') url.searchParams.set('websiteModuleId', previewWebsite.websiteModuleId);
+        }
         url.searchParams.set('adminPreview', '1');
       }
       return url.href;
@@ -181,10 +188,10 @@ export default function OnDomainPage() {
       return baseUrl ? configurePreview(new URL(baseUrl, window.location.origin), 'moduleId') : '';
     }
     if (moduleKey === 'store-single') {
-      return configurePreview(new URL(import.meta.env.VITE_STORE_SINGLE_PREVIEW_URL || 'http://localhost:5175/', window.location.origin));
+      return configurePreview(new URL(assignedWebsiteDomainUrl(previewWebsite) || import.meta.env.VITE_STORE_SINGLE_PREVIEW_URL || 'http://localhost:5175/', window.location.origin));
     }
     if (moduleKey === 'quick-commerce') {
-      return configurePreview(new URL(import.meta.env.VITE_QC_PREVIEW_URL || 'http://localhost:3001/', window.location.origin));
+      return configurePreview(new URL(assignedWebsiteDomainUrl(previewWebsite) || import.meta.env.VITE_QC_PREVIEW_URL || 'http://localhost:3001/', window.location.origin));
     }
     if (!previewId) return '';
     return new URL(`/published-websites/${encodeURIComponent(previewId)}`, window.location.origin).href;
