@@ -60,7 +60,7 @@ export default function ProductStockUpdateModal({ product, onClose, onSaved }) {
   };
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/40" onClick={onClose}>
+    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/40" onClick={event => { event.stopPropagation(); if (event.target === event.currentTarget) onClose(); }}>
       <div
         className="bg-white rounded-xl shadow-xl w-full max-w-md border border-gray-100"
         onClick={e => e.stopPropagation()}

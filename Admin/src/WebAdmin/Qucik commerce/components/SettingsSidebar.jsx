@@ -42,26 +42,26 @@ function MenuItem({ item, openKey, onOpenChange, pathname, onClose }) {
 
   if (hasChildren) {
     return (
-      <div>
+      <div className="min-w-0">
         <button type="button" onClick={() => onOpenChange(expanded ? null : item.label)}
-          className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm font-medium transition ${
+          className={`w-full min-w-0 flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm font-medium transition ${
             childActive ? 'text-[#1a3a8a] bg-[#f0f4ff]' : 'text-gray-700 hover:bg-gray-50'
           }`}>
           {Icon ? <Icon size={16} className="shrink-0" /> : null}
-          <span className="flex-1 text-left">{item.label}</span>
+          <span className="min-w-0 flex-1 break-words text-left">{item.label}</span>
           {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
         </button>
         {expanded && (
-          <div className="ml-4 mt-0.5 space-y-0.5 pl-2">
+          <div className="ml-4 mt-0.5 min-w-0 space-y-0.5 pl-2">
             {item.children.map(child => {
               const ChildIcon = child.icon;
               return (
               <NavLink key={child.path} to={child.path} end={child.path === '/settings/zones'} onClick={onClose}
-                className={({ isActive }) => `flex items-center gap-2 px-3 py-2 rounded-lg text-[13px] transition ${
+                className={({ isActive }) => `flex min-w-0 items-center gap-2 px-3 py-2 rounded-lg text-[13px] transition ${
                   isActive ? 'text-[#1a3a8a] bg-[#f0f4ff] font-semibold' : 'text-gray-600 hover:bg-gray-50'
                 }`}>
                 {ChildIcon ? <ChildIcon size={14} className="shrink-0" /> : null}
-                {child.label}
+                <span className="min-w-0 break-words">{child.label}</span>
               </NavLink>
               );
             })}
@@ -78,7 +78,7 @@ function MenuItem({ item, openKey, onOpenChange, pathname, onClose }) {
         isActive || pathActive ? 'text-[#1a3a8a] bg-[#f0f4ff]' : 'text-gray-700 hover:bg-gray-50'
       }`}>
       {Icon ? <Icon size={16} className="shrink-0" /> : null}
-      {item.label}
+      <span className="min-w-0 break-words">{item.label}</span>
     </NavLink>
   );
 }
@@ -130,7 +130,7 @@ export default function SettingsSidebar({ mobileOpen, onClose, allowedPaths = nu
   return (
     <>
       {mobileOpen && <div className="fixed inset-0 bg-black/30 z-40 lg:hidden" onClick={onClose} />}
-      <aside className={`${mobileOpen ? 'translate-x-0' : '-translate-x-full'} lg:translate-x-0 fixed lg:relative z-50 lg:z-auto w-64 bg-white border-r border-gray-200 flex flex-col h-full overflow-hidden transition-transform duration-200 shrink-0`}>
+      <aside className={`${mobileOpen ? 'translate-x-0' : '-translate-x-full'} lg:translate-x-0 fixed inset-y-0 left-0 lg:relative lg:inset-auto z-50 lg:z-auto w-[min(78vw,285px)] max-w-[100vw] bg-white border-r border-gray-200 flex flex-col h-full overflow-x-hidden overflow-y-hidden transition-transform duration-200 shrink-0 lg:w-64`}>
         <div className="p-4 border-b border-gray-200">
           <div className="flex items-center gap-2">
             <Settings size={20} className="text-[#1a3a8a]" />
@@ -151,7 +151,7 @@ export default function SettingsSidebar({ mobileOpen, onClose, allowedPaths = nu
           </div>
         </div>
 
-        <nav className="flex-1 overflow-y-auto px-3 pb-4 space-y-0.5">
+        <nav className="admin-sidebar-nav min-w-0 w-full max-w-full flex-1 overflow-x-hidden overflow-y-auto px-3 pb-4 space-y-0.5">
           {visibleMenu.map((item, index) => {
             if (item.sectionTitle) {
               return <p key={item.label} className="mt-4 px-3 pb-1 text-[10px] font-bold uppercase tracking-wider text-gray-400">{item.label}</p>;

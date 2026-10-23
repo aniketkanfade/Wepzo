@@ -43,7 +43,7 @@ export default function SearchDataFilterDrawer({
     .map(s => s.name);
 
   return (
-    <div className="fixed inset-0 z-50 flex justify-end">
+    <div className="fixed inset-0 z-50 flex justify-end" onClick={event => event.stopPropagation()}>
       <button type="button" className="absolute inset-0 bg-black/30" onClick={onClose} aria-label="Close filter" />
       <div className="relative w-full max-w-sm bg-white h-full shadow-2xl flex flex-col">
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">

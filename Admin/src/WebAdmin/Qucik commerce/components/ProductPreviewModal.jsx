@@ -27,7 +27,7 @@ export default function ProductPreviewModal({ product, onClose }) {
     : (product.hasSpecifications ? (product.specifications || {}) : {});
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" onClick={event => { event.stopPropagation(); if (event.target === event.currentTarget) onClose(); }}>
       <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
           <h2 className="text-lg font-bold text-gray-900">Product Preview</h2>

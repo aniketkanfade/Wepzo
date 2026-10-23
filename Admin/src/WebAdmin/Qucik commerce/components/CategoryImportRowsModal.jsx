@@ -64,7 +64,7 @@ export default function CategoryImportRowsModal({ item, onClose, onChanged }) {
     } catch (err) { setError(err.response?.data?.message || 'Could not delete this row.'); }
   };
 
-  return <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/40 p-3 sm:p-6" onMouseDown={event => { if (event.target === event.currentTarget) onClose(); }}>
+  return <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/40 p-3 sm:p-6" onClick={event => { event.stopPropagation(); if (event.target === event.currentTarget) onClose(); }}>
     <section className="flex max-h-[92vh] w-full max-w-6xl flex-col overflow-hidden rounded-xl bg-white shadow-2xl">
       <header className="flex items-center justify-between border-b px-5 py-4">
         <div><h2 className="font-semibold text-gray-900">Imported Spreadsheet Data</h2><p className="mt-1 text-xs text-gray-500">{item.fileName} · {item.dataType}</p></div>

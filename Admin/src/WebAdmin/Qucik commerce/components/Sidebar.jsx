@@ -196,7 +196,7 @@ function MenuItem({ item, depth = 0, openKey, openDepth, onOpenChange, badgeCoun
     };
 
     return (
-      <div>
+      <div className="min-w-0">
         {item.staticGroup ? (
           <div className="px-3 pt-3 pb-1">
             <span className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">{item.label}</span>
@@ -205,17 +205,17 @@ function MenuItem({ item, depth = 0, openKey, openDepth, onOpenChange, badgeCoun
           <button
             type="button"
             onClick={handleToggle}
-            className={`w-full flex items-center gap-3 px-3 py-2 text-sm transition ${depth > 0 ? 'pl-6' : ''} text-gray-700 hover:bg-[#f5f8fd] hover:text-blue-300`}
+            className={`w-full min-w-0 flex items-center gap-3 px-3 py-2 text-sm transition ${depth > 0 ? 'pl-6' : ''} text-gray-700 hover:bg-[#f5f8fd] hover:text-blue-300`}
             style={depth > 0 ? { paddingLeft: '1.5rem' } : {}}
           >
             {item.icon && item.label !== 'E-Commerce Storefront' && <item.icon size={16} className="shrink-0" />}
-            {item.label !== 'E-Commerce Storefront' && <span className={isTopLevelGroup ? 'text-xs font-semibold text-gray-400 uppercase tracking-wider' : 'flex-1 text-left font-medium'}>{item.label}</span>}
+            {item.label !== 'E-Commerce Storefront' && <span className={isTopLevelGroup ? 'min-w-0 break-words text-xs font-semibold text-gray-400 uppercase tracking-wider' : 'min-w-0 flex-1 break-words text-left font-medium'}>{item.label}</span>}
             {!isTopLevelGroup && (expanded ? <ChevronDown size={14} className="shrink-0" /> : <ChevronRight size={14} className="shrink-0" />)}
           </button>
         )}
 
         {expanded && (
-          <div className={`mt-1 flex w-full flex-col gap-0.5 ${!item.staticGroup && depth > 0 ? 'ml-4 border-l border-slate-200 pl-3' : ''}`}>
+          <div className={`mt-1 flex min-w-0 flex-col gap-0.5 ${!item.staticGroup && depth > 0 ? 'ml-4 border-l border-slate-200 pl-3' : ''}`}>
             {item.children.map((child, i) => (
               <MenuItem
                 key={i}
@@ -243,7 +243,7 @@ function MenuItem({ item, depth = 0, openKey, openDepth, onOpenChange, badgeCoun
       }}
       end={item.path === '/orders' || item.path === '/'}
       className={() =>
-        `relative flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm transition ${
+        `relative flex w-full min-w-0 items-center gap-2 rounded-md px-3 py-2 text-sm transition ${
           pathActive ? 'bg-[#edf3ff] text-blue-600 font-medium' : 'text-gray-600 hover:bg-[#f5f8fd] hover:text-blue-400'
         }`
       }
@@ -254,7 +254,7 @@ function MenuItem({ item, depth = 0, openKey, openDepth, onOpenChange, badgeCoun
       ) : item.icon ? (
         <item.icon size={16} className="shrink-0" />
       ) : null}
-      <span className="flex-1 text-left text-[13px]">{item.label}</span>
+      <span className="min-w-0 flex-1 break-words text-left text-[13px]">{item.label}</span>
       {(item.badgeKey || item.badge) && (
         <MenuBadge
           count={item.badgeKey ? badgeCounts[item.badgeKey] : item.badge}
@@ -387,7 +387,7 @@ export default function Sidebar({ mobileOpen, onClose, websiteAccess, showOwnDom
   return (
     <>
       {mobileOpen && <div className="fixed inset-0 bg-black/30 z-40 lg:hidden" onClick={onClose} />}
-      <aside className={`${mobileOpen ? 'translate-x-0' : '-translate-x-full'} lg:translate-x-0 fixed lg:relative z-50 lg:z-auto w-64 bg-white border-r border-gray-200 flex flex-col h-full overflow-hidden transition-transform duration-200 shrink-0`}>
+      <aside className={`${mobileOpen ? 'translate-x-0' : '-translate-x-full'} lg:translate-x-0 fixed inset-y-0 left-0 lg:relative lg:inset-auto z-50 lg:z-auto w-[min(78vw,285px)] max-w-[100vw] bg-white border-r border-gray-200 flex flex-col h-full overflow-x-hidden overflow-y-hidden transition-transform duration-200 shrink-0 lg:w-64`}>
         <div className="p-4 border-b border-gray-200">
           <h1 className="text-2xl font-bold text-primary-600">WEPZO</h1>
         </div>
@@ -402,7 +402,7 @@ export default function Sidebar({ mobileOpen, onClose, websiteAccess, showOwnDom
             <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-gray-400 bg-gray-100 px-1 py-0.5 rounded">Ctrl+K</span>
           </div>
         </div>
-        <nav className="flex-1 overflow-y-auto px-3 pb-4 space-y-0.5">
+        <nav className="admin-sidebar-nav min-w-0 w-full max-w-full flex-1 overflow-x-hidden overflow-y-auto px-3 pb-4 space-y-0.5">
           {isWebsiteUser && hasPaidWebsite && allowedSidebarPaths.has('/website-builder') && <div className="mb-3 border-b border-slate-100 pb-3">
             <NavLink to="/sub-domain" className={({ isActive }) => `flex items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm font-medium ${isActive ? 'bg-[#f0f4ff] text-[#1a3a8a]' : 'text-gray-700 hover:bg-gray-50'}`}><Globe2 size={16}/>Subdomain setup</NavLink>
             {onDomainStatusReady && !onDomainPurchased && showOwnDomainOption && <NavLink to="/on-domain" className={({ isActive }) => `flex items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm font-medium ${isActive ? 'bg-[#f0f4ff] text-[#1a3a8a]' : 'text-gray-700 hover:bg-gray-50'}`}><Globe2 size={16}/>On Domain</NavLink>}

@@ -60,11 +60,11 @@ export function ImageViewerProvider({ children }) {
     <ImageViewerContext.Provider value={{ openViewer, closeViewer }}>
       {children}
       {state.open && current && (
-        <div className="fixed inset-0 z-[20000] flex items-center justify-center p-4 sm:p-8">
-          <div className="absolute inset-0 bg-black/40" onClick={closeViewer} />
+        <div className="fixed inset-0 z-[20000] flex items-center justify-center p-4 sm:p-8" onClick={event => event.stopPropagation()}>
+          <div className="absolute inset-0 bg-black/40" onClick={event => { event.stopPropagation(); closeViewer(); }} />
           <button
             type="button"
-            onClick={closeViewer}
+            onClick={event => { event.stopPropagation(); closeViewer(); }}
             className="absolute top-4 right-4 z-10 p-2 rounded-full bg-white/10 text-white hover:bg-white/20 transition"
             aria-label="Close"
           >
@@ -75,7 +75,7 @@ export function ImageViewerProvider({ children }) {
             <>
               <button
                 type="button"
-                onClick={goPrev}
+                onClick={event => { event.stopPropagation(); goPrev(); }}
                 className="absolute left-3 sm:left-6 z-10 p-2.5 rounded-full bg-white/10 text-white hover:bg-white/20 transition"
                 aria-label="Previous image"
               >
@@ -83,7 +83,7 @@ export function ImageViewerProvider({ children }) {
               </button>
               <button
                 type="button"
-                onClick={goNext}
+                onClick={event => { event.stopPropagation(); goNext(); }}
                 className="absolute right-3 sm:right-6 z-10 p-2.5 rounded-full bg-white/10 text-white hover:bg-white/20 transition"
                 aria-label="Next image"
               >

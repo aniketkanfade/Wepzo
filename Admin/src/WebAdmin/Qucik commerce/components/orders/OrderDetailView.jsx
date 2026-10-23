@@ -556,8 +556,8 @@ export default function OrderDetailView({ order, onStatusChange, onAssignRider, 
 
       {imagePreview && (
         createPortal(
-          <div className="fixed inset-0 z-[110] bg-slate-950/80" role="dialog" aria-modal="true" aria-label="Product image preview" onClick={() => setImagePreview('')}>
-            <button type="button" onClick={() => setImagePreview('')} aria-label="Close image" className="absolute right-3 top-3 z-10 rounded-full bg-white/15 p-2 text-white hover:bg-white/25 sm:right-4 sm:top-4"><X size={20} /></button>
+          <div className="fixed inset-0 z-[110] bg-slate-950/80" role="dialog" aria-modal="true" aria-label="Product image preview" onClick={event => { event.stopPropagation(); if (event.target === event.currentTarget) setImagePreview(''); }}>
+            <button type="button" onClick={event => { event.stopPropagation(); setImagePreview(''); }} aria-label="Close image" className="absolute right-3 top-3 z-10 rounded-full bg-white/15 p-2 text-white hover:bg-white/25 sm:right-4 sm:top-4"><X size={20} /></button>
             <div className="absolute inset-x-2 top-16 bottom-12 flex items-center justify-center sm:inset-0 sm:p-8">
               <img src={imagePreview} alt="Product" className="max-h-full max-w-full rounded-xl object-contain shadow-2xl" onClick={event => event.stopPropagation()} />
             </div>

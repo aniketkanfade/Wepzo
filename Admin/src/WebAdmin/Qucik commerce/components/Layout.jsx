@@ -134,7 +134,7 @@ export default function Layout() {
             : <Sidebar mobileOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />)}
         <div className={`flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden ${isThemeColorsPage ? 'theme-colors-route-content' : ''}`}>
           {!isDomainSetupPage && (!isWebsiteUser || hasPaidWebsite) && (!isWebsiteUser || effectiveWebsiteAccess.header.length > 0) && <Header onMenuToggle={() => setSidebarOpen(!sidebarOpen)} showMenuToggle={!isWebsiteBuilder} websiteAccess={effectiveWebsiteAccess}/>}
-          <main className={`min-h-0 flex-1 overflow-y-auto bg-[#f3f4f6] ${isDomainSetupPage ? 'p-0' : 'p-4 lg:p-6'}`}>
+          <main className={`min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto bg-[#f3f4f6] ${isDomainSetupPage ? 'p-0' : 'p-4 lg:p-6'}`}>
             <PageErrorBoundary key={`${location.pathname}:${activeModule?.slug || 'ecommerce'}`}><Outlet /></PageErrorBoundary>
           </main>
           {!isDomainSetupPage && (!isWebsiteUser || hasPaidWebsite) && <AdminSupportDock />}

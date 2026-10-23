@@ -725,7 +725,7 @@ export default function SettingsZonesPage() {
       />
 
       {viewZone && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40" onClick={() => setViewZone(null)}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40" onClick={event => { event.stopPropagation(); if (event.target === event.currentTarget) setViewZone(null); }}>
           <div className="bg-white rounded-2xl w-full max-w-3xl max-h-[90vh] overflow-y-auto p-5" onClick={e => e.stopPropagation()}>
             <div className="flex items-start justify-between gap-3 mb-3">
               <div>

@@ -19,6 +19,17 @@ body {
   min-height: 100vh;
 }
 
+.admin-sidebar-nav {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.admin-sidebar-nav::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
 @supports (height: 100dvh) {
   .admin-app-shell {
     height: 100dvh;

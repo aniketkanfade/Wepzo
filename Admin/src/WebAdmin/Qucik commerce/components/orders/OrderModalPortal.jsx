@@ -8,6 +8,7 @@ export default function OrderModalPortal({
   onBackdropClick,
 }) {
   const closeFromBackdrop = event => {
+    event.stopPropagation();
     if (event.target === event.currentTarget) onBackdropClick?.();
   };
 

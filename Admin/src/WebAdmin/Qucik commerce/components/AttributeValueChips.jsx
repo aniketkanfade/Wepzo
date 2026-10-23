@@ -139,7 +139,7 @@ export default function AttributeValueChips({ label, options = [], selected = []
       </div>
 
       {showAddPopup && (
-        <div className="fixed inset-0 z-[10001] flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-[10001] flex items-center justify-center p-4" onClick={event => event.stopPropagation()}>
           <div className="absolute inset-0 bg-black/15" onClick={closePopup} />
           <div className="relative w-full max-w-[280px] bg-white rounded-xl shadow-2xl border border-gray-200 overflow-hidden">
             <div className="flex items-center justify-between px-3 py-2.5 border-b border-gray-100 bg-gray-50/80">
