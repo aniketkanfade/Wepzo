@@ -344,7 +344,7 @@ export default function SettingsBusinessPage({ colorsOnly = false }) {
   const [error, setError] = useState('');
   const [desktopColorCopied, setDesktopColorCopied] = useState(false);
   const [previewRefreshKey, setPreviewRefreshKey] = useState(0);
-  const [resolvedPreviewWebsiteId, setResolvedPreviewWebsiteId] = useState('');
+  const [resolvedPreviewWebsite, setResolvedPreviewWebsite] = useState(null);
   const [mainAdminPreview, setMainAdminPreview] = useState({ loading: false, website: null, error: '' });
   const normalizeSettingsError = (error, fallback) => {
     const rawMessage = error?.response?.data?.message || error?.message || '';
@@ -481,40 +481,57 @@ export default function SettingsBusinessPage({ colorsOnly = false }) {
     return () => { current = false; };
   }, [activeModule?._id, activeModule?.slug, activeModule?.type, isMainAdmin]);
   useEffect(() => {
-    if (!isTenant || user?.websiteId || activeModule?.websiteId || activeModule?.tenantId) {
-      setResolvedPreviewWebsiteId('');
+    if (!isTenant) {
+      setResolvedPreviewWebsite(null);
       return undefined;
     }
     let current = true;
-    setResolvedPreviewWebsiteId('');
+    setResolvedPreviewWebsite(null);
     api.get('/websites').then(({ data }) => {
       if (!current) return;
       const websites = Array.isArray(data) ? data : [];
-      const website = websites.find(item => String(item.userId || '') === String(user?.id || user?._id || '')) || websites[0];
+      const preferredId = String(user?.websiteId || activeModule?.websiteId || activeModule?.tenantId || '');
+      const website = websites.find(item => preferredId && String(item._id || '') === preferredId)
+        || websites.find(item => String(item.userId || '') === String(user?.id || user?._id || ''))
+        || websites[0];
       const websiteId = String(website?._id || '').trim();
-      setResolvedPreviewWebsiteId(websiteId);
+      setResolvedPreviewWebsite(website || null);
       if (websiteId) useAuthStore.getState().setWebsiteId(websiteId);
     }).catch(() => {
-      if (current) setResolvedPreviewWebsiteId('');
+      if (current) setResolvedPreviewWebsite(null);
     });
     return () => { current = false; };
   }, [activeModule?.tenantId, activeModule?.websiteId, isTenant, user?._id, user?.id, user?.websiteId]);
+  const previewWebsite = isMainAdmin ? mainAdminPreview.website : resolvedPreviewWebsite;
   const previewWebsiteId = isMainAdmin
     ? String(mainAdminPreview.website?.websiteId || '').trim()
-    : String(user?.websiteId || activeModule?.websiteId || activeModule?.tenantId || resolvedPreviewWebsiteId || '').trim();
+    : String(user?.websiteId || activeModule?.websiteId || activeModule?.tenantId || resolvedPreviewWebsite?._id || '').trim();
   const livePreviewUrl = useMemo(() => {
     if (isMainAdmin && !mainAdminPreview.website) return '';
     if (!isMainAdmin && !previewWebsiteId) return '';
     if (isMainAdmin && !previewWebsiteId && !mainAdminPreview.website?.modulePreview) return '';
     const previewBases = {
-      'e-commerce': import.meta.env.VITE_ECOMMERCE_PREVIEW_URL || 'http://localhost:5173/',
+      'e-commerce': import.meta.env.VITE_ECOMMERCE_PREVIEW_URL || (import.meta.env.DEV ? 'http://localhost:5173/' : ''),
       'quick-commerce': import.meta.env.VITE_QC_PREVIEW_URL || 'http://localhost:3001/',
       'store-single': import.meta.env.VITE_STORE_SINGLE_PREVIEW_URL || 'http://localhost:5175/',
       marketing: import.meta.env.VITE_MARKETING_APP_URL || 'http://localhost:3002/',
       'information-web': import.meta.env.VITE_GENERAL_PREVIEW_URL || 'http://localhost:5174/',
     };
     try {
-      const url = new URL(previewBases[moduleKey], window.location.origin);
+      let previewBase = previewBases[moduleKey];
+      if (moduleKey === 'e-commerce' && !import.meta.env.DEV) {
+        const websiteUrl = previewWebsite?.hosting?.status === 'active'
+          ? previewWebsite.hosting.url
+          : ['active', 'published'].includes(String(previewWebsite?.domain?.status || '').toLowerCase())
+            ? previewWebsite.domain.fullDomain
+            : '';
+        if (websiteUrl) {
+          const liveUrl = new URL(/^https?:\/\//i.test(websiteUrl) ? websiteUrl : `https://${websiteUrl}`);
+          if (liveUrl.origin !== window.location.origin) previewBase = liveUrl.href;
+        }
+      }
+      if (!previewBase) return '';
+      const url = new URL(previewBase, window.location.origin);
       if (isMainAdmin) {
         url.searchParams.set('adminPreview', '1');
         const websiteModuleId = mainAdminPreview.website?.websiteModuleId || activeModule?._id;
@@ -536,7 +553,15 @@ export default function SettingsBusinessPage({ colorsOnly = false }) {
     } catch {
       return '';
     }
-  }, [activeModule?._id, isMainAdmin, mainAdminPreview.website, moduleKey, previewWebsiteId]);
+  }, [activeModule?._id, isMainAdmin, mainAdminPreview.website, moduleKey, previewWebsite, previewWebsiteId]);
+  const missingEcommercePreviewUrl = moduleKey === 'e-commerce'
+    && !livePreviewUrl
+    && (isMainAdmin ? !!mainAdminPreview.website : !!previewWebsiteId);
+  const livePreviewError = isMainAdmin
+    ? mainAdminPreview.error || (missingEcommercePreviewUrl ? 'The live E-Commerce preview URL is unavailable. Publish a website domain or configure VITE_ECOMMERCE_PREVIEW_URL in Vercel.' : '')
+    : missingEcommercePreviewUrl
+      ? 'The live E-Commerce preview URL is unavailable. Publish a website domain or configure VITE_ECOMMERCE_PREVIEW_URL in Vercel.'
+      : '';
   const themeColorControls = [
     ['primaryColor', 'Brand and active accent'], ['priceColor', 'Product price'],
     ['searchBackground', 'Search bar background'], ['searchButton', 'Search button'],
@@ -591,7 +616,7 @@ export default function SettingsBusinessPage({ colorsOnly = false }) {
         refreshKey={previewRefreshKey}
         theme={{ primaryColor: form.primaryColor, themeColors: form.themeColors }}
         loading={isMainAdmin && (mainAdminPreview.loading || (!mainAdminPreview.website && !mainAdminPreview.error))}
-        error={isMainAdmin ? mainAdminPreview.error : ''}
+        error={livePreviewError}
       />
     </div>
   </>;

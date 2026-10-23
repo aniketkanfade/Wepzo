@@ -41,7 +41,10 @@ body {
   z-index: 40;
   align-self: stretch;
   background: white;
-  padding-bottom: 6px;
+  padding: 6px 0;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  box-shadow: 0 4px 12px rgb(15 23 42 / 8%);
 }
 
 .theme-colors-mobile-layout .theme-colors-left-controls,
@@ -82,7 +85,8 @@ body {
 }
 
 .theme-colors-mobile-layout .rounded-xl.bg-slate-100 {
-  padding: 4px !important;
+  padding: 0 !important;
+  background: #fff !important;
 }
 
 .theme-colors-mobile-layout .theme-color-control-card {
@@ -962,6 +966,8 @@ input[type='number']::-webkit-inner-spin-button {
     min-height: auto !important;
     flex: 0 0 auto !important;
     overflow: visible !important;
+    padding-right: 0 !important;
+    padding-left: 0 !important;
   }
 
   .theme-colors-route-content > footer {
@@ -971,6 +977,23 @@ input[type='number']::-webkit-inner-spin-button {
   .theme-colors-form {
     gap: 12px !important;
     padding-bottom: 16px !important;
+  }
+
+  .theme-colors-form > div:first-child {
+    padding-right: 12px;
+    padding-left: 12px;
+  }
+
+  .theme-colors-form > [role='alert'] {
+    margin-right: 12px;
+    margin-left: 12px;
+  }
+
+  .theme-colors-form > .theme-colors-section {
+    width: 100%;
+    border-right: 0;
+    border-left: 0;
+    border-radius: 0;
   }
 
   .theme-colors-form > div:first-child h2 {
@@ -1006,6 +1029,7 @@ input[type='number']::-webkit-inner-spin-button {
   }
 
   .theme-colors-mobile-layout .theme-colors-sticky-preview {
+    position: sticky;
     top: 0;
   }
 
@@ -1031,7 +1055,8 @@ input[type='number']::-webkit-inner-spin-button {
 
   .theme-colors-sticky-preview .rounded-xl.bg-slate-100,
   .theme-colors-preview-cell .rounded-xl.bg-slate-100 {
-    padding: 4px !important;
+    padding: 0 !important;
+    background: #fff !important;
   }
 
   .theme-colors-preview-toggle-group {

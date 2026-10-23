@@ -6998,6 +6998,12 @@ router.get('/public/main-admin-website-preview', (req, res) => {
       ? websiteModuleSlugFor(websiteModule)
       : websiteModuleSlugFor(website),
     moduleName: websiteModule?.name || '',
+    hosting: website.hosting?.status === 'active' && website.hosting.url
+      ? { status: 'active', url: website.hosting.url }
+      : undefined,
+    domain: website.domain?.status === 'active' || website.domain?.status === 'published'
+      ? { status: website.domain.status, fullDomain: website.domain.fullDomain || '' }
+      : undefined,
   });
 });
 
