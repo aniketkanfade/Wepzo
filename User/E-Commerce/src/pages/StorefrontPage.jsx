@@ -34,7 +34,7 @@ const uniqueBanners = banners => [...new Map(banners.filter(banner => banner && 
 export default function StorefrontPage() {
   const store = useStorefront()
   const {
-    home, products, loading, error, load, business, selectedComponentData, customer,
+    home, products, loading, error, shopperStateError, load, business, selectedComponentData, customer,
     category, setCategory, subCategory, setSubCategory, childCategory, setChildCategory,
     selectedModule, setSelectedModule, query, setQuery,
     cart, clearCart, favorites, favoriteCatalog, favoriteCatalogLoading, recentlyViewed, selected, openProduct, closeProduct, goHome, goToModule,
@@ -258,6 +258,7 @@ export default function StorefrontPage() {
     '--product-card-hover-border': themeColors.productCardHoverBorder || '#f2c9ad',
     '--product-card-save-color': themeColors.productCardSaveColor || '#dc2626',
   }}>
+    {shopperStateError && <p role="status" className="bg-amber-50 px-4 py-2 text-center text-xs text-amber-800">{shopperStateError}</p>}
     <StoreHeader
       business={business} customer={customer} category={category} categories={categories} query={query}
       setCategory={setCategory} setQuery={setQuery} searchProducts={products} onSelectProduct={openProduct} location={location}

@@ -277,30 +277,40 @@ export default function useStorefront() {
     setError('')
     try {
       const websiteId = getWebsiteId()
-      const [shop, catalog, publishedWebsite] = await Promise.all([
-        request(`/shop/home?${new URLSearchParams({
-          ...(selectedModule ? { module: selectedModule } : {}),
-          ...(category ? { category } : {}),
-          ...(subCategory ? { subCategory } : {}),
-          ...(childCategory ? { childCategory } : {}),
-        })}`),
-        request(`/shop/products?${new URLSearchParams({ ...(sort ? { sort } : {}) })}`),
+      const [shop, catalogResult, publishedWebsite] = await Promise.all([
+        // Keep the full module list in the response; products filter on the client.
+        request('/shop/home'),
+        request(`/shop/products?${new URLSearchParams({ ...(sort ? { sort } : {}) })}`)
+          .then(catalog => ({ catalog }))
+          .catch(catalogError => ({ catalogError })),
         websiteId ? request(`/public/published-websites/${websiteId}`).catch(() => null) : Promise.resolve(null),
       ])
       if (!shop || typeof shop !== 'object' || Array.isArray(shop)) {
         throw new Error('The shop API returned invalid storefront data. Please try again.')
       }
-      if (!Array.isArray(catalog)) {
-        throw new Error('The products API returned invalid catalog data. Please try again.')
-      }
       setHome(shop)
       if (shop.business?.codEnabled === false && shop.business?.onlinePaymentEnabled) setPaymentMethod('ONLINE')
+      const homeCatalog = [
+        ...(Array.isArray(shop.bestsellers) ? shop.bestsellers : []),
+        ...(Array.isArray(shop.newest) ? shop.newest : []),
+        ...(Array.isArray(shop.flash) ? shop.flash : []),
+        ...Object.values(shop.popularByModule || {}).flatMap(items => Array.isArray(items) ? items : []),
+      ]
+      const homeCatalogById = [...new Map(homeCatalog
+        .filter(product => product?._id || product?.id)
+        .map(product => [String(product._id || product.id), product])).values()]
+      const catalog = Array.isArray(catalogResult.catalog) ? catalogResult.catalog : []
+      const productsToShow = catalog.length ? catalog : homeCatalogById
+      const catalogFailed = !!catalogResult.catalogError || !Array.isArray(catalogResult.catalog)
+      if (catalogFailed && !productsToShow.length) {
+        setError(catalogResult.catalogError?.message || 'The products API returned invalid catalog data. Please try again.')
+      }
       const activityById = new Map(
         [...(shop.bestsellers || []), ...(shop.newest || [])]
           .filter(product => product?._id || product?.id)
           .map(product => [String(product._id || product.id), product]),
       )
-      setProducts(catalog.map(product => {
+      setProducts(productsToShow.map(product => {
         const activity = activityById.get(String(product._id || product.id || ''))
         return activity ? {
           ...product,
@@ -316,9 +326,11 @@ export default function useStorefront() {
     } finally {
       setLoading(false)
     }
-  }, [sort, selectedModule, category, subCategory, childCategory])
+  }, [sort])
 
-  useEffect(() => { if (shopperStateReady) load() }, [load, shopperStateReady])
+  // Load the public catalog independently from the shopper session. Quick
+  // Commerce does the same, so a cart/session API hiccup cannot blank the shop.
+  useEffect(() => { load() }, [load])
   useEffect(() => {
     if (!favorites.length) {
       setFavoriteCatalog([])
@@ -693,7 +705,7 @@ export default function useStorefront() {
   }
 
   return {
-    home, products, loading: loading || !shopperStateReady, error: shopperStateError || error, load, business, builderComponents, selectedComponentData,
+    home, products, loading, error, shopperStateError, load, business, builderComponents, selectedComponentData,
     category, setCategory, subCategory, setSubCategory, childCategory, setChildCategory,
     subCategories, childCategories, selectedModule, setSelectedModule, query, setQuery, sort, setSort,
     cart, setCart, clearCart, favorites, favoriteCatalog, favoriteCatalogLoading, setFavorites, selected, setSelected, openProduct, closeProduct, goHome, goToModule,

@@ -30,31 +30,15 @@ function currentWebsiteContext() {
 
 export const getWebsiteId = () => currentWebsiteContext().websiteId
 
-// Earlier storefront versions kept shopper data in browser storage. Remove only
-// those old, namespaced E-Commerce keys; the active shopper state now comes from
-// the server and the server session cookie must remain intact.
-const LEGACY_STOREFRONT_STORAGE_KEYS = [
-  'wepzo-cart',
-  'wepzo-favorites',
-  'wepzo-location',
-  'wepzo-shop-customer',
-  'wepzo-shop-token',
-  'wepzo-pending-payment-order',
-  'wepzo-cookie-consent',
-  'wepzo-delivery-address',
-]
+function currentWebsiteHost(context) {
+  if (context.websiteId) return window.location.host
 
-try {
-  const legacyKeys = []
-  for (let index = 0; index < window.localStorage.length; index += 1) {
-    const key = window.localStorage.key(index)
-    if (key && LEGACY_STOREFRONT_STORAGE_KEYS.some(prefix => key === prefix || key.startsWith(`${prefix}:`))) {
-      legacyKeys.push(key)
-    }
-  }
-  legacyKeys.forEach(key => window.localStorage.removeItem(key))
-} catch {
-  // Storage can be unavailable in private or restricted browser contexts.
+  const configuredHost = String(import.meta.env.VITE_WEBSITE_HOST || '').trim()
+  if (configuredHost) return configuredHost
+
+  const isLocalDevelopmentHost = import.meta.env.DEV
+    && ['localhost', '127.0.0.1'].includes(window.location.hostname)
+  return isLocalDevelopmentHost ? 'wepzo.in' : window.location.host
 }
 
 export const KNOWN_COMPONENTS = new Set([
@@ -114,14 +98,14 @@ export const videoOf = item => {
 
 const getRetryDelays = [1000, 2000, 4000, 8000]
 
-export async function request(path, options = {}) {
+export async function request(path, options = {}, retryAfterWebsiteSessionReset = true) {
   const context = currentWebsiteContext()
   const headers = {
     'Content-Type': 'application/json',
     'X-Website-Module': 'e-commerce',
-    // The API is reverse-proxied on Vercel. Send the browser's original host
-    // explicitly so the backend can resolve the correct published tenant.
-    'X-Website-Host': window.location.host,
+    // The API is reverse-proxied. Pass the site domain through explicitly;
+    // local development uses the main storefront domain unless a tenant ID is set.
+    'X-Website-Host': currentWebsiteHost(context),
     ...(context.adminPreview ? { 'X-Admin-Preview': '1' } : {}),
     ...(context.websiteId ? { 'X-Website-Id': context.websiteId } : {}),
     ...(context.websiteModuleId ? { 'X-Website-Module-Id': context.websiteModuleId } : {}),
@@ -150,6 +134,16 @@ export async function request(path, options = {}) {
   }
   if (!response.ok) {
     if (invalidJson) throw new Error(`Request failed (${response.status} ${response.statusText}).`)
+    if (method === 'GET'
+      && retryAfterWebsiteSessionReset
+      && ['WRONG_WEBSITE', 'WRONG_WEBSITE_MODULE'].includes(data.code)) {
+      const logoutResponse = await fetch(`${API}/shop/auth/logout`, {
+        method: 'POST',
+        headers,
+        credentials: 'include',
+      })
+      if (logoutResponse.ok) return request(path, options, false)
+    }
     const detail = data.message || responseText.trim().slice(0, 180)
     const error = new Error(detail || `Request failed (${response.status} ${response.statusText}).`)
     error.status = response.status

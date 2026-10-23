@@ -16,7 +16,7 @@ The storefront calls its same-origin `/api` endpoint. Local development proxies 
 http://localhost:5173/?websiteId=YOUR_WEBSITE_ID
 ```
 
-Optionally add `&moduleId=YOUR_WEBSITE_MODULE_ID` to check the module assignment too. The storefront sends the selected website ID as `X-Website-Id` on shop API requests. A matching custom domain can also be resolved by the backend.
+Without a `websiteId`, local development previews the main E-Commerce site at `wepzo.in`. To preview a tenant site, add its ID to the URL as shown above. Optionally add `&moduleId=YOUR_WEBSITE_MODULE_ID` to check the module assignment too. The storefront sends the selected website ID as `X-Website-Id` on shop API requests. A matching custom domain can also be resolved by the backend. Set `VITE_WEBSITE_HOST` only when you need local development to preview a different published domain.
 
 ## Environment variables
 
