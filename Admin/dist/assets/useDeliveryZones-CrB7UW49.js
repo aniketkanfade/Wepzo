@@ -1,0 +1,1 @@
+import{r as t,c as u}from"./index-BpzEiGn0.js";function f(){const[s,a]=t.useState([]),[n,o]=t.useState(!0);return t.useEffect(()=>{u.get("/zones").then(e=>a((e.data||[]).filter(r=>r.status!==!1))).catch(()=>a([])).finally(()=>o(!1))},[]),{zones:s,loading:n,names:s.map(e=>e.name)}}export{f as u};

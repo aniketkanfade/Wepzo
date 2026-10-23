@@ -115,8 +115,9 @@ function MapClick({ onPick }) {
   return null;
 }
 
-function LiveWebsitePreview({ src, moduleName, viewMode, refreshKey }) {
-  if (!src) return <div className="grid min-h-[420px] place-items-center rounded-xl border border-slate-200 bg-slate-50 p-6 text-center text-sm text-slate-500">This account does not have a tenant website ID for {moduleName || 'the selected module'}.</div>;
+function LiveWebsitePreview({ src, moduleName, viewMode, refreshKey, loading = false, error = '' }) {
+  if (loading) return <div className="grid min-h-[420px] place-items-center rounded-xl border border-slate-200 bg-slate-50 p-6 text-center text-sm text-slate-500">Loading {moduleName || 'storefront'} preview...</div>;
+  if (error || !src) return <div role={error ? 'alert' : undefined} className="grid min-h-[420px] place-items-center rounded-xl border border-slate-200 bg-slate-50 p-6 text-center text-sm text-slate-500">{error || `This account does not have a tenant website ID for ${moduleName || 'the selected module'}.`}</div>;
   return <div className="rounded-xl bg-slate-100 p-2 sm:p-3">
     <div className={`mx-auto overflow-hidden rounded-lg border border-slate-300 bg-white shadow-lg ${viewMode === 'mobile' ? 'w-[390px] max-w-full' : 'w-full'}`}>
       <iframe key={`${src}-${refreshKey}`} src={src} title={`${moduleName || 'Website'} live preview`} className="block h-[68vh] min-h-[480px] w-full bg-white" />
@@ -308,6 +309,7 @@ export default function SettingsBusinessPage({ colorsOnly = false }) {
   const [error, setError] = useState('');
   const [desktopColorCopied, setDesktopColorCopied] = useState(false);
   const [previewRefreshKey, setPreviewRefreshKey] = useState(0);
+  const [mainAdminPreview, setMainAdminPreview] = useState({ loading: false, website: null, error: '' });
   const normalizeSettingsError = (error, fallback) => {
     const rawMessage = error?.response?.data?.message || error?.message || '';
     const message = String(rawMessage).trim();
@@ -413,9 +415,42 @@ export default function SettingsBusinessPage({ colorsOnly = false }) {
   const showStorefrontCardBorders = true;
   const showStorefrontCardRounding = true;
   const moduleKey = getAdminModuleKey(activeModule);
-  const previewWebsiteId = String(user?.websiteId || activeModule?.websiteId || activeModule?.tenantId || '').trim();
+  const isMainAdmin = user?.role === 'main_admin';
+  useEffect(() => {
+    if (!isMainAdmin) {
+      setMainAdminPreview({ loading: false, website: null, error: '' });
+      return undefined;
+    }
+    const moduleSlug = String(activeModule?.slug || activeModule?.type || '').trim();
+    if (!moduleSlug) {
+      setMainAdminPreview({ loading: false, website: null, error: 'Select a web module to load its Main Admin storefront.' });
+      return undefined;
+    }
+    let current = true;
+    setMainAdminPreview({ loading: true, website: null, error: '' });
+    api.get('/public/main-admin-website-preview', {
+      params: {
+        moduleId: activeModule?._id && activeModule._id !== moduleSlug ? activeModule._id : undefined,
+        moduleSlug,
+      },
+    }).then(({ data }) => {
+      if (current) setMainAdminPreview({ loading: false, website: data, error: '' });
+    }).catch(requestError => {
+      if (current) setMainAdminPreview({
+        loading: false,
+        website: null,
+        error: requestError.response?.data?.message || 'Main Admin storefront preview could not be loaded.',
+      });
+    });
+    return () => { current = false; };
+  }, [activeModule?._id, activeModule?.slug, activeModule?.type, isMainAdmin]);
+  const previewWebsiteId = isMainAdmin
+    ? String(mainAdminPreview.website?.websiteId || '').trim()
+    : String(user?.websiteId || activeModule?.websiteId || activeModule?.tenantId || '').trim();
   const livePreviewUrl = useMemo(() => {
-    if (!previewWebsiteId) return '';
+    if (isMainAdmin && !mainAdminPreview.website) return '';
+    if (!isMainAdmin && !previewWebsiteId) return '';
+    if (isMainAdmin && !previewWebsiteId && !mainAdminPreview.website?.modulePreview) return '';
     const previewBases = {
       'e-commerce': import.meta.env.VITE_ECOMMERCE_PREVIEW_URL || 'http://localhost:5173/',
       'quick-commerce': import.meta.env.VITE_QC_PREVIEW_URL || 'http://localhost:3001/',
@@ -425,15 +460,26 @@ export default function SettingsBusinessPage({ colorsOnly = false }) {
     };
     try {
       const url = new URL(previewBases[moduleKey], window.location.origin);
-      url.searchParams.set('published', '1');
-      url.searchParams.set('websiteId', previewWebsiteId);
-      if (activeModule?._id) url.searchParams.set('websiteModuleId', String(activeModule._id));
-      if (moduleKey === 'e-commerce' && activeModule?._id) url.searchParams.set('moduleId', String(activeModule._id));
+      if (isMainAdmin) {
+        url.searchParams.set('adminPreview', '1');
+        const websiteModuleId = mainAdminPreview.website?.websiteModuleId || activeModule?._id;
+        if (websiteModuleId) url.searchParams.set('websiteModuleId', String(websiteModuleId));
+        if (previewWebsiteId) {
+          url.searchParams.set('published', '1');
+          url.searchParams.set('websiteId', previewWebsiteId);
+        }
+        if (moduleKey === 'e-commerce' && websiteModuleId) url.searchParams.set('moduleId', String(websiteModuleId));
+      } else {
+        url.searchParams.set('published', '1');
+        url.searchParams.set('websiteId', previewWebsiteId);
+        if (activeModule?._id) url.searchParams.set('websiteModuleId', String(activeModule._id));
+        if (moduleKey === 'e-commerce' && activeModule?._id) url.searchParams.set('moduleId', String(activeModule._id));
+      }
       return url.href;
     } catch {
       return '';
     }
-  }, [activeModule?._id, moduleKey, previewWebsiteId]);
+  }, [activeModule?._id, isMainAdmin, mainAdminPreview.website, moduleKey, previewWebsiteId]);
   const themeColorControls = [
     ['primaryColor', 'Brand and active accent'], ['priceColor', 'Product price'],
     ['searchBackground', 'Search bar background'], ['searchButton', 'Search button'],
@@ -503,7 +549,14 @@ export default function SettingsBusinessPage({ colorsOnly = false }) {
             </div>
           </div>
           <div className="sticky top-14 z-10">
-            <LiveWebsitePreview src={livePreviewUrl} moduleName={activeModule?.name} viewMode={previewMode} refreshKey={previewRefreshKey} />
+            <LiveWebsitePreview
+              src={livePreviewUrl}
+              moduleName={activeModule?.name}
+              viewMode={previewMode}
+              refreshKey={previewRefreshKey}
+              loading={isMainAdmin && (mainAdminPreview.loading || (!mainAdminPreview.website && !mainAdminPreview.error))}
+              error={isMainAdmin ? mainAdminPreview.error : ''}
+            />
           </div>
         </div>
         <div className="space-y-4 xl:max-h-[calc(100vh-250px)] xl:overflow-y-auto xl:overscroll-contain xl:pr-1">

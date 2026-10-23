@@ -827,6 +827,7 @@ body { min-width: 320px; overflow-x: clip; }
 .storefront .header { background-color: var(--storefront-header-background, var(--header-background, #fff)) !important; }
 .storefront .product-card,.storefront .deal-card,.storefront .best-card { background-color: var(--storefront-product-background, var(--product-card-background, #fff)) !important; }
 .storefront .category-tile { background-color: var(--storefront-category-background, var(--surface-background, #fff)) !important; }
+.storefront .category-tile[aria-pressed="true"] .category-image { outline: 2px solid var(--brand-color, #f45b15); outline-offset: 2px; }
 .storefront .promo,.storefront .promotion-banner { background-color: var(--storefront-promo-background, var(--surface-background, #fff)) !important; }
 .storefront .profile-card,.storefront .support-card,.storefront .order-card { background-color: var(--storefront-account-background, var(--surface-background, #fff)) !important; }
 .storefront .cart-page-card,.storefront .cart-line { background-color: var(--storefront-cart-background, var(--surface-background, #fff)) !important; }

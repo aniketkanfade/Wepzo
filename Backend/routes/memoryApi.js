@@ -8511,9 +8511,12 @@ router.get('/shop/home', async (req, res) => {
     });
   const moduleSlugsWithProducts = new Set(list.map(product => String(product.moduleSlug || '').trim().toLowerCase()).filter(Boolean));
   const modulesWithProducts = (store.systemModules || [])
-    .filter(module => belongsToWebsite(module, websiteId, websiteContext.allowSharedCatalog) && module.status !== false && module.status !== 'false' && module.status !== 'inactive' && isShopWebsiteRecord(module, websiteContext))
+    .filter(module => belongsToWebsite(module, websiteId, websiteContext.allowSharedCatalog)
+      && !['false', 'inactive', 'disabled', '0'].includes(String(module.status ?? '').trim().toLowerCase())
+      && isShopWebsiteRecord(module, websiteContext))
     .map(({ _id, name, slug, image }) => ({ _id, name, slug, image: image || '' }))
-    .filter(module => moduleSlugsWithProducts.has(String(module.slug || '').trim().toLowerCase()));
+    .filter(module => websiteContext.isMainWebsite
+      || moduleSlugsWithProducts.has(String(module.slug || '').trim().toLowerCase()));
   const activeBrands = (store.brands || []).filter(b => belongsToWebsite(b, websiteId, websiteContext.allowSharedCatalog) && isShopWebsiteRecord(b, websiteContext) && b.status !== false && !['inactive', 'false', 'disabled'].includes(String(b.status || '').trim().toLowerCase()));
   const homeBanners = (store.banners || [])
     .filter(banner => belongsToWebsite(banner, websiteId, websiteContext.allowSharedCatalog)

@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { ADMIN_PREVIEW, BUILDER_PREVIEW, imageOf, request, WEBSITE_ID } from '../lib/storefront'
 
+const isActiveCategory = item => item.status !== false
+  && !['false', 'inactive', 'disabled', '0'].includes(String(item.status ?? '').trim().toLowerCase())
+
 function loadCheckoutScript(src, globalName) {
   if (window[globalName]) return Promise.resolve(true)
   return new Promise(resolve => {
@@ -315,30 +318,33 @@ export default function useStorefront() {
       ? imageOf({ image: business.favicon })
       : String(business.businessName || 'WEPZO').trim().toLowerCase() === 'wepzo' ? '/wepzo-favicon.svg' : '/favicon.ico'
   }, [business.businessName, business.favicon])
-  const modules = useMemo(() => (home?.modules || []).filter(item => item.status !== false && item.slug), [home])
+  const modules = useMemo(() => (home?.modules || []).filter(item => isActiveCategory(item) && item.slug), [home])
   const categories = useMemo(() => {
     if (!selectedModule) return []
     const module = modules.find(item => item.slug === selectedModule)
     if (!module) return []
     return [...new Set((home?.categories || [])
-      .filter(item => String(item.moduleId || item.module?._id || item.module || '') === String(module._id)
-        || String(item.moduleSlug || '').toLowerCase() === String(module.slug).toLowerCase())
+      .filter(item => isActiveCategory(item)
+        && (String(item.moduleId || item.module?._id || item.module || '') === String(module._id)
+          || String(item.moduleSlug || '').toLowerCase() === String(module.slug).toLowerCase()))
       .map(item => item.name)
       .filter(Boolean))]
   }, [home, modules, selectedModule])
   const subCategories = useMemo(() => [...new Set((home?.subCategories || [])
-    .filter(item => category && String(item.mainCategory || '').toLowerCase() === category.toLowerCase())
+    .filter(item => isActiveCategory(item)
+      && category && String(item.mainCategory || '').trim().toLowerCase() === category.trim().toLowerCase())
     .map(item => item.name).filter(Boolean))], [home, category])
   const childCategories = useMemo(() => [...new Set((home?.childCategories || [])
-    .filter(item => category && subCategory
-      && String(item.mainCategory || '').toLowerCase() === category.toLowerCase()
-      && String(item.subCategory || '').toLowerCase() === subCategory.toLowerCase())
+    .filter(item => isActiveCategory(item)
+      && category && subCategory
+      && String(item.mainCategory || '').trim().toLowerCase() === category.trim().toLowerCase()
+      && String(item.subCategory || '').trim().toLowerCase() === subCategory.trim().toLowerCase())
     .map(item => item.name).filter(Boolean))], [home, category, subCategory])
   const shown = useMemo(() => products.filter(item => {
     const productCategory = item.mainCategory || item.category
-    const matchesCategory = (!category || productCategory === category)
-      && (!subCategory || item.subCategory === subCategory)
-      && (!childCategory || item.childCategory === childCategory)
+    const matchesCategory = (!category || String(productCategory || '').trim().toLowerCase() === category.trim().toLowerCase())
+      && (!subCategory || String(item.subCategory || '').trim().toLowerCase() === subCategory.trim().toLowerCase())
+      && (!childCategory || String(item.childCategory || '').trim().toLowerCase() === childCategory.trim().toLowerCase())
     const term = query.trim().toLowerCase()
     return matchesCategory && (!term || `${item.name} ${item.brand} ${productCategory || ''}`.toLowerCase().includes(term))
   }), [products, category, subCategory, childCategory, query])
@@ -348,7 +354,7 @@ export default function useStorefront() {
   const bestsellers = useMemo(() => [...products].sort((a, b) => Number(b.rating || 0) - Number(a.rating || 0)).slice(0, 6), [products])
   const heroBanner = home?.banners?.[0]
   const categoryProduct = name => products.find(item => [item.mainCategory || item.category, item.subCategory, item.childCategory]
-    .some(value => String(value || '').toLowerCase() === String(name).toLowerCase()))
+    .some(value => String(value || '').trim().toLowerCase() === String(name).trim().toLowerCase()))
   const count = cart.reduce((sum, item) => sum + item.qty, 0)
   const subtotal = cart.reduce((sum, item) => sum + item.price * item.qty, 0)
   const cartItem = id => {

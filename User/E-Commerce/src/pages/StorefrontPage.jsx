@@ -229,8 +229,9 @@ export default function StorefrontPage() {
           <HeroSection banners={heroBanners} deals={deals} visible={showHero && !selectedModule} />
           {selectedModule && <PromotionBanners banners={categoryPromotions} />}
           <CategoryGrid
-            categories={childCategory ? [] : subCategory ? childCategories : category ? subCategories : categories}
+            categories={subCategory ? childCategories : category ? subCategories : categories}
             categoryProduct={categoryProduct}
+            selectedCategory={childCategory || subCategory || category}
             onSelect={name => {
               if (subCategory) setChildCategory(name)
               else if (category) setSubCategory(name)

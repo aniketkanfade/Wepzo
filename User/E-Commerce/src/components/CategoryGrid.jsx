@@ -1,6 +1,6 @@
 import { imageOf } from '../lib/storefront'
 
-export default function CategoryGrid({ categories, categoryProduct, onSelect, visible, title, onBack }) {
+export default function CategoryGrid({ categories, categoryProduct, onSelect, visible, title, onBack, selectedCategory }) {
   if (!visible) return null
 
   return <section id="category-browser" aria-label={title || 'Shop by category'}>
@@ -11,7 +11,12 @@ export default function CategoryGrid({ categories, categoryProduct, onSelect, vi
     <div className="category-row grid grid-cols-10 gap-4 overflow-x-auto">
     {categories.slice(0, 10).map((name, index) => {
       const product = categoryProduct(name)
-      return <button className="category-tile" key={name} onClick={() => onSelect(name)}>
+      return <button
+        className="category-tile"
+        key={name}
+        aria-pressed={name === selectedCategory}
+        onClick={() => onSelect(name)}
+      >
         <span className={`category-image category-tone-${index % 5}`}>
           {imageOf(product) ? <img src={imageOf(product)} alt="" /> : <b>{name.slice(0, 1)}</b>}
         </span>
