@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo } from 'react'
 import CategoryGrid from '../components/CategoryGrid'
 import CustomerAuthModal from '../components/CustomerAuthModal'
 import DeliveryAddressModal from '../components/DeliveryAddressModal'
@@ -10,7 +10,6 @@ import {
   CategoryRecommendationsSection,
   FlashDealsSection,
   ProductGridSection,
-  TrendingProductsSection,
 } from '../components/ProductSections'
 import { CartPage, OrdersPage, ProfilePage, SupportPage, WishlistPage } from '../components/StoreAccountPages'
 import StoreFooter from '../components/StoreFooter'
@@ -30,10 +29,6 @@ const bannerModules = banner => [
 ].filter(Boolean)
 const hasBannerModule = banner => bannerModules(banner).length > 0
 const isPlacement = (banner, names) => names.includes(bannerPlacement(banner))
-const isDefaultSeededHero = banner => banner?.seedKey === 'main-admin-home-hero'
-  || banner?.mainAdminSeedKey === 'main-admin-home-hero'
-  || (String(banner?.title || '').trim() === 'Everything You Need Delivered in 15–20 Minutes'
-    && imageOf(banner).includes('photo-1542838132-92c53300491e'))
 const uniqueBanners = banners => [...new Map(banners.filter(banner => banner && banner.active !== false && banner.isActive !== false && banner.status !== 'inactive').map((banner, index) => [banner.id || banner._id || `${banner.title || 'banner'}-${index}`, banner])).values()]
 
 export default function StorefrontPage() {
@@ -42,7 +37,7 @@ export default function StorefrontPage() {
     home, products, loading, error, load, business, selectedComponentData, customer,
     category, setCategory, subCategory, setSubCategory, childCategory, setChildCategory,
     selectedModule, setSelectedModule, query, setQuery,
-    cart, clearCart, favorites, favoriteCatalog, favoriteCatalogLoading, selected, openProduct, closeProduct, goHome, goToModule,
+    cart, clearCart, favorites, favoriteCatalog, favoriteCatalogLoading, recentlyViewed, selected, openProduct, closeProduct, goHome, goToModule,
     currentPage, navigatePage, quote,
     locationOpen, setLocationOpen, location, setLocation, serviceArea, checkServiceArea, authOpen, setAuthOpen,
     addressOpen, setAddressOpen, startCheckout, closeAuth, saveDeliveryAddress, saveDetectedLocation,
@@ -54,13 +49,12 @@ export default function StorefrontPage() {
   } = store
 
   const mainAdminWebsite = home?.isMainWebsite === true
-  const [productInteractions, setProductInteractions] = useState({})
   const showDefaultStorefront = mainAdminWebsite || selectedComponentData.length === 0
   const hasComponent = (...slugs) => selectedComponentData.some(component => slugs.includes(String(component.slug || '').toLowerCase()))
   const hasComponentType = (...types) => selectedComponentData.some(component => types.includes(String(component.type || '').toLowerCase().replace(/-/g, '_')))
   const componentEnabled = (slugs, types = []) => hasComponent(...slugs) || (types.length > 0 && hasComponentType(...types))
 
-  const showLogo = showDefaultStorefront || componentEnabled(['logo', 'quick-commerce-header'], ['header', 'logo'])
+  const showLogo = showDefaultStorefront || Boolean(business.businessLogo) || componentEnabled(['logo', 'quick-commerce-header'], ['header', 'logo'])
   const showSearch = showDefaultStorefront || hasComponent('quick-commerce-search') || hasComponentType('search')
   const showProfile = showDefaultStorefront || hasComponent('quick-commerce-profile', 'quick-commerce-account') || hasComponentType('profile', 'account')
   const showCartButton = showDefaultStorefront || hasComponent('quick-commerce-cart', 'quick-commerce-cart-page', 'quick-commerce-checkout') || hasComponentType('cart', 'cart_page', 'checkout')
@@ -69,7 +63,6 @@ export default function StorefrontPage() {
   const showHero = showDefaultStorefront || componentEnabled(['quick-commerce-offer-banner'], ['hero', 'banner'])
   const showCategories = showDefaultStorefront || hasComponent('quick-commerce-category-tiles') || hasComponentType('category_tiles')
   const showDeals = showDefaultStorefront || hasComponent('quick-commerce-flash-deals') || hasComponentType('flash_deals')
-  const showProductGrid = showDefaultStorefront || componentEnabled(['quick-commerce-product-grid', 'quick-commerce-product-listing'], ['product_grid', 'product_listing'])
   const showFooter = showDefaultStorefront || componentEnabled(['quick-commerce-footer'], ['footer'])
   const showProductDetails = showDefaultStorefront || hasComponent('quick-commerce-product-details') || hasComponentType('product_details')
   const savedIds = new Set(favorites.map(String))
@@ -81,20 +74,10 @@ export default function StorefrontPage() {
     loading, error, onRetry: load, business, showFavorites, showCart: showCartButton,
     favorites, cartItem, toggleFavorite, changeQty, setMessage,
     setCartOpen: open => { if (open) navigatePage('cart') }, setCheckout,
-    canOpenDetails: showProductDetails, setSelected: product => {
-      const id = String(product?._id || product?.id || '')
-      if (id) {
-        const categoryPath = [product.mainCategory || product.category, product.subCategory, product.childCategory]
-          .filter(Boolean).join(' / ').trim().toLowerCase()
-        const moduleSlug = String(product.moduleSlug || product.module?.slug || product.module || '').toLowerCase()
-        const next = { ...productInteractions, [id]: { views: (Number(productInteractions[id]?.views) || 0) + 1, lastViewed: Date.now(), categoryPath, moduleSlug } }
-        setProductInteractions(next)
-      }
-      openProduct(product)
-    },
+    canOpenDetails: showProductDetails, setSelected: openProduct,
   }
   const recommendationScope = [category, subCategory, childCategory].filter(Boolean).join(' / ')
-  const showCategoryRecommendations = Boolean(selectedModule || recommendationScope || showCategories)
+  const showCategoryRecommendations = currentPage === 'home'
   const browseCategories = () => {
     if (!selectedModule && modules[0]?.slug) {
       goToModule(modules[0].slug)
@@ -117,7 +100,7 @@ export default function StorefrontPage() {
   const relatedProducts = (matchingRelatedProducts.length ? matchingRelatedProducts : otherProducts).slice(0, 5)
   const isProductRoute = /^\/product\/[^/]+/.test(window.location.pathname)
   const moduleSections = useMemo(() => {
-    const sectionModules = (modules.length ? modules : [{ name: 'Products', slug: 'all' }])
+    const sectionModules = modules
       .filter(module => !selectedModule || String(module.slug || '').toLowerCase() === String(selectedModule).toLowerCase())
       .map(module => {
         const slug = String(module.slug || '').trim().toLowerCase();
@@ -125,16 +108,84 @@ export default function StorefrontPage() {
           const productModule = String(product.moduleSlug || product.module || '').trim().toLowerCase();
           const productModuleId = String(product.moduleId || '').trim();
           const moduleId = String(module._id || '').trim();
-          const matchesSlug = !slug || slug === 'all' || productModule === slug || productModule === String(module.name || '').trim().toLowerCase().replace(/\s+/g, '-');
-          const matchesId = !moduleId || productModuleId === moduleId;
+          const matchesSlug = Boolean(slug && (productModule === slug || productModule === String(module.name || '').trim().toLowerCase().replace(/\s+/g, '-')));
+          const matchesId = Boolean(moduleId && productModuleId === moduleId);
           return matchesSlug || matchesId;
-        }).slice(0, 12)
+        })
         return { ...module, products: productsForModule }
       })
       .filter(section => section.products.length > 0)
-    return sectionModules.length ? sectionModules : [{ name: 'Products', slug: 'all', products: shown.slice(0, 12) }]
+    return sectionModules
   }, [modules, selectedModule, shown])
-  const recommendationProducts = selectedModule ? moduleSections.flatMap(section => section.products) : shown
+  const recommendationProducts = selectedModule ? shown : products
+  const recommendationProductsById = new Map(recommendationProducts.map(product => [String(product._id || product.id || ''), product]))
+  const recommendationRecentlyViewed = recentlyViewed
+    .map(item => recommendationProductsById.get(String(item.productId || '')))
+    .filter(Boolean)
+  const popularProducts = bestsellers.filter(product => recommendationProductsById.has(String(product._id || product.id || '')))
+  const popularSections = selectedModule ? [] : modules.map(module => ({
+    ...module,
+    products: (home?.popularByModule?.[module.slug] || [])
+      .map(product => recommendationProductsById.get(String(product._id || product.id || '')))
+      .filter(Boolean),
+  })).filter(section => section.products.length > 0)
+  const recentlyViewedIds = new Set(recommendationRecentlyViewed.map(product => String(product._id || product.id || '')))
+  const favoriteIds = new Set(favorites.map(String))
+  const purchasedIds = new Set((home?.customerInsights?.purchasedProductIds || []).map(String))
+  const normalizePath = value => String(value || '').trim().toLowerCase().split('/').map(part => part.trim()).filter(Boolean)
+  const productPath = product => normalizePath([product.mainCategory || product.category, product.subCategory, product.childCategory].filter(Boolean).join('/'))
+  const customerPaths = [
+    ...(home?.customerInsights?.categoryPaths || []).map(normalizePath),
+    ...recommendationRecentlyViewed.map(productPath),
+    ...products.filter(product => favoriteIds.has(String(product._id || product.id))).map(productPath),
+  ].filter(path => path.length)
+  const customerModules = new Set([
+    ...(home?.customerInsights?.moduleSlugs || []),
+    ...recommendationRecentlyViewed.map(product => product.moduleSlug),
+    ...products.filter(product => favoriteIds.has(String(product._id || product.id))).map(product => product.moduleSlug),
+  ].map(value => String(value || '').trim().toLowerCase()).filter(Boolean))
+  const recommendationCandidates = recommendationProducts.filter(product => {
+    const id = String(product._id || product.id || '')
+    return id && !recentlyViewedIds.has(id) && !favoriteIds.has(id) && !purchasedIds.has(id)
+  })
+  const recommendationScore = product => {
+    const path = productPath(product)
+    const moduleSlug = String(product.moduleSlug || '').trim().toLowerCase()
+    const affinity = customerPaths.reduce((total, previousPath) => {
+      const matchingSegments = previousPath.findIndex((segment, index) => path[index] !== segment)
+      return total + (matchingSegments === -1 ? Math.min(path.length, previousPath.length) : matchingSegments)
+    }, 0)
+    return affinity * 4
+      + (customerModules.has(moduleSlug) ? 3 : 0)
+      + Math.log1p(Number(product.unitsSold || 0))
+      + Math.log1p(Number(product.orderCount || 0))
+      + Number(product.rating || 0) * 0.2
+      + Math.log1p(Number(product.reviewCount || 0)) * 0.2
+  }
+  const recommendedProducts = [...recommendationCandidates]
+    .sort((a, b) => recommendationScore(b) - recommendationScore(a))
+    .slice(0, 6)
+  const recommendationModuleLabel = modules.find(module => String(module.slug || '').toLowerCase() === String(selectedModule || '').toLowerCase())?.name || ''
+  const moduleCategorySections = useMemo(() => {
+    const categories = new Map()
+    shown.forEach(product => {
+      const mainName = String(product.mainCategory || product.category || 'Uncategorized').trim()
+      const subName = String(product.subCategory || '').trim()
+      const childName = String(product.childCategory || '').trim()
+      if (!categories.has(mainName)) categories.set(mainName, { name: mainName, products: [], subcategories: new Map() })
+      const main = categories.get(mainName)
+      if (!subName) { main.products.push(product); return }
+      if (!main.subcategories.has(subName)) main.subcategories.set(subName, { name: subName, products: [], children: new Map() })
+      const sub = main.subcategories.get(subName)
+      if (!childName) { sub.products.push(product); return }
+      if (!sub.children.has(childName)) sub.children.set(childName, { name: childName, products: [] })
+      sub.children.get(childName).products.push(product)
+    })
+    return [...categories.values()].map(main => ({
+      ...main,
+      subcategories: [...main.subcategories.values()].map(sub => ({ ...sub, children: [...sub.children.values()] })),
+    }))
+  }, [shown])
   const promotions = asList(home?.promotionalBanners).filter(banner => banner && banner.active !== false && banner.isActive !== false)
   const explicitlyPlacedHomeMid = [
     ...asList(home?.homeMidBanners), ...asList(home?.homeMiddleBanners), ...promotions.filter(banner => isPlacement(banner, ['home_mid', 'home_middle', 'home_mid_banner', 'mid_home', 'home_promotion'])),
@@ -157,7 +208,7 @@ export default function StorefrontPage() {
   const heroBanners = uniqueBanners([
     ...asList(home?.banners).filter(banner => !bannerPlacement(banner) || isPlacement(banner, ['hero', 'top', 'top_banner', 'home_hero', 'home_top', 'top_home'])),
     ...promotions.filter(banner => isPlacement(banner, ['hero', 'top', 'top_banner', 'home_hero', 'home_top', 'top_home'])),
-  ]).filter(banner => !isDefaultSeededHero(banner))
+  ])
 
   if (business.maintenanceMode) return <MaintenancePage business={business} />
   if (loading && !home) return <main className="loading storefront-loading">Loading store...</main>
@@ -229,8 +280,9 @@ export default function StorefrontPage() {
           <HeroSection banners={heroBanners} deals={deals} visible={showHero && !selectedModule} />
           {selectedModule && <PromotionBanners banners={categoryPromotions} />}
           <CategoryGrid
-            categories={childCategory ? [] : subCategory ? childCategories : category ? subCategories : categories}
+            categories={subCategory ? childCategories : category ? subCategories : categories}
             categoryProduct={categoryProduct}
+            selectedCategory={childCategory || subCategory || category}
             onSelect={name => {
               if (subCategory) setChildCategory(name)
               else if (category) setSubCategory(name)
@@ -244,28 +296,37 @@ export default function StorefrontPage() {
           {showDeals && !selectedModule && <FlashDealsSection {...productSectionProps} sales={home?.flashSales} products={products} />}
           {!selectedModule && <PromotionBanners banners={homeMidBanners} />}
           {showCategoryRecommendations && <CategoryRecommendationsSection
-            {...productSectionProps} products={recommendationProducts} categoryLabel={recommendationScope}
-            moduleSlug={selectedModule} interactions={productInteractions}
+            {...productSectionProps}
+            popularProducts={popularProducts}
+            popularSections={popularSections}
+            recommendedProducts={recommendedProducts}
+            recentlyViewedProducts={recommendationRecentlyViewed}
+            categoryLabel={recommendationScope}
+            moduleLabel={recommendationModuleLabel}
           />}
-          {mainAdminWebsite
-            ? selectedModule
-              ? <ProductGridSection {...productSectionProps} products={shown} prefix="catalog" />
-              : <>
-                <TrendingProductsSection {...productSectionProps} products={bestsellers} city={home?.city} />
-                <PromotionBanners banners={homeMidBanners} />
-                {moduleSections.map(section => (
-                  <section key={section.slug || section._id || section.name} className="pt-4">
-                    <div className="mb-3 flex items-center justify-between">
-                      <h2 className="text-xl font-bold text-slate-900">{section.name}</h2>
-                    </div>
-                    <ProductGridSection {...productSectionProps} products={section.products} prefix={`catalog-${section.slug || section._id || section.name}`} />
-                  </section>
-                ))}
-                <PromotionBanners banners={storefrontBanners} />
-              </>
-            : (showProductGrid || selectedModule) && <>
-              <ProductGridSection {...productSectionProps} products={shown} prefix="catalog" />
-              {!selectedModule && <PromotionBanners banners={storefrontBanners} />}
+          {selectedModule
+            ? <section id="collection" className="product-section">
+              {moduleCategorySections.map(main => <section key={main.name} className="pt-5">
+              <h2 className="mb-3 text-xl font-bold text-slate-900">{main.name}</h2>
+              {main.products.length > 0 && <ProductGridSection {...productSectionProps} products={main.products} prefix={`catalog-${selectedModule}-${main.name}`} sectionId={false} />}
+              {main.subcategories.map(sub => <section key={`${main.name}-${sub.name}`} className="pt-4">
+                <h3 className="mb-3 text-lg font-semibold text-slate-800">{sub.name}</h3>
+                {sub.products.length > 0 && <ProductGridSection {...productSectionProps} products={sub.products} prefix={`catalog-${selectedModule}-${main.name}-${sub.name}`} sectionId={false} />}
+                {sub.children.map(child => <section key={`${main.name}-${sub.name}-${child.name}`} className="pt-3">
+                  <h4 className="mb-3 text-base font-medium text-slate-700">{child.name}</h4>
+                  <ProductGridSection {...productSectionProps} products={child.products} prefix={`catalog-${selectedModule}-${main.name}-${sub.name}-${child.name}`} sectionId={false} />
+                </section>)}
+              </section>)}
+            </section>)}
+            </section>
+            : <>
+              <section id="collection" className="product-section">
+                {moduleSections.map(section => <section key={section.slug || section._id || section.name} className="pt-5">
+                <h2 className="mb-3 text-xl font-bold text-slate-900">{section.name}</h2>
+                <ProductGridSection {...productSectionProps} products={section.products} prefix={`catalog-${section.slug || section._id || section.name}`} sectionId={false} />
+                </section>)}
+              </section>
+              <PromotionBanners banners={storefrontBanners} />
             </>}
         </>}
     </main>}

@@ -278,7 +278,9 @@ function ensureProducts(store, definition, storeRecord, taxonomy) {
 
 function ensureStarterCatalogs(store) {
   let changed = false;
-  catalogDefinitions.forEach(definition => {
+  // Quick Commerce keeps its starter catalog. E-Commerce content must come
+  // from the real admin/server workflow rather than bundled sample records.
+  catalogDefinitions.filter(definition => definition.moduleSlug !== 'e-commerce').forEach(definition => {
     const { changed: taxonomyChanged, taxonomy } = ensureTaxonomy(store, definition);
     const { store: storeRecord, changed: storeChanged } = ensureStore(store, definition);
     const productsChanged = ensureProducts(store, definition, storeRecord, taxonomy);

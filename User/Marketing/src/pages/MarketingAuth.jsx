@@ -34,7 +34,7 @@ export default function MarketingAuth({ register = false }) {
       window.location.hash = '/app/dashboard'
     } catch (requestError) {
       const networkFailure = requestError instanceof TypeError || /failed to fetch|networkerror/i.test(requestError.message || '')
-      setError(networkFailure ? 'Wepzo API is not reachable. Start the Backend app with “npm run dev” from the Backend folder, then try again.' : (requestError.message || 'Could not sign in to Wepzo. Please try again.'))
+      setError(networkFailure ? 'The shared WEPZO server is not reachable. Please check the connection and try again.' : (requestError.message || 'Could not sign in to Wepzo. Please try again.'))
     } finally {
       setBusy(false)
     }

@@ -340,8 +340,6 @@ async function loadPersistedFromMongo() {
   ensureQuickCommerceCatalog();
   ensureWebsiteModuleCatalog();
   ensureWebsiteModuleContent();
-  const { ensureMainAdminStorefront } = require('./mainAdminStorefrontSeed');
-  ensureMainAdminStorefront(store);
   await persistNowStrict();
   if (hasLegacySnapshot) await PlatformData.deleteOne({ _id: 'primary' });
   if (importingLocalSnapshot) {
@@ -940,8 +938,6 @@ async function seedMemory() {
 
   ensureWebsiteModuleCatalog();
   ensureWebsiteModuleContent();
-  const { ensureMainAdminStorefront } = require('./mainAdminStorefrontSeed');
-  ensureMainAdminStorefront(store);
   await persistNowStrict();
   console.log('Memory store seeded. Login: admin@wepzo.com / admin123');
 }

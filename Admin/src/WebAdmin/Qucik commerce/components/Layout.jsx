@@ -42,6 +42,7 @@ export default function Layout() {
   const [websiteDomainOptions, setWebsiteDomainOptions] = useState({ showSubdomainOption: true, showOwnDomainOption: true });
   const [websiteDomainOptionsReady, setWebsiteDomainOptionsReady] = useState(false);
   const isWebsiteBuilder = location.pathname.startsWith('/website-builder');
+  const isThemeColorsPage = location.pathname === '/settings/business/colors';
   const isOnDomainPage = location.pathname === '/on-domain';
   const isSubdomainPage = location.pathname === '/sub-domain';
   const isDomainSetupPage = isOnDomainPage || isSubdomainPage;
@@ -123,7 +124,7 @@ export default function Layout() {
 
   return (
     <ImageViewerProvider>
-      <div className="flex h-screen overflow-hidden bg-[#f3f4f6]">
+      <div className={`admin-app-shell flex h-screen min-h-screen overflow-hidden bg-[#f3f4f6] ${isThemeColorsPage ? 'theme-colors-route-shell' : ''}`}>
         {!isSubdomainPage && (!isWebsiteBuilder || !isWebsiteUser) && (!isWebsiteUser || hasPaidWebsite) && (isWebsiteUser
           ? (isSettings
             ? <SettingsSidebar mobileOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} allowedPaths={settingsAllowedPaths}/>
@@ -131,7 +132,7 @@ export default function Layout() {
           : isSettings
             ? <SettingsSidebar mobileOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
             : <Sidebar mobileOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />)}
-        <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+        <div className={`flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden ${isThemeColorsPage ? 'theme-colors-route-content' : ''}`}>
           {!isDomainSetupPage && (!isWebsiteUser || hasPaidWebsite) && (!isWebsiteUser || effectiveWebsiteAccess.header.length > 0) && <Header onMenuToggle={() => setSidebarOpen(!sidebarOpen)} showMenuToggle={!isWebsiteBuilder} websiteAccess={effectiveWebsiteAccess}/>}
           <main className={`min-h-0 flex-1 overflow-y-auto bg-[#f3f4f6] ${isDomainSetupPage ? 'p-0' : 'p-4 lg:p-6'}`}>
             <PageErrorBoundary key={`${location.pathname}:${activeModule?.slug || 'ecommerce'}`}><Outlet /></PageErrorBoundary>

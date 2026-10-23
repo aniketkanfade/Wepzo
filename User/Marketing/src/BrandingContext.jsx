@@ -2,11 +2,12 @@ import React, { createContext, useContext, useEffect, useState } from 'react'
 import { mergeMarketingSiteContent } from './siteDefaults.js'
 
 const BrandingContext = createContext({ businessName: 'Wepzo', businessLogo: '', primaryColor: '', themeColors: {} })
-const API = (import.meta.env.VITE_MARKETING_API_URL || import.meta.env.VITE_API_URL || '/api').replace(/\/$/, '')
+const API = '/api'
 const routeQuery = window.location.hash.includes('?') ? window.location.hash.slice(window.location.hash.indexOf('?') + 1) : ''
 const params = new URLSearchParams(`${window.location.search.replace(/^\?/, '')}&${routeQuery}`)
 const explicitWebsiteId = params.get('websiteId') || params.get('tenantId') || import.meta.env.VITE_WEBSITE_ID || ''
 const moduleId = params.get('websiteModuleId') || params.get('moduleId') || import.meta.env.VITE_WEBSITE_MODULE_ID || ''
+const builderPreview = params.get('builderPreview') === '1'
 const MARKETING_TOKEN_KEY = 'wepzo_marketing_session_token'
 
 export function clearMarketingSession() {
@@ -50,6 +51,22 @@ export async function marketingPublicRequest(path, options = {}) {
 
 export function BrandingProvider({ children }) {
   const [branding, setBranding] = useState({ businessName: 'Wepzo', businessLogo: '', primaryColor: '', themeColors: {}, siteContent: mergeMarketingSiteContent() })
+
+  useEffect(() => {
+    if (!builderPreview) return undefined
+    const receivePreview = event => {
+      if (event.source !== window.parent || event.data?.type !== 'wepzo:builder-preview') return
+      const theme = event.data.theme
+      if (!theme || typeof theme !== 'object') return
+      setBranding(current => ({
+        ...current,
+        primaryColor: theme.primaryColor || current.primaryColor,
+        themeColors: { ...current.themeColors, ...(theme.themeColors || {}) },
+      }))
+    }
+    window.addEventListener('message', receivePreview)
+    return () => window.removeEventListener('message', receivePreview)
+  }, [])
 
   useEffect(() => {
     let active = true

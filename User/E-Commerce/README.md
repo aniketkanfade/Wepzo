@@ -10,17 +10,17 @@ npm install
 npm run dev
 ```
 
-The storefront calls its same-origin `/api` endpoint. For local development, Vite proxies `/api` to `http://localhost:5000` by default. Set `VITE_API_PROXY_TARGET` in `.env.local` (copy `.env.example`) to use a different backend. Set up a published website and launch the storefront with its tenant ID:
+The storefront calls its same-origin `/api` endpoint. Local development proxies `/api` and `/uploads` to the same WEPZO backend used by every Vercel storefront, so admin updates and customer pages read the same server data. Set up a published website and launch the storefront with its tenant ID:
 
 ```text
 http://localhost:5173/?websiteId=YOUR_WEBSITE_ID
 ```
 
-Optionally add `&moduleId=YOUR_WEBSITE_MODULE_ID` to check the module assignment too. The storefront persists the selected website ID in local storage and sends it as `X-Website-Id` on shop API requests. A matching custom domain can also be resolved by the backend.
+Optionally add `&moduleId=YOUR_WEBSITE_MODULE_ID` to check the module assignment too. The storefront sends the selected website ID as `X-Website-Id` on shop API requests. A matching custom domain can also be resolved by the backend.
 
 ## Environment variables
 
-Production builds use the same-origin `/api` URL configured in `.env.production`; Vercel proxies those requests to the Render backend. For local development, copy `.env.example` to `.env.local` and set the website ID for a fixed storefront. `VITE_E_COMMERCE_API_URL` chooses this module's API, with `VITE_API_URL` as the shared fallback. `VITE_API_PROXY_TARGET` overrides the local Vite proxy target.
+Local and production builds use the same `/api` path. Vercel and local Vite proxies route it to the shared backend at `https://wepzo.onrender.com`; tenant identity still comes from the website ID or published domain. For a fixed local storefront, set the website ID in `.env.local`.
 
 ## Connected backend routes
 

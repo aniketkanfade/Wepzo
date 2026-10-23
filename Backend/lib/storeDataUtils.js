@@ -81,6 +81,7 @@ function parseOrderDate(raw) {
 
 function orderLineMatchesProduct(line, product) {
   if (!line || !product) return false;
+  if (line.id && product._id && String(line.id) === String(product._id)) return true;
   if (line.sku && product.sku && line.sku === product.sku) return true;
   if (line.productId && product.productId && Number(line.productId) === Number(product.productId)) return true;
   return String(line.name || line.productName || '').trim().toLowerCase() === String(product.name || '').trim().toLowerCase();
@@ -92,7 +93,11 @@ function getProductStats(mem, product) {
   let revenue = 0;
   for (const o of mem.orders || []) {
     if (['Cancelled', 'Failed'].includes(o.status)) continue;
-    const lines = o.products || o.details?.products || [];
+    const lines = Array.isArray(o.products) && o.products.length
+      ? o.products
+      : Array.isArray(o.details?.products) && o.details.products.length
+        ? o.details.products
+        : Array.isArray(o.details) ? o.details : [];
     let matched = false;
     for (const line of lines) {
       if (!orderLineMatchesProduct(line, product)) continue;

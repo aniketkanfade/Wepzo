@@ -16,7 +16,7 @@ import CustomerProfile from './components/CustomerProfile.jsx'
 import CodPaymentPrompt from './components/CodPaymentPrompt.jsx'
 import { deleteLocalStore, findLocalStoreBySlug, listLocalStores, restoreLocalStore, updateLocalStore } from './platformLocal.js'
 import { getProductQuantityLimit, getTrackedStock } from './utils/productLimits.js'
-const API = (import.meta.env.VITE_API_URL || '/api').replace(/\/$/, '')
+const API = '/api'
 const defaultSubscriptionPlans = [{ id: '1m', label: '1 month', unit: 'month', duration: 1, months: 1, price: 500, enabled: true }, { id: '3m', label: '3 months', unit: 'month', duration: 3, months: 3, price: 1350, enabled: true }, { id: '6m', label: '6 months', unit: 'month', duration: 6, months: 6, price: 2500, enabled: true }, { id: '12m', label: '1 year', unit: 'year', duration: 1, months: 12, price: 4800, enabled: true }]
 const normalizePlans = (plans) => plans.map((plan) => {
   const unit = plan.unit || (String(plan.label).toLowerCase().includes('year') ? 'year' : 'month')

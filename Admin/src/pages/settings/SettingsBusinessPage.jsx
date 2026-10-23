@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { MapContainer, Marker, TileLayer, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
@@ -103,8 +103,8 @@ const inputClass = 'mt-1 w-full rounded-lg border border-slate-200 bg-white px-3
 const labelClass = 'block text-xs font-semibold text-slate-600';
 const pinIcon = L.divIcon({ className: '', html: '<span style="display:block;width:20px;height:20px;background:#2450b2;border:3px solid white;border-radius:50%;box-shadow:0 1px 6px #0006"></span>', iconSize: [20, 20], iconAnchor: [10, 10] });
 
-function Section({ title, description, children }) {
-  return <section className="overflow-hidden rounded-xl border bg-white shadow-sm" style={{ borderColor: LIST_CARD_BORDER }}>
+function Section({ title, description, children, overflowVisible = false, className = '' }) {
+  return <section className={`${overflowVisible ? 'overflow-visible' : 'overflow-hidden'} ${className} rounded-xl border bg-white shadow-sm`} style={{ borderColor: LIST_CARD_BORDER }}>
     <div className="border-b bg-slate-50 px-5 py-4" style={{ borderColor: LIST_CARD_BORDER }}><h2 className="font-semibold text-slate-800">{title}</h2>{description && <p className="mt-1 text-xs text-slate-500">{description}</p>}</div>
     <div className="space-y-5 p-5">{children}</div>
   </section>;
@@ -115,11 +115,50 @@ function MapClick({ onPick }) {
   return null;
 }
 
-function LiveWebsitePreview({ src, moduleName, viewMode, refreshKey }) {
-  if (!src) return <div className="grid min-h-[420px] place-items-center rounded-xl border border-slate-200 bg-slate-50 p-6 text-center text-sm text-slate-500">This account does not have a tenant website ID for {moduleName || 'the selected module'}.</div>;
+function LiveWebsitePreview({ src, moduleName, viewMode, refreshKey, theme, loading = false, error = '' }) {
+  const iframeRef = useRef(null);
+  const viewportRef = useRef(null);
+  const [scale, setScale] = useState(1);
+  const viewport = viewMode === 'mobile' ? { width: 390, height: 844 } : { width: 1366, height: 768 };
+  const sendTheme = () => {
+    if (!src || !iframeRef.current?.contentWindow) return;
+    try {
+      const targetOrigin = new URL(src, window.location.href).origin;
+      iframeRef.current.contentWindow.postMessage({ type: 'wepzo:builder-preview', theme }, targetOrigin);
+    } catch { /* Ignore invalid preview URLs. */ }
+  };
+  useEffect(() => { sendTheme(); }, [src, theme]);
+  useEffect(() => {
+    const container = viewportRef.current;
+    if (!container) return undefined;
+    const resize = () => {
+      const widthScale = container.clientWidth / viewport.width;
+      const narrowScreen = window.matchMedia('(max-width: 767px)').matches;
+      if (narrowScreen && viewMode === 'desktop') {
+        setScale(Math.min(1, widthScale));
+        return;
+      }
+      const heightScale = narrowScreen && viewMode === 'mobile'
+        ? Math.min(150, window.innerHeight * 0.22) / viewport.height
+        : viewMode === 'mobile' ? (window.innerHeight * 0.58) / viewport.height : 1;
+      setScale(Math.min(1, widthScale, heightScale));
+    };
+    resize();
+    const observer = new ResizeObserver(resize);
+    observer.observe(container);
+    window.addEventListener('resize', resize);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('resize', resize);
+    };
+  }, [viewMode, viewport.width]);
+  if (loading) return <div className="grid min-h-[190px] place-items-center rounded-xl border border-slate-200 bg-slate-50 p-4 text-center text-xs text-slate-500">Loading {moduleName || 'storefront'} preview...</div>;
+  if (error || !src) return <div role={error ? 'alert' : undefined} className="grid min-h-[190px] place-items-center rounded-xl border border-slate-200 bg-slate-50 p-4 text-center text-xs text-slate-500">{error || `This account does not have a tenant website ID for ${moduleName || 'the selected module'}.`}</div>;
   return <div className="rounded-xl bg-slate-100 p-2 sm:p-3">
-    <div className={`mx-auto overflow-hidden rounded-lg border border-slate-300 bg-white shadow-lg ${viewMode === 'mobile' ? 'w-[390px] max-w-full' : 'w-full'}`}>
-      <iframe key={`${src}-${refreshKey}`} src={src} title={`${moduleName || 'Website'} live preview`} className="block h-[68vh] min-h-[480px] w-full bg-white" />
+    <div ref={viewportRef} className="flex w-full justify-center overflow-hidden">
+      <div className="shrink-0 overflow-hidden rounded-lg border border-slate-300 bg-white shadow-lg" style={{ width: viewport.width * scale, height: viewport.height * scale }}>
+        <iframe ref={iframeRef} key={`${src}-${refreshKey}`} src={src} onLoad={sendTheme} title={`${moduleName || 'Website'} ${viewMode} preview (${viewport.width} × ${viewport.height})`} className="block bg-white" style={{ width: viewport.width, height: viewport.height, maxWidth: 'none', transform: `scale(${scale})`, transformOrigin: 'top left' }} />
+      </div>
     </div>
   </div>;
 }
@@ -308,6 +347,8 @@ export default function SettingsBusinessPage({ colorsOnly = false }) {
   const [error, setError] = useState('');
   const [desktopColorCopied, setDesktopColorCopied] = useState(false);
   const [previewRefreshKey, setPreviewRefreshKey] = useState(0);
+  const [resolvedPreviewWebsite, setResolvedPreviewWebsite] = useState(null);
+  const [mainAdminPreview, setMainAdminPreview] = useState({ loading: false, website: null, error: '' });
   const normalizeSettingsError = (error, fallback) => {
     const rawMessage = error?.response?.data?.message || error?.message || '';
     const message = String(rawMessage).trim();
@@ -413,27 +454,128 @@ export default function SettingsBusinessPage({ colorsOnly = false }) {
   const showStorefrontCardBorders = true;
   const showStorefrontCardRounding = true;
   const moduleKey = getAdminModuleKey(activeModule);
-  const previewWebsiteId = String(user?.websiteId || activeModule?.websiteId || activeModule?.tenantId || '').trim();
+  const isMainAdmin = user?.role === 'main_admin';
+  useEffect(() => {
+    if (!isMainAdmin) {
+      setMainAdminPreview({ loading: false, website: null, error: '' });
+      return undefined;
+    }
+    const moduleSlug = String(activeModule?.slug || activeModule?.type || '').trim();
+    if (!moduleSlug) {
+      setMainAdminPreview({ loading: false, website: null, error: 'Select a web module to load its Main Admin storefront.' });
+      return undefined;
+    }
+    let current = true;
+    setMainAdminPreview({ loading: true, website: null, error: '' });
+    api.get('/public/main-admin-website-preview', {
+      params: {
+        moduleId: activeModule?._id && activeModule._id !== moduleSlug ? activeModule._id : undefined,
+        moduleSlug,
+      },
+    }).then(({ data }) => {
+      if (current) setMainAdminPreview({ loading: false, website: data, error: '' });
+    }).catch(requestError => {
+      if (current) setMainAdminPreview({
+        loading: false,
+        website: null,
+        error: requestError.response?.data?.message || 'Main Admin storefront preview could not be loaded.',
+      });
+    });
+    return () => { current = false; };
+  }, [activeModule?._id, activeModule?.slug, activeModule?.type, isMainAdmin]);
+  useEffect(() => {
+    if (!isTenant) {
+      setResolvedPreviewWebsite(null);
+      return undefined;
+    }
+    let current = true;
+    setResolvedPreviewWebsite(null);
+    api.get('/websites').then(({ data }) => {
+      if (!current) return;
+      const websites = Array.isArray(data) ? data : [];
+      const preferredId = String(user?.websiteId || activeModule?.websiteId || activeModule?.tenantId || '');
+      const moduleId = String(user?.selectedModuleId || user?.websiteModuleId || activeModule?._id || '');
+      const moduleSlug = getAdminModuleKey(activeModule);
+      const belongsToSelectedModule = item => moduleId && item.websiteModuleId
+        ? String(item.websiteModuleId) === moduleId
+        : getAdminModuleKey({ slug: item.websiteModuleSlug || item.moduleType, name: item.moduleName }) === moduleSlug;
+      const ownedWebsites = websites.filter(item =>
+        String(item.userId || '') === String(user?.id || user?._id || '')
+        && belongsToSelectedModule(item)
+      );
+      const website = websites.find(item => preferredId
+        && String(item._id || '') === preferredId
+        && belongsToSelectedModule(item))
+        || ownedWebsites.find(belongsToSelectedModule);
+      const websiteId = String(website?._id || '').trim();
+      setResolvedPreviewWebsite(website || null);
+      if (websiteId) useAuthStore.getState().setWebsiteId(websiteId);
+    }).catch(() => {
+      if (current) setResolvedPreviewWebsite(null);
+    });
+    return () => { current = false; };
+  }, [activeModule?.tenantId, activeModule?.websiteId, isTenant, user?._id, user?.id, user?.websiteId]);
+  const previewWebsite = isMainAdmin ? mainAdminPreview.website : resolvedPreviewWebsite;
+  const previewWebsiteId = isMainAdmin
+    ? String(mainAdminPreview.website?.websiteId || '').trim()
+    : String(resolvedPreviewWebsite?._id || user?.websiteId || activeModule?.websiteId || activeModule?.tenantId || '').trim();
   const livePreviewUrl = useMemo(() => {
-    if (!previewWebsiteId) return '';
+    if (isMainAdmin && !mainAdminPreview.website) return '';
+    if (!isMainAdmin && !previewWebsiteId) return '';
+    if (isMainAdmin && !previewWebsiteId && !mainAdminPreview.website?.modulePreview) return '';
     const previewBases = {
-      'e-commerce': import.meta.env.VITE_ECOMMERCE_PREVIEW_URL || 'http://localhost:5173/',
+      'e-commerce': import.meta.env.VITE_ECOMMERCE_PREVIEW_URL || (import.meta.env.DEV ? 'http://localhost:5173/' : ''),
       'quick-commerce': import.meta.env.VITE_QC_PREVIEW_URL || 'http://localhost:3001/',
       'store-single': import.meta.env.VITE_STORE_SINGLE_PREVIEW_URL || 'http://localhost:5175/',
       marketing: import.meta.env.VITE_MARKETING_APP_URL || 'http://localhost:3002/',
       'information-web': import.meta.env.VITE_GENERAL_PREVIEW_URL || 'http://localhost:5174/',
     };
     try {
-      const url = new URL(previewBases[moduleKey], window.location.origin);
-      url.searchParams.set('published', '1');
-      url.searchParams.set('websiteId', previewWebsiteId);
-      if (activeModule?._id) url.searchParams.set('websiteModuleId', String(activeModule._id));
-      if (moduleKey === 'e-commerce' && activeModule?._id) url.searchParams.set('moduleId', String(activeModule._id));
+      let previewBase = previewBases[moduleKey];
+      const websiteUrl = previewWebsite?.hosting?.url
+        || previewWebsite?.domain?.fullDomain
+        || (String(previewWebsite?.domain?.name || '').includes('.') ? previewWebsite.domain.name : '')
+        || '';
+      if (websiteUrl && !(isMainAdmin && import.meta.env.DEV)) {
+        const liveUrl = new URL(/^https?:\/\//i.test(websiteUrl) ? websiteUrl : `https://${websiteUrl}`);
+        previewBase = liveUrl.href;
+      }
+      if (!previewBase && isMainAdmin && moduleKey === 'e-commerce' && mainAdminPreview.website?.modulePreview) {
+        previewBase = 'https://wepzo.in/';
+      }
+      if (!previewBase) return '';
+      const url = new URL(previewBase, window.location.origin);
+      if (isMainAdmin) {
+        url.searchParams.set('adminPreview', '1');
+        const websiteModuleId = mainAdminPreview.website?.websiteModuleId || activeModule?._id;
+        if (websiteModuleId) url.searchParams.set('websiteModuleId', String(websiteModuleId));
+        if (previewWebsiteId) {
+          url.searchParams.set('published', '1');
+          url.searchParams.set('websiteId', previewWebsiteId);
+        }
+        url.searchParams.set('builderPreview', '1');
+        if (moduleKey === 'e-commerce' && websiteModuleId) url.searchParams.set('moduleId', String(websiteModuleId));
+      } else {
+        url.searchParams.set('published', '1');
+        url.searchParams.set('websiteId', previewWebsiteId);
+        url.searchParams.set('builderPreview', '1');
+        const websiteModuleId = resolvedPreviewWebsite?.websiteModuleId || user?.selectedModuleId || user?.websiteModuleId || activeModule?._id;
+        if (websiteModuleId) url.searchParams.set('websiteModuleId', String(websiteModuleId));
+        if (moduleKey === 'e-commerce' && websiteModuleId) url.searchParams.set('moduleId', String(websiteModuleId));
+      }
       return url.href;
     } catch {
       return '';
     }
-  }, [activeModule?._id, moduleKey, previewWebsiteId]);
+  }, [activeModule?._id, isMainAdmin, mainAdminPreview.website, moduleKey, previewWebsite, previewWebsiteId, resolvedPreviewWebsite?.websiteModuleId, user?.selectedModuleId, user?.websiteModuleId]);
+  const missingEcommercePreviewUrl = moduleKey === 'e-commerce'
+    && !livePreviewUrl
+    && (isMainAdmin ? !!mainAdminPreview.website : !!previewWebsiteId);
+  const livePreviewError = isMainAdmin
+    ? mainAdminPreview.error || (missingEcommercePreviewUrl ? 'The E-Commerce preview URL is not configured and no live website domain is linked to this module.' : '')
+    : missingEcommercePreviewUrl
+      ? 'The E-Commerce preview URL is not configured and no live website domain is linked to this module.'
+      : '';
   const themeColorControls = [
     ['primaryColor', 'Brand and active accent'], ['priceColor', 'Product price'],
     ['searchBackground', 'Search bar background'], ['searchButton', 'Search button'],
@@ -449,15 +591,15 @@ export default function SettingsBusinessPage({ colorsOnly = false }) {
     || (key === 'cartCountBackground' ? form.themeColors?.buttonBackground || form.primaryColor || '#f4510b' : null)
     || DEFAULT_FORM.themeColors[key]
     || '#f4510b';
-  const renderThemeColor = ([key, label]) => <label key={key} className="flex min-h-14 items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700">
+  const renderThemeColor = ([key, label]) => <label key={key} className="theme-color-control-card flex min-h-14 items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700">
     <span>{label}</span><input aria-label={label} type="color" value={key === 'primaryColor' ? form.primaryColor || '#f45b15' : themeColorValue(key)} onChange={event => key === 'primaryColor' ? set('primaryColor', event.target.value) : setThemeColor(key, event.target.value)} className="h-9 w-12 shrink-0 cursor-pointer rounded-md border border-slate-300 bg-white p-1 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
   </label>;
   const renderCardBorderControls = (type, label) => {
     const fallback = DEFAULT_FORM.themeColors.storefrontCardStyles[type];
     const style = { ...fallback, ...(form.themeColors?.storefrontCardStyles?.[type] || {}) };
     const defaultBackground = type === 'header' ? themeColorValue('headerBackground') : type === 'product' ? themeColorValue('productCardBackground') : type === 'button' ? themeColorValue('buttonBackground') : themeColorValue('surfaceBackground');
-    return <details key={type} className="group rounded-lg border border-slate-200 bg-white p-3 open:border-blue-200 open:bg-blue-50/30">
-      <summary className="flex cursor-pointer list-none items-center justify-between text-xs font-semibold text-slate-800 [&::-webkit-details-marker]:hidden"><span>{label}</span><span className="text-base leading-none text-slate-500 transition-transform group-open:rotate-180">⌄</span></summary>
+    return <details key={type} className="theme-card-style-panel group rounded-lg border border-slate-200 bg-white p-3 open:border-blue-200 open:bg-blue-50/30">
+      <summary className="theme-card-style-summary flex cursor-pointer list-none items-center justify-between text-xs font-semibold text-slate-800 [&::-webkit-details-marker]:hidden"><span>{label}</span><span className="text-base leading-none text-slate-500 transition-transform group-open:rotate-180">⌄</span></summary>
       <div className="mt-2 space-y-2">
       {type !== 'header' && <label className="flex min-h-11 items-center justify-between gap-2 text-xs font-medium text-slate-700">Background color<input aria-label={`${label} background color`} type="color" value={style.backgroundColor || defaultBackground} onChange={event => setStorefrontCardStyle(type, 'backgroundColor', event.target.value)} className="h-9 w-12 shrink-0 cursor-pointer rounded-md border border-slate-300 bg-white p-1 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500" /></label>}
       {type === 'button' && <label className="flex min-h-11 items-center justify-between gap-2 text-xs font-medium text-slate-700">Text color<input aria-label={`${label} text color`} type="color" value={style.textColor || themeColorValue('buttonText')} onChange={event => setStorefrontCardStyle(type, 'textColor', event.target.value)} className="h-9 w-12 shrink-0 cursor-pointer rounded-md border border-slate-300 bg-white p-1 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500" /></label>}
@@ -473,18 +615,39 @@ export default function SettingsBusinessPage({ colorsOnly = false }) {
       </div>
     </details>;
   };
+  const previewPanel = <>
+    <div className={`flex items-center justify-between gap-3 bg-white/95 py-1 backdrop-blur ${previewMode === 'mobile' ? '' : 'sticky top-3 z-10'}`}>
+      <span className="theme-colors-preview-title text-sm font-semibold text-slate-700" style={previewMode === 'mobile' ? { fontSize: 11, lineHeight: '14px' } : undefined}>Preview</span>
+      <div role="group" aria-label="Website preview size" className="theme-colors-preview-toggle-group inline-flex rounded-lg border border-slate-200 bg-slate-50 p-1" style={previewMode === 'mobile' ? { height: 26, padding: 2, gap: 2 } : undefined}>
+        {[['mobile', Smartphone, 'Mobile'], ['desktop', Monitor, 'Desktop']].map(([mode, Icon, label]) => <button key={mode} type="button" aria-label={`${label} preview`} aria-pressed={previewMode === mode} onClick={() => setPreviewMode(mode)} className={`theme-colors-preview-toggle inline-flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition ${previewMode === mode ? 'bg-[#304ca3] text-white shadow-sm' : 'text-slate-600 hover:bg-white'}`} style={previewMode === 'mobile' ? { width: 22, minWidth: 22, height: 22, minHeight: 22, padding: 2, gap: 0 } : undefined}><Icon size={previewMode === 'mobile' ? 11 : 15} /><span>{label}</span></button>)}
+      </div>
+    </div>
+    <div className={previewMode === 'mobile' ? '' : 'sticky top-14 z-10'}>
+      <LiveWebsitePreview
+        src={livePreviewUrl}
+        moduleName={activeModule?.name}
+        viewMode={previewMode}
+        refreshKey={previewRefreshKey}
+        theme={{ primaryColor: form.primaryColor, themeColors: form.themeColors }}
+        loading={isMainAdmin && (mainAdminPreview.loading || (!mainAdminPreview.website && !mainAdminPreview.error))}
+        error={livePreviewError}
+      />
+    </div>
+  </>;
 
   if (loading) return <div className="py-20 text-center text-slate-400">Loading business settings...</div>;
 
-  if (colorsOnly) return <form onSubmit={save} className="mx-auto w-full max-w-6xl space-y-5 pb-8">
+  if (colorsOnly) return <form onSubmit={save} className="theme-colors-form mx-auto w-full max-w-6xl space-y-5 pb-8">
     <div className="flex flex-wrap items-center justify-between gap-3">
       <div><h2 className="flex items-center gap-2 text-lg font-bold text-slate-900"><Building2 size={19} className="text-blue-700" />Website Theme Colors</h2><p className="mt-1 text-sm text-slate-500">Colors apply only to the currently selected web module.</p></div>
       <button type="submit" disabled={saving} className={`inline-flex items-center gap-2 rounded-lg px-5 py-2.5 text-sm font-semibold disabled:opacity-50 ${listBtnNavy}`}><Save size={15} />{saved ? 'Saved' : saving ? 'Saving...' : 'Save Colors'}</button>
     </div>
     {error && <p role="alert" className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</p>}
-    <Section title={getAdminModuleKey(activeModule) === 'marketing' ? 'Website colors' : 'Storefront colors'} description="Customize colors, borders, and corner roundness for each part of this web module.">
-      <div className="grid items-start gap-4 xl:grid-cols-[minmax(190px,0.9fr)_minmax(500px,2.5fr)_minmax(190px,0.9fr)]">
-        <div className="space-y-3 xl:max-h-[calc(100vh-250px)] xl:overflow-y-auto xl:overscroll-contain xl:pr-1">
+    <Section title={getAdminModuleKey(activeModule) === 'marketing' ? 'Website colors' : 'Storefront colors'} description="Customize colors, borders, and corner roundness for each part of this web module." overflowVisible={previewMode === 'mobile'} className={`theme-colors-section ${previewMode === 'mobile' ? 'theme-colors-mobile-layout' : ''}`}>
+      <div className="space-y-5">
+      {previewMode === 'mobile' && <div className="theme-colors-sticky-preview sticky top-0 z-20 self-start bg-white pb-3">{previewPanel}</div>}
+      <div className={`theme-colors-grid grid items-start gap-4 ${previewMode === 'mobile' ? 'xl:grid-cols-2' : 'xl:grid-cols-[minmax(190px,0.9fr)_minmax(500px,2.5fr)_minmax(190px,0.9fr)]'}`}>
+        <div className={`theme-colors-left-controls space-y-3 xl:pr-1 ${previewMode === 'mobile' ? '' : 'xl:max-h-[calc(100vh-250px)] xl:overflow-y-auto xl:overscroll-contain'}`}>
           <div>
             <h3 className="mb-2 text-sm font-semibold text-slate-800">Header colors</h3>
             <div className="grid gap-2">{headerThemeColorControls.map(renderThemeColor)}</div>
@@ -495,18 +658,8 @@ export default function SettingsBusinessPage({ colorsOnly = false }) {
             </div>
           </div>
         </div>
-        <div className="min-w-0 space-y-3">
-          <div className="sticky top-3 z-10 flex items-center justify-between gap-3 bg-white/95 py-1 backdrop-blur">
-            <span className="text-sm font-semibold text-slate-700">Preview</span>
-            <div role="group" aria-label="Website preview size" className="inline-flex rounded-lg border border-slate-200 bg-slate-50 p-1">
-              {[['mobile', Smartphone, 'Mobile'], ['desktop', Monitor, 'Desktop']].map(([mode, Icon, label]) => <button key={mode} type="button" aria-pressed={previewMode === mode} onClick={() => setPreviewMode(mode)} className={`inline-flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition ${previewMode === mode ? 'bg-[#304ca3] text-white shadow-sm' : 'text-slate-600 hover:bg-white'}`}><Icon size={15} />{label}</button>)}
-            </div>
-          </div>
-          <div className="sticky top-14 z-10">
-            <LiveWebsitePreview src={livePreviewUrl} moduleName={activeModule?.name} viewMode={previewMode} refreshKey={previewRefreshKey} />
-          </div>
-        </div>
-        <div className="space-y-4 xl:max-h-[calc(100vh-250px)] xl:overflow-y-auto xl:overscroll-contain xl:pr-1">
+        <div className="theme-colors-preview-cell min-w-0 space-y-3">{previewPanel}</div>
+        <div className={`theme-colors-right-controls space-y-4 xl:pr-1 ${previewMode === 'mobile' ? '' : 'xl:max-h-[calc(100vh-250px)] xl:overflow-y-auto xl:overscroll-contain'}`}>
           <div><h3 className="mb-2 text-sm font-semibold text-slate-800">Storefront colors</h3><div className="grid gap-2">{themeColorControls.slice(0, 10).map(renderThemeColor)}</div></div>
           <div className="space-y-3 border-t border-slate-200 pt-3">
             <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
@@ -524,22 +677,23 @@ export default function SettingsBusinessPage({ colorsOnly = false }) {
               {renderCardBorderControls('support', 'Support cards')}
               {renderCardBorderControls('button', 'Buttons')}
             </div>}
-            <label className="flex min-h-14 w-full min-w-0 items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700">
+            <label className="theme-select-control-card flex min-h-14 w-full min-w-0 items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700">
               <span className="shrink-0">Product cart button</span>
-              <select aria-label="Product cart button" value={form.themeColors?.productCartButtonStyle || 'image'} onChange={event => setThemeColor('productCartButtonStyle', event.target.value)} className="min-w-0 flex-1 rounded-md border border-slate-300 bg-white px-2 py-2 text-xs">
+              <select aria-label="Product cart button" value={form.themeColors?.productCartButtonStyle || 'image'} onChange={event => setThemeColor('productCartButtonStyle', event.target.value)} className="theme-control-select min-w-0 flex-1 rounded-md border border-slate-300 bg-white px-2 py-2 text-xs">
                 <option value="bottom">Bottom Add to Cart</option>
                 <option value="image">Image bottom-right: Add</option>
               </select>
             </label>
-            <label className="flex min-h-14 w-full min-w-0 items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700">
+            <label className="theme-select-control-card flex min-h-14 w-full min-w-0 items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700">
               <span className="shrink-0">Image button label</span>
-              <select aria-label="Image button label" value={form.themeColors?.productImageButtonLabel || 'add'} onChange={event => setThemeColor('productImageButtonLabel', event.target.value)} className="min-w-0 flex-1 rounded-md border border-slate-300 bg-white px-2 py-2 text-xs">
+              <select aria-label="Image button label" value={form.themeColors?.productImageButtonLabel || 'add'} onChange={event => setThemeColor('productImageButtonLabel', event.target.value)} className="theme-control-select min-w-0 flex-1 rounded-md border border-slate-300 bg-white px-2 py-2 text-xs">
                 <option value="add">Add</option>
                 <option value="plus">+</option>
               </select>
             </label>
           </div>
         </div>
+      </div>
       </div>
     </Section>
     <div className="flex justify-end gap-2"><button type="button" onClick={loadSettings} className={`inline-flex items-center gap-2 rounded-lg px-4 py-2.5 text-sm ${listBtnOutline}`}><RotateCcw size={14} />Reset</button><button type="submit" disabled={saving} className={`inline-flex items-center gap-2 rounded-lg px-5 py-2.5 text-sm font-semibold disabled:opacity-50 ${listBtnNavy}`}><Save size={14} />{saved ? 'Saved' : saving ? 'Saving...' : 'Save Colors'}</button></div>

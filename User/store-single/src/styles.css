@@ -36,8 +36,8 @@ a { color: inherit; text-decoration: none; }
 .product-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 24px 17px; margin-top: 25px; }
 .product-card { min-width: 0; background: #fff; }
 .product-image { position: relative; display: grid; place-items: center; aspect-ratio: 4 / 4.6; overflow: hidden; background: #eeede7; color: #8f9488; }
-.product-image img { width: 100%; height: 100%; object-fit: cover; transition: transform .4s ease; }
-.product-card:hover .product-image img { transform: scale(1.035); }
+.product-image img { width: 100%; height: 100%; object-fit: contain; object-position: center; transition: none; }
+.product-card:hover .product-image img { transform: none; }
 .product-image > span:not(.discount) { font: 52px Georgia, serif; }
 .discount { position: absolute; top: 12px; left: 12px; padding: 6px 9px; background: #f8f6f1; color: #394d40; font-size: 9px; font-weight: 700; }
 .product-info { padding: 15px 15px 16px; }

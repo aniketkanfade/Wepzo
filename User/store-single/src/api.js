@@ -8,9 +8,7 @@ export const MODULE_ID = (params.get('adminPreview') === '1'
   : params.get('websiteModuleId') || params.get('moduleId') || import.meta.env.VITE_WEBSITE_MODULE_ID) || ''
 export const BUILDER_PREVIEW = params.get('builderPreview') === '1'
 export const ADMIN_PREVIEW = params.get('adminPreview') === '1'
-export const API = (import.meta.env.VITE_STORE_SINGLE_API_URL
-  || import.meta.env.VITE_API_URL
-  || '/api').replace(/\/$/, '')
+export const API = '/api'
 
 export async function request(path, { method = 'GET', body } = {}) {
   const headers = {

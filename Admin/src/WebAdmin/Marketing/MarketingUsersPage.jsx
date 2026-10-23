@@ -7,8 +7,7 @@ const count = value => Number.isFinite(value) ? new Intl.NumberFormat('en-IN').f
 const dateLabel = value => value ? new Date(value).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : 'Not published';
 const mediaUrl = value => {
   if (!value || /^(https?:|data:|blob:)/i.test(value)) return value;
-  const apiRoot = (import.meta.env.VITE_MARKETING_API_URL || import.meta.env.VITE_API_URL || '/api').replace(/\/api\/?$/, '');
-  return `${apiRoot}${value.startsWith('/') ? value : `/${value}`}`;
+  return new URL(value.startsWith('/') ? value : `/${value}`, window.location.origin).toString();
 };
 
 export default function MarketingUsersPage() {

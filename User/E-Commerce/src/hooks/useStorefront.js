@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { ADMIN_PREVIEW, BUILDER_PREVIEW, imageOf, request, WEBSITE_ID } from '../lib/storefront'
+import { BUILDER_PREVIEW, getWebsiteId, imageOf, request } from '../lib/storefront'
+
+const isActiveCategory = item => item.status !== false
+  && !['false', 'inactive', 'disabled', '0'].includes(String(item.status ?? '').trim().toLowerCase())
 
 function loadCheckoutScript(src, globalName) {
   if (window[globalName]) return Promise.resolve(true)
@@ -60,24 +63,35 @@ export default function useStorefront() {
   const [couponCode, setCouponCode] = useState('')
   const [paymentMethod, setPaymentMethod] = useState('COD')
   const [pendingPaymentOrder, setPendingPaymentOrder] = useState(null)
+  const [recentlyViewed, setRecentlyViewed] = useState([])
   const [cookieAccepted, setCookieAccepted] = useState(false)
   const [shopperStateReady, setShopperStateReady] = useState(false)
   const [shopperPersistenceEnabled, setShopperPersistenceEnabled] = useState(false)
   const [shopperStateError, setShopperStateError] = useState('')
+  const [previewTheme, setPreviewTheme] = useState(null)
 
-  const business = home?.business || {}
+  const business = useMemo(() => {
+    const current = home?.business || {}
+    if (!previewTheme) return current
+    return {
+      ...current,
+      primaryColor: previewTheme.primaryColor || current.primaryColor,
+      themeColors: previewTheme.themeColors || current.themeColors || {},
+    }
+  }, [home?.business, previewTheme])
 
   useEffect(() => {
     let active = true
     const loadShopperState = async () => {
       try {
-        const [state, auth] = await Promise.all([
-          request('/shop/state'),
-          request('/shop/auth/me').then(result => result.user || null).catch(error => {
-            if (error.status === 401) return null
-            throw error
-          }),
-        ])
+        let auth = null
+        try {
+          auth = (await request('/shop/auth/me')).user || null
+        } catch (error) {
+          if (error.status !== 401) throw error
+          await request('/shop/auth/logout', { method: 'POST' })
+        }
+        const state = await request('/shop/state')
         if (!active) return
         const nextLocation = state.location?.current && typeof state.location.current === 'object'
           ? state.location.current
@@ -94,6 +108,7 @@ export default function useStorefront() {
         setAddressDetails(savedAddress)
         setAddress(String(savedAddress?.address || ''))
         setPhone(String(savedAddress?.phone || auth?.phone || ''))
+        setRecentlyViewed(Array.isArray(state.recentlyViewed) ? state.recentlyViewed : [])
         setCookieAccepted(state.cookieAccepted === true)
         setCustomer(auth)
         setShopperStateError('')
@@ -116,6 +131,7 @@ export default function useStorefront() {
         body: JSON.stringify({ state: {
           cart: { items: cart, couponCode, pendingPaymentOrder },
           wishlist: { items: favorites },
+          recentlyViewed,
           location: {
             current: location,
             saved: [],
@@ -130,7 +146,7 @@ export default function useStorefront() {
       })
     }, 250)
     return () => window.clearTimeout(timer)
-  }, [shopperStateReady, shopperPersistenceEnabled, cart, couponCode, pendingPaymentOrder, favorites, location, address, phone, addressDetails, cookieAccepted])
+  }, [shopperStateReady, shopperPersistenceEnabled, cart, couponCode, pendingPaymentOrder, favorites, recentlyViewed, location, address, phone, addressDetails, cookieAccepted, customer?._id])
 
   const checkServiceArea = useCallback(async (pincode, state = '') => {
     const pin = String(pincode || '').trim()
@@ -149,9 +165,21 @@ export default function useStorefront() {
     return match ? decodeURIComponent(match[1]) : ''
   }
 
+  const recordProductView = useCallback(product => {
+    const productId = String(product?._id || product?.id || '').trim()
+    if (!productId) return
+    const viewedAt = new Date().toISOString()
+    setRecentlyViewed(current => {
+      const latest = current[0]
+      if (String(latest?.productId || '') === productId && Date.now() - (Date.parse(latest.viewedAt || '') || 0) < 60_000) return current
+      return [{ productId, viewedAt }, ...current.filter(item => String(item.productId) !== productId)].slice(0, 60)
+    })
+  }, [])
+
   const openProduct = product => {
     const id = product?._id || product?.id
     if (!id) return
+    recordProductView(product)
     window.history.pushState({ ...(window.history.state || {}), wepzoProductDetail: true }, '', `/product/${encodeURIComponent(id)}${window.location.search}`)
     setSelected(product)
     setCurrentPage('product')
@@ -198,12 +226,14 @@ export default function useStorefront() {
     const syncProductRoute = () => {
       const id = productRouteId()
       setCurrentPage(currentPageFromPath())
-      setSelected(id ? products.find(product => String(product._id || product.id) === id) || null : null)
+      const product = id ? products.find(item => String(item._id || item.id) === id) || null : null
+      setSelected(product)
+      if (product) recordProductView(product)
     }
     syncProductRoute()
     window.addEventListener('popstate', syncProductRoute)
     return () => window.removeEventListener('popstate', syncProductRoute)
-  }, [products])
+  }, [products, recordProductView])
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
@@ -222,6 +252,7 @@ export default function useStorefront() {
         setCheckout(false)
         navigatePage('orders')
         setMessage(`Payment received. Order ${result.order?.orderNo || ''} is confirmed.`)
+        load()
       })
       .catch(paymentError => setMessage(paymentError.message))
       .finally(() => setBusy(false))
@@ -234,7 +265,8 @@ export default function useStorefront() {
     if (!BUILDER_PREVIEW) return undefined
     const receivePreview = event => {
       if (event.source !== window.parent || event.data?.type !== 'wepzo:builder-preview') return
-      setBuilderComponents(Array.isArray(event.data.components) ? event.data.components : [])
+      if (Array.isArray(event.data.components)) setBuilderComponents(event.data.components)
+      if (event.data.theme && typeof event.data.theme === 'object') setPreviewTheme(event.data.theme)
     }
     window.addEventListener('message', receivePreview)
     return () => window.removeEventListener('message', receivePreview)
@@ -244,10 +276,16 @@ export default function useStorefront() {
     setLoading(true)
     setError('')
     try {
+      const websiteId = getWebsiteId()
       const [shop, catalog, publishedWebsite] = await Promise.all([
-        request('/shop/home'),
-        request(`/shop/products?${new URLSearchParams({ ...(selectedModule ? { module: selectedModule } : {}), ...(sort ? { sort } : {}) })}`),
-        WEBSITE_ID ? request(`/public/published-websites/${WEBSITE_ID}`).catch(() => null) : Promise.resolve(null),
+        request(`/shop/home?${new URLSearchParams({
+          ...(selectedModule ? { module: selectedModule } : {}),
+          ...(category ? { category } : {}),
+          ...(subCategory ? { subCategory } : {}),
+          ...(childCategory ? { childCategory } : {}),
+        })}`),
+        request(`/shop/products?${new URLSearchParams({ ...(sort ? { sort } : {}) })}`),
+        websiteId ? request(`/public/published-websites/${websiteId}`).catch(() => null) : Promise.resolve(null),
       ])
       if (!shop || typeof shop !== 'object' || Array.isArray(shop)) {
         throw new Error('The shop API returned invalid storefront data. Please try again.')
@@ -257,7 +295,20 @@ export default function useStorefront() {
       }
       setHome(shop)
       if (shop.business?.codEnabled === false && shop.business?.onlinePaymentEnabled) setPaymentMethod('ONLINE')
-      setProducts(catalog)
+      const activityById = new Map(
+        [...(shop.bestsellers || []), ...(shop.newest || [])]
+          .filter(product => product?._id || product?.id)
+          .map(product => [String(product._id || product.id), product]),
+      )
+      setProducts(catalog.map(product => {
+        const activity = activityById.get(String(product._id || product.id || ''))
+        return activity ? {
+          ...product,
+          unitsSold: activity.unitsSold ?? product.unitsSold,
+          orderCount: activity.orderCount ?? product.orderCount,
+          reviewCount: activity.reviewCount ?? product.reviewCount,
+        } : product
+      }))
       if (Array.isArray(shop.websiteComponents)) setBuilderComponents(shop.websiteComponents)
       if (publishedWebsite?.components) setBuilderComponents(publishedWebsite.components)
     } catch (loadError) {
@@ -265,9 +316,9 @@ export default function useStorefront() {
     } finally {
       setLoading(false)
     }
-  }, [sort, selectedModule])
+  }, [sort, selectedModule, category, subCategory, childCategory])
 
-  useEffect(() => { load() }, [load])
+  useEffect(() => { if (shopperStateReady) load() }, [load, shopperStateReady])
   useEffect(() => {
     if (!favorites.length) {
       setFavoriteCatalog([])
@@ -315,40 +366,48 @@ export default function useStorefront() {
       ? imageOf({ image: business.favicon })
       : String(business.businessName || 'WEPZO').trim().toLowerCase() === 'wepzo' ? '/wepzo-favicon.svg' : '/favicon.ico'
   }, [business.businessName, business.favicon])
-  const modules = useMemo(() => (home?.modules || []).filter(item => item.status !== false && item.slug), [home])
+  const modules = useMemo(() => (home?.modules || []).filter(item => isActiveCategory(item) && item.slug), [home])
   const categories = useMemo(() => {
     if (!selectedModule) return []
     const module = modules.find(item => item.slug === selectedModule)
     if (!module) return []
     return [...new Set((home?.categories || [])
-      .filter(item => String(item.moduleId || item.module?._id || item.module || '') === String(module._id)
-        || String(item.moduleSlug || '').toLowerCase() === String(module.slug).toLowerCase())
+      .filter(item => isActiveCategory(item)
+        && (String(item.moduleId || item.module?._id || item.module || '') === String(module._id)
+          || String(item.moduleSlug || '').toLowerCase() === String(module.slug).toLowerCase()))
       .map(item => item.name)
       .filter(Boolean))]
   }, [home, modules, selectedModule])
   const subCategories = useMemo(() => [...new Set((home?.subCategories || [])
-    .filter(item => category && String(item.mainCategory || '').toLowerCase() === category.toLowerCase())
+    .filter(item => isActiveCategory(item)
+      && category && String(item.mainCategory || '').trim().toLowerCase() === category.trim().toLowerCase())
     .map(item => item.name).filter(Boolean))], [home, category])
   const childCategories = useMemo(() => [...new Set((home?.childCategories || [])
-    .filter(item => category && subCategory
-      && String(item.mainCategory || '').toLowerCase() === category.toLowerCase()
-      && String(item.subCategory || '').toLowerCase() === subCategory.toLowerCase())
+    .filter(item => isActiveCategory(item)
+      && category && subCategory
+      && String(item.mainCategory || '').trim().toLowerCase() === category.trim().toLowerCase()
+      && String(item.subCategory || '').trim().toLowerCase() === subCategory.trim().toLowerCase())
     .map(item => item.name).filter(Boolean))], [home, category, subCategory])
   const shown = useMemo(() => products.filter(item => {
+    const productModule = String(item.moduleSlug || item.module?.slug || (typeof item.module === 'string' ? item.module : '')).trim().toLowerCase()
+    const matchesModule = !selectedModule || productModule === String(selectedModule).trim().toLowerCase()
     const productCategory = item.mainCategory || item.category
-    const matchesCategory = (!category || productCategory === category)
-      && (!subCategory || item.subCategory === subCategory)
-      && (!childCategory || item.childCategory === childCategory)
+    const matchesCategory = (!category || String(productCategory || '').trim().toLowerCase() === category.trim().toLowerCase())
+      && (!subCategory || String(item.subCategory || '').trim().toLowerCase() === subCategory.trim().toLowerCase())
+      && (!childCategory || String(item.childCategory || '').trim().toLowerCase() === childCategory.trim().toLowerCase())
     const term = query.trim().toLowerCase()
-    return matchesCategory && (!term || `${item.name} ${item.brand} ${productCategory || ''}`.toLowerCase().includes(term))
-  }), [products, category, subCategory, childCategory, query])
+    return matchesModule && matchesCategory && (!term || `${item.name} ${item.brand} ${productCategory || ''}`.toLowerCase().includes(term))
+  }), [products, selectedModule, category, subCategory, childCategory, query])
   const deals = useMemo(() => [...products.filter(item => Number(item.discount) > 0), ...products]
     .filter((item, index, list) => list.findIndex(entry => (entry._id || entry.id) === (item._id || item.id)) === index)
     .slice(0, 6), [products])
-  const bestsellers = useMemo(() => [...products].sort((a, b) => Number(b.rating || 0) - Number(a.rating || 0)).slice(0, 6), [products])
+  const bestsellers = useMemo(() => {
+    if (home?.popularByModule && typeof home.popularByModule === 'object') return Object.values(home.popularByModule).flat()
+    return Array.isArray(home?.bestsellers) ? home.bestsellers : []
+  }, [home])
   const heroBanner = home?.banners?.[0]
   const categoryProduct = name => products.find(item => [item.mainCategory || item.category, item.subCategory, item.childCategory]
-    .some(value => String(value || '').toLowerCase() === String(name).toLowerCase()))
+    .some(value => String(value || '').trim().toLowerCase() === String(name).trim().toLowerCase()))
   const count = cart.reduce((sum, item) => sum + item.qty, 0)
   const subtotal = cart.reduce((sum, item) => sum + item.price * item.qty, 0)
   const cartItem = id => {
@@ -447,6 +506,7 @@ export default function useStorefront() {
         body: JSON.stringify({ name: form.get('name'), email: form.get('email'), phone: form.get('phone'), password: form.get('password') }),
       })
       setCustomer(result.user)
+      load()
       setAuthOpen(false)
       setMessage(`Welcome ${result.user.name}`)
       if (checkoutAfterLogin) {
@@ -472,7 +532,9 @@ export default function useStorefront() {
   }
 
   const signOut = () => {
-    request('/shop/auth/logout', { method: 'POST' }).catch(error => setMessage(error.message))
+    request('/shop/auth/logout', { method: 'POST' })
+      .then(() => load())
+      .catch(error => setMessage(error.message))
     setPendingPaymentOrder(null)
     setCustomer(null)
     setMessage('You have been signed out.')
@@ -592,6 +654,7 @@ export default function useStorefront() {
                 setCheckout(false)
                 navigatePage('orders')
                 setMessage(`Payment received. Order ${order.orderNo} is confirmed.`)
+                load()
               } catch (paymentError) {
                 setPaymentWindowOpen(false)
                 setMessage(paymentError.message)
@@ -620,6 +683,7 @@ export default function useStorefront() {
         setCheckout(false)
         navigatePage('orders')
         setMessage(`Order ${order.orderNo || order.orderId} placed successfully.`)
+        load()
       }
     } catch (orderError) {
       setMessage(orderError.message)
@@ -638,7 +702,7 @@ export default function useStorefront() {
     customer, message, setMessage, checkout, setCheckout, address, setAddress, addressDetails, phone, setPhone,
     addressOpen, setAddressOpen, startCheckout, closeAuth, saveDeliveryAddress, saveDetectedLocation,
     busy: busy || paymentWindowOpen, quote, setQuote, couponCode, setCouponCode, applyCoupon, removeCoupon, paymentMethod, setPaymentMethod: choosePaymentMethod,
-    cookieAccepted, setCookieAccepted, categories, modules, shown, deals,
+    cookieAccepted, setCookieAccepted, recentlyViewed, categories, modules, shown, deals,
     bestsellers, heroBanner, categoryProduct, count, subtotal, cartItem, changeQty, toggleFavorite,
     calculateQuote, submitAuth, placeOrder, signOut,
   }

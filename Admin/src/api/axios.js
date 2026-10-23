@@ -1,19 +1,5 @@
 import axios from 'axios';
-import { getAdminModuleKey } from '../constants/adminModules';
-
-const normalizeApiUrl = value => {
-  const url = String(value || '/api').trim().replace(/\/+$/, '');
-  return /\/api$/i.test(url) ? url : `${url}/api`;
-};
-
-const sharedApiUrl = normalizeApiUrl(import.meta.env.VITE_API_URL || '/api');
-const moduleApiUrls = {
-  'quick-commerce': normalizeApiUrl(import.meta.env.VITE_QUICK_COMMERCE_API_URL || sharedApiUrl),
-  'e-commerce': normalizeApiUrl(import.meta.env.VITE_E_COMMERCE_API_URL || sharedApiUrl),
-  'store-single': normalizeApiUrl(import.meta.env.VITE_STORE_SINGLE_API_URL || sharedApiUrl),
-  marketing: normalizeApiUrl(import.meta.env.VITE_MARKETING_API_URL || sharedApiUrl),
-  'information-web': normalizeApiUrl(import.meta.env.VITE_INFORMATION_WEB_API_URL || sharedApiUrl),
-};
+const sharedApiUrl = '/api';
 
 const api = axios.create({
   baseURL: sharedApiUrl,
@@ -35,7 +21,6 @@ api.interceptors.request.use(config => {
       : (selectedModule?._id && selectedModule._id !== selectedModule.slug ? selectedModule._id : '');
     const websiteId = currentUser?.websiteId || '';
     if (moduleSlug) {
-      config.baseURL = moduleApiUrls[getAdminModuleKey({ slug: moduleSlug })] || sharedApiUrl;
       if (config.headers.set) config.headers.set('X-Website-Module', moduleSlug);
       else config.headers['X-Website-Module'] = moduleSlug;
     }
