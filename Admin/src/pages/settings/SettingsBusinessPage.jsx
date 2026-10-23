@@ -134,8 +134,11 @@ function LiveWebsitePreview({ src, moduleName, viewMode, refreshKey, theme, load
     const resize = () => {
       const widthScale = container.clientWidth / viewport.width;
       const narrowScreen = window.matchMedia('(max-width: 767px)').matches;
-      const compactPreview = narrowScreen || viewMode === 'mobile';
-      const heightScale = compactPreview
+      if (narrowScreen && viewMode === 'desktop') {
+        setScale(Math.min(1, widthScale));
+        return;
+      }
+      const heightScale = narrowScreen && viewMode === 'mobile'
         ? Math.min(150, window.innerHeight * 0.22) / viewport.height
         : viewMode === 'mobile' ? (window.innerHeight * 0.58) / viewport.height : 1;
       setScale(Math.min(1, widthScale, heightScale));
@@ -533,9 +536,12 @@ export default function SettingsBusinessPage({ colorsOnly = false }) {
         || previewWebsite?.domain?.fullDomain
         || (String(previewWebsite?.domain?.name || '').includes('.') ? previewWebsite.domain.name : '')
         || '';
-      if (websiteUrl) {
+      if (websiteUrl && !(isMainAdmin && import.meta.env.DEV)) {
         const liveUrl = new URL(/^https?:\/\//i.test(websiteUrl) ? websiteUrl : `https://${websiteUrl}`);
         previewBase = liveUrl.href;
+      }
+      if (!previewBase && isMainAdmin && moduleKey === 'e-commerce' && mainAdminPreview.website?.modulePreview) {
+        previewBase = 'https://wepzo.in/';
       }
       if (!previewBase) return '';
       const url = new URL(previewBase, window.location.origin);
@@ -652,7 +658,7 @@ export default function SettingsBusinessPage({ colorsOnly = false }) {
             </div>
           </div>
         </div>
-        {previewMode === 'desktop' && <div className="theme-colors-preview-cell min-w-0 space-y-3">{previewPanel}</div>}
+        <div className="theme-colors-preview-cell min-w-0 space-y-3">{previewPanel}</div>
         <div className={`theme-colors-right-controls space-y-4 xl:pr-1 ${previewMode === 'mobile' ? '' : 'xl:max-h-[calc(100vh-250px)] xl:overflow-y-auto xl:overscroll-contain'}`}>
           <div><h3 className="mb-2 text-sm font-semibold text-slate-800">Storefront colors</h3><div className="grid gap-2">{themeColorControls.slice(0, 10).map(renderThemeColor)}</div></div>
           <div className="space-y-3 border-t border-slate-200 pt-3">
