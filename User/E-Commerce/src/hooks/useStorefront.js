@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { ADMIN_PREVIEW, BUILDER_PREVIEW, imageOf, request, WEBSITE_ID } from '../lib/storefront'
+import { BUILDER_PREVIEW, getWebsiteId, imageOf, request } from '../lib/storefront'
 
 const isActiveCategory = item => item.status !== false
   && !['false', 'inactive', 'disabled', '0'].includes(String(item.status ?? '').trim().toLowerCase())
@@ -276,6 +276,7 @@ export default function useStorefront() {
     setLoading(true)
     setError('')
     try {
+      const websiteId = getWebsiteId()
       const [shop, catalog, publishedWebsite] = await Promise.all([
         request(`/shop/home?${new URLSearchParams({
           ...(selectedModule ? { module: selectedModule } : {}),
@@ -284,7 +285,7 @@ export default function useStorefront() {
           ...(childCategory ? { childCategory } : {}),
         })}`),
         request(`/shop/products?${new URLSearchParams({ ...(sort ? { sort } : {}) })}`),
-        WEBSITE_ID ? request(`/public/published-websites/${WEBSITE_ID}`).catch(() => null) : Promise.resolve(null),
+        websiteId ? request(`/public/published-websites/${websiteId}`).catch(() => null) : Promise.resolve(null),
       ])
       if (!shop || typeof shop !== 'object' || Array.isArray(shop)) {
         throw new Error('The shop API returned invalid storefront data. Please try again.')
