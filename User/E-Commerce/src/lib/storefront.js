@@ -38,7 +38,8 @@ function currentWebsiteHost(context) {
 
   const isLocalDevelopmentHost = import.meta.env.DEV
     && ['localhost', '127.0.0.1'].includes(window.location.hostname)
-  return isLocalDevelopmentHost ? 'wepzo.in' : window.location.host
+  const isMainStorefrontDeployment = window.location.hostname === 'wepzoecom.vercel.app'
+  return isLocalDevelopmentHost || isMainStorefrontDeployment ? 'wepzo.in' : window.location.host
 }
 
 export const KNOWN_COMPONENTS = new Set([
