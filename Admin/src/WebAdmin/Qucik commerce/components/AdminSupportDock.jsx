@@ -35,7 +35,7 @@ export default function AdminSupportDock() {
     try { localStorage.setItem(SEEN_KEY, JSON.stringify([...next])); } catch { /* storage may be unavailable */ }
   };
 
-  return <footer className="relative z-[80] flex h-12 shrink-0 items-center justify-between border-t border-slate-200 bg-white px-4 sm:px-6">
+  return <footer className="relative z-[80] mt-auto flex h-12 min-h-12 flex-none items-center justify-between border-t border-slate-200 bg-white px-4 sm:px-6">
     <p className="text-[10px] text-slate-400">WEPZO Admin</p>
     <div className="relative flex items-center">
     {open && <section className="absolute bottom-full right-0 mb-2 w-[min(360px,calc(100vw-24px))] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl" aria-label="Customer support messages">

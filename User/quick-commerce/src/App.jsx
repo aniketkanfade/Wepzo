@@ -45,6 +45,7 @@ export default function App() {
     ? location.state?.backgroundLocation || { pathname: '/', search: location.search, hash: '' }
     : null;
   const business = useSiteSettings(state => state.business);
+  const setPreviewTheme = useSiteSettings(state => state.setPreviewTheme);
   const pendingAdd = useCart(state => state.pendingAdd);
   const confirmPendingAdd = useCart(state => state.confirmPendingAdd);
   const cancelPendingAdd = useCart(state => state.cancelPendingAdd);
@@ -62,6 +63,16 @@ export default function App() {
   const selectedComponents = new Set(componentList.split(',').filter(Boolean));
   const componentEnabled = slug => (adminPreview || !websiteContextActive || selectedComponents.has(slug))
     && !(templatePreview && ['quick-commerce-profile', 'quick-commerce-account'].includes(slug));
+
+  useEffect(() => {
+    if (!builderPreview) return undefined;
+    const receivePreview = event => {
+      if (event.source !== window.parent || event.data?.type !== 'wepzo:builder-preview') return;
+      if (event.data.theme && typeof event.data.theme === 'object') setPreviewTheme(event.data.theme);
+    };
+    window.addEventListener('message', receivePreview);
+    return () => window.removeEventListener('message', receivePreview);
+  }, [builderPreview, setPreviewTheme]);
 
   useEffect(() => {
     let active = true;

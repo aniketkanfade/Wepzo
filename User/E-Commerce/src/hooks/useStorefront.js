@@ -67,8 +67,17 @@ export default function useStorefront() {
   const [shopperStateReady, setShopperStateReady] = useState(false)
   const [shopperPersistenceEnabled, setShopperPersistenceEnabled] = useState(false)
   const [shopperStateError, setShopperStateError] = useState('')
+  const [previewTheme, setPreviewTheme] = useState(null)
 
-  const business = home?.business || {}
+  const business = useMemo(() => {
+    const current = home?.business || {}
+    if (!previewTheme) return current
+    return {
+      ...current,
+      primaryColor: previewTheme.primaryColor || current.primaryColor,
+      themeColors: previewTheme.themeColors || current.themeColors || {},
+    }
+  }, [home?.business, previewTheme])
 
   useEffect(() => {
     let active = true
@@ -237,7 +246,8 @@ export default function useStorefront() {
     if (!BUILDER_PREVIEW) return undefined
     const receivePreview = event => {
       if (event.source !== window.parent || event.data?.type !== 'wepzo:builder-preview') return
-      setBuilderComponents(Array.isArray(event.data.components) ? event.data.components : [])
+      if (Array.isArray(event.data.components)) setBuilderComponents(event.data.components)
+      if (event.data.theme && typeof event.data.theme === 'object') setPreviewTheme(event.data.theme)
     }
     window.addEventListener('message', receivePreview)
     return () => window.removeEventListener('message', receivePreview)
@@ -260,7 +270,20 @@ export default function useStorefront() {
       }
       setHome(shop)
       if (shop.business?.codEnabled === false && shop.business?.onlinePaymentEnabled) setPaymentMethod('ONLINE')
-      setProducts(catalog)
+      const activityById = new Map(
+        [...(shop.bestsellers || []), ...(shop.newest || [])]
+          .filter(product => product?._id || product?.id)
+          .map(product => [String(product._id || product.id), product]),
+      )
+      setProducts(catalog.map(product => {
+        const activity = activityById.get(String(product._id || product.id || ''))
+        return activity ? {
+          ...product,
+          unitsSold: activity.unitsSold ?? product.unitsSold,
+          orderCount: activity.orderCount ?? product.orderCount,
+          reviewCount: activity.reviewCount ?? product.reviewCount,
+        } : product
+      }))
       if (Array.isArray(shop.websiteComponents)) setBuilderComponents(shop.websiteComponents)
       if (publishedWebsite?.components) setBuilderComponents(publishedWebsite.components)
     } catch (loadError) {

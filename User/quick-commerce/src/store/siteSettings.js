@@ -4,7 +4,22 @@ const CURRENCY_SYMBOLS = { INR: '₹', USD: '$', EUR: '€', GBP: '£', AED: 'د
 
 export const useSiteSettings = create(set => ({
   business: {},
-  setBusiness: business => set({ business: business || {} }),
+  previewTheme: null,
+  setBusiness: business => set(state => ({
+    business: state.previewTheme ? {
+      ...(business || {}),
+      primaryColor: state.previewTheme.primaryColor || business?.primaryColor,
+      themeColors: { ...(business?.themeColors || {}), ...(state.previewTheme.themeColors || {}) },
+    } : business || {},
+  })),
+  setPreviewTheme: previewTheme => set(state => ({
+    previewTheme,
+    business: {
+      ...state.business,
+      primaryColor: previewTheme?.primaryColor || state.business.primaryColor,
+      themeColors: { ...(state.business.themeColors || {}), ...(previewTheme?.themeColors || {}) },
+    },
+  })),
 }));
 
 export function formatMoney(value, business = useSiteSettings.getState().business) {

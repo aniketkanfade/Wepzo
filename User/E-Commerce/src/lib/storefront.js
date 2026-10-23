@@ -6,6 +6,33 @@ export const ADMIN_PREVIEW = params.get('adminPreview') === '1'
 export const WEBSITE_ID = (params.get('websiteId') || import.meta.env.VITE_WEBSITE_ID) || ''
 export const WEBSITE_MODULE_ID = (params.get('websiteModuleId') || params.get('moduleId') || import.meta.env.VITE_WEBSITE_MODULE_ID) || ''
 
+// Earlier storefront versions kept shopper data in browser storage. Remove only
+// those old, namespaced E-Commerce keys; the active shopper state now comes from
+// the server and the server session cookie must remain intact.
+const LEGACY_STOREFRONT_STORAGE_KEYS = [
+  'wepzo-cart',
+  'wepzo-favorites',
+  'wepzo-location',
+  'wepzo-shop-customer',
+  'wepzo-shop-token',
+  'wepzo-pending-payment-order',
+  'wepzo-cookie-consent',
+  'wepzo-delivery-address',
+]
+
+try {
+  const legacyKeys = []
+  for (let index = 0; index < window.localStorage.length; index += 1) {
+    const key = window.localStorage.key(index)
+    if (key && LEGACY_STOREFRONT_STORAGE_KEYS.some(prefix => key === prefix || key.startsWith(`${prefix}:`))) {
+      legacyKeys.push(key)
+    }
+  }
+  legacyKeys.forEach(key => window.localStorage.removeItem(key))
+} catch {
+  // Storage can be unavailable in private or restricted browser contexts.
+}
+
 export const KNOWN_COMPONENTS = new Set([
   'logo', 'quick-commerce-header', 'quick-commerce-location', 'quick-commerce-search', 'quick-commerce-categories',
   'quick-commerce-favorites', 'quick-commerce-cart', 'quick-commerce-profile', 'quick-commerce-offer-banner',

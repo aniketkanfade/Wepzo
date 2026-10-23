@@ -6,6 +6,7 @@ const API = (import.meta.env.VITE_GENERAL_API_URL || import.meta.env.VITE_API_UR
 const query = new URLSearchParams(`${window.location.search.replace(/^\?/, '')}&${window.location.hash.includes('?') ? window.location.hash.slice(window.location.hash.indexOf('?') + 1) : ''}`)
 const websiteId = import.meta.env.VITE_WEBSITE_ID || query.get('websiteId') || query.get('tenantId') || ''
 const previewMode = query.get('preview') === '1'
+const builderPreview = query.get('builderPreview') === '1'
 
 function merge(defaultsValue, value) {
   if (Array.isArray(defaultsValue)) return Array.isArray(value) ? value : defaultsValue
@@ -185,12 +186,22 @@ function ContentPage({ content, route }) {
 export default function App() {
   const [content, setContent] = useState(defaults)
   const [theme, setTheme] = useState({})
+  const [previewTheme, setPreviewTheme] = useState(null)
   const [route, setRoute] = useState(routeNow)
   const [loading, setLoading] = useState(true)
   useEffect(() => {
     const onHashChange = () => { setRoute(routeNow()); window.scrollTo({ top: 0, behavior: 'smooth' }) }
     window.addEventListener('hashchange', onHashChange)
     return () => window.removeEventListener('hashchange', onHashChange)
+  }, [])
+  useEffect(() => {
+    if (!builderPreview) return undefined
+    const receivePreview = event => {
+      if (event.source !== window.parent || event.data?.type !== 'wepzo:builder-preview') return
+      if (event.data.theme && typeof event.data.theme === 'object') setPreviewTheme(event.data.theme)
+    }
+    window.addEventListener('message', receivePreview)
+    return () => window.removeEventListener('message', receivePreview)
   }, [])
   useEffect(() => {
     let active = true
@@ -211,45 +222,53 @@ export default function App() {
     return () => { active = false; window.clearInterval(timer); window.removeEventListener('focus', refresh) }
   }, [])
   useEffect(() => { document.title = content.brand?.name || 'Web Page' }, [content.brand?.name])
+  const liveTheme = useMemo(() => {
+    if (!previewTheme) return theme
+    const cards = { ...(theme.storefrontCardStyles || {}), ...(previewTheme.storefrontCardStyles || {}) }
+    for (const [type, style] of Object.entries(previewTheme.storefrontCardStyles || {})) {
+      cards[type] = { ...(theme.storefrontCardStyles?.[type] || {}), ...style }
+    }
+    return { ...theme, ...previewTheme, storefrontCardStyles: cards }
+  }, [previewTheme, theme])
   const page = useMemo(() => <ContentPage content={content} route={route}/>, [content, route])
   return <div className="web-page-app" style={{
-    '--brand': theme.primaryColor || content.brand?.primaryColor || '#1457d9',
-    '--header-bg': theme.headerBackground || '#ffffff', '--header-text': theme.headerText || '#142238',
-    '--search-bg': theme.searchBackground || '#f8f9fb', '--search-button': theme.searchButton || theme.primaryColor || '#1457d9',
-    '--button-bg': theme.buttonBackground || theme.primaryColor || content.brand?.primaryColor || '#1457d9',
-    '--button-text': theme.buttonText || '#ffffff', '--footer-bg': theme.footerBackground || '#111f32',
-    '--footer-text': theme.footerText || '#ffffff', '--page-bg': theme.pageBackground || '#ffffff',
-    '--surface-bg': theme.surfaceBackground || '#ffffff',
-    '--storefront-product-border-radius': `${Math.max(0, Math.min(40, Number(theme.storefrontCardStyles?.product?.borderRadius ?? 12)))}px`,
-    '--storefront-product-border-width': `${Math.max(0, Math.min(8, Number(theme.storefrontCardStyles?.product?.borderWidth ?? 1)))}px`,
-    '--storefront-product-border-color': theme.storefrontCardStyles?.product?.borderColor || '#e2e8f0',
-    '--storefront-product-background': theme.storefrontCardStyles?.product?.backgroundColor || theme.productCardBackground || theme.surfaceBackground || '#fff',
-    '--storefront-category-border-radius': `${Math.max(0, Math.min(40, Number(theme.storefrontCardStyles?.category?.borderRadius ?? 12)))}px`,
-    '--storefront-category-border-width': `${Math.max(0, Math.min(8, Number(theme.storefrontCardStyles?.category?.borderWidth ?? 1)))}px`,
-    '--storefront-category-border-color': theme.storefrontCardStyles?.category?.borderColor || '#e2e8f0',
-    '--storefront-category-background': theme.storefrontCardStyles?.category?.backgroundColor || theme.surfaceBackground || '#fff',
-    '--storefront-promo-border-radius': `${Math.max(0, Math.min(40, Number(theme.storefrontCardStyles?.promo?.borderRadius ?? 12)))}px`,
-    '--storefront-promo-border-width': `${Math.max(0, Math.min(8, Number(theme.storefrontCardStyles?.promo?.borderWidth ?? 1)))}px`,
-    '--storefront-promo-border-color': theme.storefrontCardStyles?.promo?.borderColor || '#e2e8f0',
-    '--storefront-promo-background': theme.storefrontCardStyles?.promo?.backgroundColor || theme.surfaceBackground || '#fff',
-    '--storefront-account-border-radius': `${Math.max(0, Math.min(40, Number(theme.storefrontCardStyles?.account?.borderRadius ?? 12)))}px`,
-    '--storefront-account-border-width': `${Math.max(0, Math.min(8, Number(theme.storefrontCardStyles?.account?.borderWidth ?? 1)))}px`,
-    '--storefront-account-border-color': theme.storefrontCardStyles?.account?.borderColor || '#e2e8f0',
-    '--storefront-account-background': theme.storefrontCardStyles?.account?.backgroundColor || theme.surfaceBackground || '#fff',
+    '--brand': liveTheme.primaryColor || content.brand?.primaryColor || '#1457d9',
+    '--header-bg': liveTheme.headerBackground || '#ffffff', '--header-text': liveTheme.headerText || '#142238',
+    '--search-bg': liveTheme.searchBackground || '#f8f9fb', '--search-button': liveTheme.searchButton || liveTheme.primaryColor || '#1457d9',
+    '--button-bg': liveTheme.buttonBackground || liveTheme.primaryColor || content.brand?.primaryColor || '#1457d9',
+    '--button-text': liveTheme.buttonText || '#ffffff', '--footer-bg': liveTheme.footerBackground || '#111f32',
+    '--footer-text': liveTheme.footerText || '#ffffff', '--page-bg': liveTheme.pageBackground || '#ffffff',
+    '--surface-bg': liveTheme.surfaceBackground || '#ffffff',
+    '--storefront-product-border-radius': `${Math.max(0, Math.min(40, Number(liveTheme.storefrontCardStyles?.product?.borderRadius ?? 12)))}px`,
+    '--storefront-product-border-width': `${Math.max(0, Math.min(8, Number(liveTheme.storefrontCardStyles?.product?.borderWidth ?? 1)))}px`,
+    '--storefront-product-border-color': liveTheme.storefrontCardStyles?.product?.borderColor || '#e2e8f0',
+    '--storefront-product-background': liveTheme.storefrontCardStyles?.product?.backgroundColor || liveTheme.productCardBackground || liveTheme.surfaceBackground || '#fff',
+    '--storefront-category-border-radius': `${Math.max(0, Math.min(40, Number(liveTheme.storefrontCardStyles?.category?.borderRadius ?? 12)))}px`,
+    '--storefront-category-border-width': `${Math.max(0, Math.min(8, Number(liveTheme.storefrontCardStyles?.category?.borderWidth ?? 1)))}px`,
+    '--storefront-category-border-color': liveTheme.storefrontCardStyles?.category?.borderColor || '#e2e8f0',
+    '--storefront-category-background': liveTheme.storefrontCardStyles?.category?.backgroundColor || liveTheme.surfaceBackground || '#fff',
+    '--storefront-promo-border-radius': `${Math.max(0, Math.min(40, Number(liveTheme.storefrontCardStyles?.promo?.borderRadius ?? 12)))}px`,
+    '--storefront-promo-border-width': `${Math.max(0, Math.min(8, Number(liveTheme.storefrontCardStyles?.promo?.borderWidth ?? 1)))}px`,
+    '--storefront-promo-border-color': liveTheme.storefrontCardStyles?.promo?.borderColor || '#e2e8f0',
+    '--storefront-promo-background': liveTheme.storefrontCardStyles?.promo?.backgroundColor || liveTheme.surfaceBackground || '#fff',
+    '--storefront-account-border-radius': `${Math.max(0, Math.min(40, Number(liveTheme.storefrontCardStyles?.account?.borderRadius ?? 12)))}px`,
+    '--storefront-account-border-width': `${Math.max(0, Math.min(8, Number(liveTheme.storefrontCardStyles?.account?.borderWidth ?? 1)))}px`,
+    '--storefront-account-border-color': liveTheme.storefrontCardStyles?.account?.borderColor || '#e2e8f0',
+    '--storefront-account-background': liveTheme.storefrontCardStyles?.account?.backgroundColor || liveTheme.surfaceBackground || '#fff',
     ...Object.fromEntries(['header', 'cart', 'profile', 'order', 'support', 'button'].flatMap(type => {
-      const style = theme.storefrontCardStyles?.[type] || {}
+      const style = liveTheme.storefrontCardStyles?.[type] || {}
       return [
-        [`--storefront-${type}-background`, style.backgroundColor || (type === 'header' ? theme.headerBackground : type === 'product' ? theme.productCardBackground : type === 'button' ? theme.buttonBackground : theme.surfaceBackground) || '#ffffff'],
-        ...(type === 'button' ? [['--storefront-button-text-color', style.textColor || theme.buttonText || '#ffffff']] : []),
+        [`--storefront-${type}-background`, style.backgroundColor || (type === 'header' ? liveTheme.headerBackground : type === 'product' ? liveTheme.productCardBackground : type === 'button' ? liveTheme.buttonBackground : liveTheme.surfaceBackground) || '#ffffff'],
+        ...(type === 'button' ? [['--storefront-button-text-color', style.textColor || liveTheme.buttonText || '#ffffff']] : []),
         [`--storefront-${type}-border-radius`, `${Math.max(0, Math.min(40, Number(style.borderRadius ?? (type === 'button' ? 6 : 12))))}px`],
         [`--storefront-${type}-border-width`, `${Math.max(0, Math.min(8, Number(style.borderWidth ?? (type === 'button' ? 0 : 1))))}px`],
         [`--storefront-${type}-border-color`, style.borderColor || '#e2e8f0'],
       ]
     })),
   }}>
-    <Header content={content} route={route} businessLogo={theme.businessLogo}/>
+    <Header content={content} route={route} businessLogo={liveTheme.businessLogo}/>
     <main>{page}</main>
-    <Footer content={content} businessLogo={theme.businessLogo}/>
+    <Footer content={content} businessLogo={liveTheme.businessLogo}/>
     {loading && <span className="sr-only" role="status">Loading website content</span>}
   </div>
 }

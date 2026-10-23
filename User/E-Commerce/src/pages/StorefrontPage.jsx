@@ -60,7 +60,7 @@ export default function StorefrontPage() {
   const hasComponentType = (...types) => selectedComponentData.some(component => types.includes(String(component.type || '').toLowerCase().replace(/-/g, '_')))
   const componentEnabled = (slugs, types = []) => hasComponent(...slugs) || (types.length > 0 && hasComponentType(...types))
 
-  const showLogo = showDefaultStorefront || componentEnabled(['logo', 'quick-commerce-header'], ['header', 'logo'])
+  const showLogo = showDefaultStorefront || Boolean(business.businessLogo) || componentEnabled(['logo', 'quick-commerce-header'], ['header', 'logo'])
   const showSearch = showDefaultStorefront || hasComponent('quick-commerce-search') || hasComponentType('search')
   const showProfile = showDefaultStorefront || hasComponent('quick-commerce-profile', 'quick-commerce-account') || hasComponentType('profile', 'account')
   const showCartButton = showDefaultStorefront || hasComponent('quick-commerce-cart', 'quick-commerce-cart-page', 'quick-commerce-checkout') || hasComponentType('cart', 'cart_page', 'checkout')

@@ -27,7 +27,13 @@ export default function App() {
   const [checkoutLoading, setCheckoutLoading] = useState(false)
   const [checkoutError, setCheckoutError] = useState('')
   const [shopperReady, setShopperReady] = useState(false)
-  const business = home?.business || {}
+  const [previewTheme, setPreviewTheme] = useState(null)
+  const savedBusiness = home?.business || {}
+  const business = useMemo(() => previewTheme ? {
+    ...savedBusiness,
+    primaryColor: previewTheme.primaryColor || savedBusiness.primaryColor,
+    themeColors: previewTheme.themeColors || savedBusiness.themeColors || {},
+  } : savedBusiness, [previewTheme, savedBusiness])
 
   useEffect(() => {
     let active = true
@@ -60,7 +66,8 @@ export default function App() {
     if (!BUILDER_PREVIEW) return undefined
     const receivePreview = event => {
       if (event.source !== window.parent || event.data?.type !== 'wepzo:builder-preview') return
-      setComponents(Array.isArray(event.data.components) ? event.data.components : [])
+      if (Array.isArray(event.data.components)) setComponents(event.data.components)
+      if (event.data.theme && typeof event.data.theme === 'object') setPreviewTheme(event.data.theme)
     }
     window.addEventListener('message', receivePreview)
     return () => window.removeEventListener('message', receivePreview)

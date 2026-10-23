@@ -128,18 +128,36 @@ export function CategoryRecommendationsSection({ products = [], categoryLabel, m
   const distinctProducts = products.filter(product => !popularIds.has(String(product._id || product.id || '')))
   const unseenDistinct = unseen.filter(product => !popularIds.has(String(product._id || product.id || '')))
   const recommendationPool = unseenDistinct.length ? unseenDistinct : distinctProducts
+  const recentInteractions = Object.values(scopedInteractions)
+    .filter(entry => entry && (entry.categoryPath || entry.moduleSlug))
+    .sort((a, b) => (Number(b.lastViewed) || 0) - (Number(a.lastViewed) || 0))
+    .slice(0, 5)
+  const productCategoryPath = product => [product.mainCategory || product.category, product.subCategory, product.childCategory]
+    .filter(Boolean).join(' / ')
+  const productModuleSlug = product => String(product.moduleSlug || product.module?.slug || (typeof product.module === 'string' ? product.module : ''))
+    .trim().toLowerCase()
+  const suitabilityScore = product => {
+    const path = normalizeScope(productCategoryPath(product))
+    const module = productModuleSlug(product)
+    const affinity = recentInteractions.reduce((score, interaction, index) => {
+      const weight = 1 / (index + 1)
+      const previousPath = normalizeScope(interaction.categoryPath)
+      const categoryMatch = path && previousPath && (path === previousPath || path.startsWith(`${previousPath}/`) || previousPath.startsWith(`${path}/`))
+      const moduleMatch = module && String(interaction.moduleSlug || '').trim().toLowerCase() === module
+      return score + (categoryMatch ? 3 * weight : 0) + (moduleMatch ? 2 * weight : 0)
+    }, 0)
+    return affinity * 4
+      + ratingOf(product)
+      + Math.log1p(metric(product, salesKeys)) * 0.6
+      + Math.log1p(reviewCountOf(product)) * 0.5
+  }
   const suitable = [...recommendationPool].sort((a, b) => {
-    const aId = String(a._id || a.id || '')
-    const bId = String(b._id || b.id || '')
-    return (Number(scopedInteractions[bId]?.views) || 0) - (Number(scopedInteractions[aId]?.views) || 0)
-      || Number(scopedInteractions[bId]?.lastViewed || 0) - Number(scopedInteractions[aId]?.lastViewed || 0)
-      || ratingOf(b) - ratingOf(a)
-      || metric(b, salesKeys) - metric(a, salesKeys)
+    return suitabilityScore(b) - suitabilityScore(a)
   }).slice(0, 6)
 
   return <>
     <ProductSection {...props} title="Popular Products" products={popular} prefix="category-popular" />
-    {suitable.length > 0 && <ProductSection {...props} title="Suitable for You" products={suitable} prefix="category-suitable" />}
+    {suitable.length > 0 && <ProductSection {...props} title="Recommended for You" products={suitable} prefix="category-suitable" />}
   </>
 }
 
