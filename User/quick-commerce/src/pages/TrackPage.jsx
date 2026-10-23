@@ -1,40 +1,13 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import {
-  Bike, Check, ChevronRight, Clock3, MapPin, PackageCheck, Phone, RefreshCw,
+  Bike, ChevronRight, MapPin, PackageCheck, Phone, RefreshCw,
   ShieldCheck, Star, Store,
 } from 'lucide-react';
 import { shop } from '../api';
 import TrackMap from '../components/TrackMap';
 import { formatEta } from '../utils/eta';
 import { formatMoney, useSiteSettings } from '../store/siteSettings';
-
-const FALLBACK_TIMELINE = [
-  { key: 'placed', label: 'Order placed' },
-  { key: 'confirmed', label: 'Store accepted order' },
-  { key: 'preparing', label: 'Order being prepared' },
-  { key: 'riderAssigned', label: 'Rider assigned' },
-  { key: 'picked', label: 'Rider picked up order' },
-  { key: 'ofd', label: 'Rider on the way' },
-  { key: 'delivered', label: 'Order delivered' },
-];
-
-function timelineFor(order) {
-  if (Array.isArray(order?.timeline) && order.timeline.length) {
-    return order.timeline.filter(item => item?.label || item?.key).map(item => ({
-      ...item,
-      label: item.label || FALLBACK_TIMELINE.find(step => step.key === item.key)?.label || item.key,
-    }));
-  }
-  const status = String(order?.status || '').toLowerCase();
-  const current = status.includes('deliver') ? 'delivered'
-    : status.includes('out for') || status.includes('on the way') ? 'ofd'
-      : status.includes('handover') ? 'picked'
-        : status.includes('process') || status.includes('prepar') ? 'preparing'
-          : status.includes('accept') ? 'confirmed' : 'placed';
-  const currentIndex = FALLBACK_TIMELINE.findIndex(step => step.key === current);
-  return FALLBACK_TIMELINE.slice(0, currentIndex + 1).map((step, index) => ({ ...step, done: index < currentIndex, current: index === currentIndex }));
-}
 
 function productId(item) {
   return item?.productId || item?.product?._id || item?.id || item?._id || '';
@@ -104,6 +77,8 @@ export default function TrackPage() {
 
   const bill = order?.bill || null;
   const details = Array.isArray(order?.details) ? order.details : [];
+  const itemRefunds = (order?.itemAdjustments || []).filter(adjustment => adjustment.type === 'refund' && adjustment.status !== 'failed');
+  const itemRefundTotal = itemRefunds.reduce((total, adjustment) => total + (Number(adjustment.amount) || 0), 0);
   const itemsTotal = Number(order?.itemsTotal ?? bill?.itemsTotal) || 0;
   const itemsPrice = details.reduce((total, item) => {
     const price = Number(item.price) || 0;
@@ -116,7 +91,6 @@ export default function TrackPage() {
   const freeDelivery = order?.freeDelivery || deliveryCharge === 0;
   const eta = formatEta(order?.etaMinutes);
   const terminal = ['Delivered', 'Cancelled'].includes(order?.status);
-  const steps = timelineFor(order);
   const store = order?.storeDetails || {};
   const rider = order?.rider;
 
@@ -173,21 +147,6 @@ export default function TrackPage() {
             </section>
 
             <aside className="space-y-4">
-              <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
-                <div className="mb-4 flex items-center justify-between"><h2 className="font-extrabold text-slate-900">Delivery progress</h2><Clock3 size={17} className="text-slate-400" /></div>
-                <ol className="space-y-0">
-                  {steps.map((step, index) => {
-                    const done = step.done || (terminal && order.status === 'Delivered') || step.key === 'placed';
-                    const current = !done && (step.current || step.key === 'ofd' && order.status === 'Out for Delivery');
-                    return <li key={`${step.key}-${index}`} className="relative flex gap-3 pb-4 last:pb-0">
-                      {index < steps.length - 1 && <span className={`absolute left-[11px] top-6 h-[calc(100%-12px)] w-px ${done ? 'bg-emerald-300' : 'bg-slate-200'}`} />}
-                      <span className={`relative z-10 grid h-6 w-6 shrink-0 place-items-center rounded-full ${done ? 'bg-emerald-600 text-white' : current ? 'bg-brand-600 text-white' : 'bg-slate-100 text-slate-400'}`}>{done ? <Check size={14} /> : <span className="h-1.5 w-1.5 rounded-full bg-current" />}</span>
-                      <div className="min-w-0 flex-1 pt-0.5"><p className={`text-sm ${done || current ? 'font-bold text-slate-900' : 'text-slate-500'}`}>{step.label}</p>{step.at && <p className="mt-0.5 text-[11px] text-slate-400">{step.at}</p>}</div>
-                    </li>;
-                  })}
-                </ol>
-              </section>
-
               {rider && <section className="overflow-hidden rounded-2xl border border-orange-200 bg-white shadow-sm">
                 <div className="flex items-center gap-3 bg-gradient-to-r from-orange-50 to-amber-50 p-4">
                   <div className="grid h-14 w-14 shrink-0 place-items-center overflow-hidden rounded-full border-2 border-white bg-orange-100 text-orange-700 shadow-sm">
@@ -239,6 +198,8 @@ export default function TrackPage() {
                   {Number(order.platformFee) > 0 && <div className="flex justify-between"><span>Platform fee</span><span>{formatMoney(order.platformFee, business)}</span></div>}
                   {Number(order.taxAmount ?? bill?.taxAmount) > 0 && <div className="flex justify-between"><span>{bill?.taxName || order.taxName || 'Tax'}</span><span>{formatMoney(order.taxAmount ?? bill?.taxAmount, business)}</span></div>}
                   <div className="flex justify-between border-t border-slate-100 pt-2 text-base font-extrabold text-slate-900"><span>Total</span><span>{formatMoney(order.amount || order.total, business)}</span></div>
+                  {Number(order.amountDueOnDelivery) > 0 && <div className="flex justify-between rounded-lg bg-amber-50 px-3 py-2 text-amber-800"><span>{String(order.paymentStatus || '').toLowerCase() === 'paid' ? 'Extra COD to pay at delivery' : 'COD to pay at delivery'}</span><b>{formatMoney(order.amountDueOnDelivery, business)}</b></div>}
+                  {itemRefundTotal > 0 && <div className="flex justify-between rounded-lg bg-emerald-50 px-3 py-2 text-emerald-800"><span>Refund to original payment method · {itemRefunds.some(item => ['submitting', 'unknown'].includes(item.status)) ? 'being confirmed' : itemRefunds.some(item => item.status === 'processing') ? 'processing' : itemRefunds.some(item => item.status === 'completed') ? 'refunded' : 'initiated'}</span><b>{formatMoney(itemRefundTotal, business)}</b></div>}
                   <div className="flex justify-between pt-1"><span>Payment</span><span className="font-semibold text-slate-800">{order.paymentStatus || order.payment || 'Pending'}</span></div>
                 </div>
               </section>

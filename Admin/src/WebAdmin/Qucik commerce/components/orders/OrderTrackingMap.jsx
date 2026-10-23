@@ -54,55 +54,51 @@ function FitBounds({ points }) {
 }
 
 function pickedUp(order) {
-  return order?.status === 'Out for Delivery'
-    || (order?.timeline || []).some(item => ['picked', 'ofd'].includes(item.key) && item.done);
+  const status = String(order?.status || '').trim().toLowerCase().replace(/[ _-]+/g, ' ');
+  return ['out for delivery', 'picked up', 'delivered'].includes(status)
+    || (order?.timeline || []).some(item => ['picked', 'picked up', 'ofd', 'out for delivery', 'outfordelivery'].includes(String(item.key || '').toLowerCase().replace(/[ _-]+/g, ' ')) && item.done);
 }
 
 export default function OrderTrackingMap({ order, className = '' }) {
-  const store = useMemo(() => point(order?.storeLat, order?.storeLng), [order?.storeLat, order?.storeLng]);
+  const store = useMemo(() => point(order?.storeLat ?? order?.storeDetails?.lat, order?.storeLng ?? order?.storeDetails?.lng), [order?.storeLat, order?.storeLng, order?.storeDetails?.lat, order?.storeDetails?.lng]);
   const customer = useMemo(() => point(order?.lat, order?.lng), [order?.lat, order?.lng]);
   const rider = useMemo(() => point(order?.rider?.lat, order?.rider?.lng), [order?.rider?.lat, order?.rider?.lng]);
   const picked = pickedUp(order);
-  const routeOrigin = picked && rider ? rider : store;
+  const routeDestination = picked ? customer : store;
   const [path, setPath] = useState(null);
-  const [pickupPath, setPickupPath] = useState(null);
-  const routeKey = [routeOrigin, customer, rider, store].map(value => value ? `${value.lat.toFixed(3)},${value.lng.toFixed(3)}` : '-').join('|');
+  const routeKey = [rider, routeDestination, picked].map(value => typeof value === 'boolean' ? String(value) : value ? `${value.lat.toFixed(3)},${value.lng.toFixed(3)}` : '-').join('|');
 
   useEffect(() => {
     let active = true;
     async function loadRoute() {
-      if (routeOrigin && customer && (routeOrigin.lat !== customer.lat || routeOrigin.lng !== customer.lng)) {
-        const line = await route(routeOrigin, customer);
+      if (rider && routeDestination && (rider.lat !== routeDestination.lat || rider.lng !== routeDestination.lng)) {
+        const line = await route(rider, routeDestination);
         if (active) setPath(line);
       } else if (active) setPath(null);
-      if (!picked && rider && store) {
-        const line = await route(rider, store);
-        if (active) setPickupPath(line);
-      } else if (active) setPickupPath(null);
     }
     loadRoute();
     return () => { active = false; };
-  }, [routeKey, routeOrigin, customer, rider, store, picked]);
+  }, [routeKey, rider, routeDestination]);
 
   const points = useMemo(() => [store, customer, rider].filter(Boolean).map(item => [item.lat, item.lng]), [store, customer, rider]);
   const centerPoint = store || customer || rider;
   const updatedAt = order?.rider?.locationUpdatedAt;
+  const riderLocation = rider ? `${rider.lat.toFixed(5)}, ${rider.lng.toFixed(5)}` : '';
 
   if (!centerPoint) return <div className={`flex min-h-64 items-center justify-center rounded-xl border border-slate-200 bg-slate-50 px-5 text-center text-sm text-slate-500 ${className}`}>
     <div><MapPin size={20} className="mx-auto mb-2 text-slate-400" />Order coordinates are unavailable.</div>
   </div>;
 
-  return <section className={`overflow-hidden rounded-xl border border-slate-200 bg-white ${className}`}>
+  return <section className={`relative z-0 isolate overflow-hidden rounded-xl border border-slate-200 bg-white ${className}`}>
     <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 px-4 py-3">
-      <div><p className="text-sm font-extrabold text-slate-900">Live order route</p><p className="mt-0.5 text-[11px] text-slate-500">{rider ? `Rider location received ${updatedAt ? new Date(updatedAt).toLocaleString() : 'just now'}` : order?.rider?.name ? 'Rider GPS location unavailable' : 'Waiting for rider assignment'}</p></div>
+      <div><p className="text-sm font-extrabold text-slate-900">Live order route</p><p className="mt-0.5 text-[11px] text-slate-500">{rider ? `${order.rider?.name || 'Rider'} → ${picked ? 'customer' : 'store'} · ${riderLocation} · updated ${updatedAt ? new Date(updatedAt).toLocaleString() : 'just now'}` : order?.rider?.name ? 'Rider GPS location unavailable' : 'Waiting for rider assignment'}</p></div>
       {rider && <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-[10px] font-bold text-emerald-800"><Bike size={13} /> Live GPS</span>}
     </div>
-    <div className="relative h-[340px] sm:h-[410px]">
-      <MapContainer center={[centerPoint.lat, centerPoint.lng]} zoom={13} className="h-full w-full" scrollWheelZoom>
+    <div className="relative z-0 h-[220px] sm:h-[260px]">
+      <MapContainer center={[centerPoint.lat, centerPoint.lng]} zoom={13} className="relative z-0 h-full w-full" scrollWheelZoom>
         <TileLayer attribution="&copy; OpenStreetMap contributors" url={import.meta.env.VITE_MAP_TILE_URL || 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png'} />
         <FitBounds points={points} />
-        {path?.length > 1 && <Polyline positions={path} pathOptions={{ color: '#2563eb', weight: 5, opacity: 0.9, lineCap: 'round' }} />}
-        {pickupPath?.length > 1 && <Polyline positions={pickupPath} pathOptions={{ color: '#ea580c', weight: 5, opacity: 0.9, lineCap: 'round', dashArray: '7 7' }} />}
+        {path?.length > 1 && <Polyline positions={path} pathOptions={{ color: picked ? '#2563eb' : '#ea580c', weight: 5, opacity: 0.9, lineCap: 'round' }} />}
         {store && <Marker position={[store.lat, store.lng]} icon={storeIcon}><Popup>Store · {order.store || order.storeName || 'Pickup'}</Popup></Marker>}
         {rider && <Marker position={[rider.lat, rider.lng]} icon={riderIcon}><Popup>WEPZO rider · {order.rider?.name || 'Delivery rider'}</Popup></Marker>}
         {customer && <Marker position={[customer.lat, customer.lng]} icon={customerIcon}><Popup>Customer delivery destination</Popup></Marker>}

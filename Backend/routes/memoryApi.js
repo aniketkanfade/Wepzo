@@ -2230,6 +2230,390 @@ router.get('/orders/detail/:id', auth, (req, res) => {
   res.json(panelTrackingOrder(order));
 });
 
+function orderItemsEditable(order) {
+  return ['Scheduled', 'Pending', 'Accepted', 'Processing'].includes(String(order?.status || ''))
+    && String(order?.paymentStatus || '').toLowerCase() !== 'pending'
+    && !(order?.itemAdjustments || []).some(item => item.type === 'refund' && ['submitting', 'unknown'].includes(item.status));
+}
+
+function orderUsesCashOnDelivery(order) {
+  return [order?.payment, order?.paymentMethod, order?.paymentMode]
+    .some(value => {
+      const method = String(value || '').trim().toLowerCase();
+      return method === 'cod' || method.includes('cash on delivery');
+    });
+}
+
+function orderItemSource(order) {
+  if (Array.isArray(order?.details) && order.details.length) return order.details;
+  if (Array.isArray(order?.products) && order.products.length) {
+    return order.products.map(item => ({
+      ...item,
+      id: item.id || item.productId || item._id,
+      price: item.price ?? item.unitPrice,
+      image: item.image || item.thumbnail || item.images?.[0] || '',
+    }));
+  }
+  return [];
+}
+
+function orderProductMatchesStore(product, order) {
+  if (!order.storeId && !order.store) return true;
+  const ids = [product.storeId, product.storeRef?._id, product.storeRef?.storeId].filter(value => value != null).map(String);
+  if (order.storeId && ids.includes(String(order.storeId))) return true;
+  const stores = (store.stores || []).filter(item => belongsToWebsite(item, order.websiteId || '', order.websiteAllowsSharedCatalog === true));
+  const selectedStore = stores.find(item => [item._id, item.storeId].some(value => value != null && String(value) === String(order.storeId || '')))
+    || stores.find(item => String(item.name || '').trim().toLowerCase() === String(order.store || '').trim().toLowerCase());
+  if (selectedStore && belongsToStore(product, selectedStore)) return true;
+  return !!(order.store && String(product.store || '').trim().toLowerCase() === String(order.store).trim().toLowerCase());
+}
+
+function orderCatalogProduct(product) {
+  const activeVariants = (Array.isArray(product.variants) ? product.variants : []).filter(variant => variant.status !== false);
+  const mapVariant = (variant, index) => {
+    const label = Object.entries(variant.attributes || {}).map(([key, value]) => `${key}: ${value}`).join(' · ')
+      || variant.name || variant.sku || '';
+    const priced = { ...product, price: Number(variant.price) || Number(product.price) || 0 };
+    if (variant.discount != null) priced.discount = variant.discount;
+    if (variant.discountType) priced.discountType = variant.discountType;
+    return {
+      id: String(variant.id || variant._id || `v-${index}`),
+      label,
+      price: shopPrice(priced),
+      image: variant.image || product.image || '',
+      stock: variant.stock ?? product.stock,
+    };
+  };
+  const choices = activeVariants.map(mapVariant);
+  const stockAvailable = choices.length
+    ? choices.some(variant => variant.stock == null || Number(variant.stock) > 0)
+    : product.stock == null || Number(product.stock) > 0;
+  return {
+    _id: product._id,
+    name: product.name,
+    sku: product.sku || product.productCode || '',
+    image: product.image || product.images?.[0] || '',
+    price: shopPrice(product),
+    unit: product.unit || '',
+    stock: product.stock == null ? null : Number(product.stock) || 0,
+    mainCategory: product.mainCategory || product.category || '',
+    shortDesc: product.shortDesc || product.description || '',
+    variants: choices,
+    stockAvailable,
+  };
+}
+
+router.get('/orders/:id/items/catalog', auth, (req, res) => {
+  const idx = findOrderIndex(req.params.id, req);
+  if (idx === -1) return res.status(404).json({ message: 'Order not found' });
+  const order = store.orders[idx];
+  if (!orderItemsEditable(order)) return res.status(409).json({ message: 'Products can only be changed before Handover.' });
+  const catalog = (store.productItems || [])
+    .filter(product => isInAdminWebsiteModule(req, product)
+      && belongsToWebsite(product, order.websiteId || '', order.websiteAllowsSharedCatalog === true)
+      && product.status !== false && String(product.status || '').toLowerCase() !== 'inactive'
+      && orderProductMatchesStore(product, order))
+    .map(orderCatalogProduct)
+    .filter(product => product.stockAvailable);
+  res.json(catalog);
+});
+
+async function refundOrderItemAdjustment(order, amount, requestId) {
+  const gateway = String(order.paymentGateway || '').toLowerCase();
+  const paymentId = String(order.paymentId || '').trim();
+  const merchantOrderId = String(order.gatewayOrderId || '').trim();
+  const website = (store.websites || []).find(item => String(item._id) === String(order.websiteId || ''));
+  const moduleSlug = normalizeWebsiteModuleSlug(order.websiteModuleSlug || order.moduleSlug || website?.websiteModuleSlug || 'e-commerce');
+  const context = {
+    website,
+    websiteId: order.websiteId || '',
+    moduleId: order.websiteModuleId || website?.websiteModuleId || '',
+    moduleSlug,
+    module: website ? websiteModuleForWebsite(website) : null,
+    isMainWebsite: order.websiteIsMain === true,
+    allowSharedCatalog: order.websiteAllowsSharedCatalog === true,
+  };
+  const settings = await shopBusinessSettings(context, moduleSlug);
+  SHOP_PAYMENT_GATEWAY_SECRETS.forEach(key => { settings[key] = decryptPaymentSecret(settings[key]); });
+  const amountPaise = Math.round(Number(amount) * 100);
+  const unique = crypto.createHash('sha256').update(`${order._id}:${requestId}`).digest('hex').slice(0, 32);
+  const refundKey = `wz_${unique}`;
+
+  if (gateway === 'razorpay') {
+    if (!paymentId || !settings.razorpayKey || !settings.razorpayKeySecret) {
+      throw Object.assign(new Error('Original Razorpay payment details are unavailable, so an automatic refund cannot be started.'), { status: 409 });
+    }
+    const authorization = Buffer.from(`${settings.razorpayKey}:${settings.razorpayKeySecret}`).toString('base64');
+    const result = await paymentGatewayRequest('api.razorpay.com', `/v1/payments/${encodeURIComponent(paymentId)}/refund`, 'POST', {
+      Authorization: `Basic ${authorization}`,
+    }, {
+      amount: amountPaise,
+      notes: { wepzoOrderId: String(order._id), adjustmentId: requestId },
+    });
+    return { gateway, refundId: result.id || refundKey, status: String(result.status || '').toLowerCase() === 'processed' ? 'completed' : 'processing' };
+  }
+
+  if (gateway === 'cashfree') {
+    if (!merchantOrderId || !settings.cashfreeAppId || !settings.cashfreeSecretKey) {
+      throw Object.assign(new Error('Original Cashfree payment details are unavailable, so an automatic refund cannot be started.'), { status: 409 });
+    }
+    const sandbox = String(settings.cashfreeEnvironment || 'sandbox').toLowerCase() !== 'production';
+    const host = sandbox ? 'sandbox.cashfree.com' : 'api.cashfree.com';
+    const result = await paymentGatewayRequest(host, `/pg/orders/${encodeURIComponent(merchantOrderId)}/refunds`, 'POST', {
+      'x-client-id': settings.cashfreeAppId,
+      'x-client-secret': settings.cashfreeSecretKey,
+      'x-api-version': '2025-01-01',
+      'x-idempotency-key': refundKey,
+    }, {
+      refund_amount: Number((amountPaise / 100).toFixed(2)),
+      refund_id: refundKey,
+      refund_note: `Item adjustment for order ${order.orderNo || order.orderId || order._id}`,
+      refund_speed: 'STANDARD',
+    });
+    const status = String(result.refund_status || '').toUpperCase();
+    if (status === 'FAILED' || status === 'CANCELLED') throw Object.assign(new Error('Cashfree could not start the refund.'), { status: 502 });
+    return { gateway, refundId: result.cf_refund_id || result.refund_id || refundKey, status: status === 'SUCCESS' ? 'completed' : 'processing' };
+  }
+
+  if (gateway === 'phonepe') {
+    if (!merchantOrderId || !settings.phonepeClientId || !settings.phonepeClientSecret) {
+      throw Object.assign(new Error('Original PhonePe payment details are unavailable, so an automatic refund cannot be started.'), { status: 409 });
+    }
+    if (amountPaise < 100) throw Object.assign(new Error('PhonePe refunds must be at least ₹1.'), { status: 400 });
+    const sandbox = String(settings.phonepeEnvironment || 'sandbox').toLowerCase() !== 'production';
+    const host = sandbox ? 'api-preprod.phonepe.com' : 'api.phonepe.com';
+    const token = await phonePeAccessToken(settings, sandbox);
+    const result = await paymentGatewayRequest(host, sandbox ? '/apis/pg-sandbox/payments/v2/refund' : '/apis/pg/payments/v2/refund', 'POST', {
+      Authorization: `O-Bearer ${token}`,
+    }, {
+      merchantRefundId: refundKey,
+      originalMerchantOrderId: merchantOrderId,
+      amount: amountPaise,
+      customerDetails: {
+        name: order.customer || 'Customer',
+        email: order.customerEmail || undefined,
+        phoneNumber: String(order.phone || '').replace(/\D/g, '').slice(-10) || undefined,
+      },
+    });
+    const status = String(result.state || '').toUpperCase();
+    if (status === 'FAILED') throw Object.assign(new Error('PhonePe could not start the refund.'), { status: 502 });
+    return { gateway, refundId: result.refundId || refundKey, status: status === 'COMPLETED' ? 'completed' : 'processing' };
+  }
+
+  throw Object.assign(new Error('The original payment gateway does not support automatic refunds here.'), { status: 409 });
+}
+
+router.put('/orders/:id/items', auth, async (req, res) => {
+  const idx = findOrderIndex(req.params.id, req);
+  if (idx === -1) return res.status(404).json({ message: 'Order not found' });
+  const current = store.orders[idx];
+  if (!orderItemsEditable(current)) return res.status(409).json({ message: 'Products can only be changed before Handover.' });
+  const requested = Array.isArray(req.body?.items) ? req.body.items : null;
+  const requestId = String(req.body?.requestId || '').trim().slice(0, 80);
+  if (!requested || requested.length < 1 || requested.length > 100 || !requestId) {
+    return res.status(400).json({ message: 'Keep at least one product and send a valid adjustment request.' });
+  }
+  const priorRequest = (current.itemAdjustments || []).find(item => item.requestId === requestId);
+  if (priorRequest?.type === 'items_changed') return res.json(current);
+  if (priorRequest?.type === 'refund' && ['submitting', 'unknown'].includes(priorRequest.status)) {
+    return res.status(409).json({ message: 'A refund request for this order is still being confirmed. Check the payment gateway before editing products again.' });
+  }
+
+  const originalLines = orderItemSource(current);
+  const usedExisting = new Set();
+  const details = [];
+  for (const entry of requested) {
+    const qty = Number(entry?.qty);
+    if (!Number.isFinite(qty) || qty <= 0 || qty > 999) return res.status(400).json({ message: 'Product quantity must be between 0 and 999.' });
+    if (entry?.existingIndex != null) {
+      const lineIndex = Number(entry.existingIndex);
+      if (!Number.isInteger(lineIndex) || lineIndex < 0 || lineIndex >= originalLines.length || usedExisting.has(lineIndex)) {
+        return res.status(400).json({ message: 'An existing order product is invalid.' });
+      }
+      usedExisting.add(lineIndex);
+      const line = originalLines[lineIndex];
+      const price = Number(line.price ?? line.unitPrice);
+      if (!Number.isFinite(price) || price < 0) return res.status(400).json({ message: `Price is unavailable for ${line.name || 'an existing product'}.` });
+      details.push({ ...line, qty, price, total: Number((qty * price).toFixed(2)) });
+      continue;
+    }
+
+    const product = (store.productItems || []).find(item => String(item._id) === String(entry?.productId || '')
+      && isInAdminWebsiteModule(req, item)
+      && belongsToWebsite(item, current.websiteId || '', current.websiteAllowsSharedCatalog === true)
+      && item.status !== false && String(item.status || '').toLowerCase() !== 'inactive'
+      && orderProductMatchesStore(item, current));
+    if (!product) return res.status(400).json({ message: 'One of the selected products is no longer available for this store.' });
+    const variants = (Array.isArray(product.variants) ? product.variants : []).filter(variant => variant.status !== false);
+    const variantIndex = variants.findIndex((variant, index) => String(variant.id || variant._id || `v-${index}`) === String(entry?.variantId || ''));
+    if (variants.length && variantIndex < 0) return res.status(400).json({ message: `Choose a valid option for ${product.name}.` });
+    const variant = variantIndex >= 0 ? variants[variantIndex] : null;
+    const availableStock = variant?.stock ?? product.stock;
+    if (availableStock != null && Number(availableStock) <= 0) return res.status(409).json({ message: `${product.name} is out of stock.` });
+    if (availableStock != null && qty > Number(availableStock)) return res.status(409).json({ message: `Only ${Number(availableStock)} unit(s) of ${product.name} are available.` });
+    const pricedProduct = variant ? { ...product, price: Number(variant.price) || Number(product.price) || 0, discount: variant.discount ?? product.discount, discountType: variant.discountType || product.discountType } : product;
+    const price = shopPrice(pricedProduct);
+    const variantLabel = variant
+      ? Object.entries(variant.attributes || {}).map(([key, value]) => `${key}: ${value}`).join(' · ') || variant.name || variant.sku || ''
+      : '';
+    details.push({
+      id: product._id,
+      name: product.name,
+      variantId: variant ? String(variant.id || variant._id || `v-${variantIndex}`) : '',
+      variant: variantLabel,
+      unit: variantLabel || product.unit || '',
+      qty,
+      price,
+      mrp: Number(variant?.price ?? product.price) || price,
+      image: variant?.image || product.image || product.images?.[0] || '',
+      store: product.store,
+      storeId: product.storeId,
+      moduleSlug: current.moduleSlug || current.websiteModuleSlug || adminWebsiteModuleSlug(req),
+      productId: product.productId,
+      category: product.mainCategory,
+      total: Number((qty * price).toFixed(2)),
+    });
+  }
+
+  const oldTotal = Number(current.total ?? current.amount ?? current.bill?.total) || 0;
+  const oldItemsTotal = Number(current.itemsTotal ?? current.bill?.itemsTotal)
+    || originalLines.reduce((total, line) => total + (Number(line.price ?? line.unitPrice) || 0) * (Number(line.qty) || 1), 0);
+  const itemsTotal = Number(details.reduce((total, line) => total + Number(line.price) * Number(line.qty), 0).toFixed(2));
+  const bill = { ...(current.bill || {}) };
+  const couponDiscount = Math.min(itemsTotal, Math.max(0, Number(bill.couponDiscount ?? current.billing?.couponDiscount ?? current.couponDiscount) || 0));
+  const otherDiscount = Math.min(Math.max(0, itemsTotal - couponDiscount), Math.max(0, Number(bill.storeDiscount ?? bill.discount ?? current.billing?.storeDiscount ?? current.billing?.discount ?? current.discount) || 0));
+  const deliveryCharge = Math.max(0, Number(bill.deliveryCharge ?? current.billing?.deliveryFee ?? current.deliveryCharge) || 0);
+  const searchCharge = Math.max(0, Number(bill.searchCharge ?? current.billing?.searchCharge ?? current.searchCharge) || 0);
+  const platformFee = Math.max(0, Number(bill.platformFee ?? current.billing?.platformFee ?? current.platformFee) || 0);
+  const deliveryTips = Math.max(0, Number(bill.deliveryTips ?? current.billing?.deliveryTips ?? current.deliveryTips) || 0);
+  const handlingFee = Math.max(0, Number(bill.handlingFee ?? current.billing?.handlingFee ?? current.handlingFee) || 0);
+  const taxPercent = Math.max(0, Number(bill.taxPercent ?? current.billing?.taxPercent ?? current.taxPercent) || 0);
+  const taxIncluded = bill.taxIncluded === true || current.billing?.taxIncluded === true;
+  const priorTax = Math.max(0, Number(bill.taxAmount ?? current.billing?.taxAmount ?? current.taxAmount) || 0);
+  const taxBase = Math.max(0, itemsTotal - couponDiscount - otherDiscount);
+  const taxAmount = taxPercent > 0
+    ? Number((taxIncluded ? taxBase - taxBase / (1 + taxPercent / 100) : taxBase * taxPercent / 100).toFixed(2))
+    : oldItemsTotal > 0 && priorTax > 0 ? Number((priorTax * itemsTotal / oldItemsTotal).toFixed(2)) : 0;
+  const oldCalculatedTotal = oldItemsTotal - couponDiscount - otherDiscount + deliveryCharge + searchCharge + platformFee + deliveryTips + handlingFee + (taxIncluded ? 0 : priorTax);
+  const legacyAmountRemainder = oldTotal - oldCalculatedTotal;
+  const total = Math.max(0, Number((itemsTotal - couponDiscount - otherDiscount + deliveryCharge + searchCharge + platformFee + deliveryTips + handlingFee + (taxIncluded ? 0 : taxAmount) + legacyAmountRemainder).toFixed(2)));
+  const paymentIsPaid = String(current.paymentStatus || '').toLowerCase() === 'paid';
+  const onlinePayment = String(current.payment || '').toLowerCase() === 'online' || !!current.paymentGateway;
+  const adjustments = Array.isArray(current.itemAdjustments) ? [...current.itemAdjustments] : [];
+  let refundEntry = null;
+  let paidAmount = Number(current.paidAmount) || (paymentIsPaid ? oldTotal : 0);
+  let priorItemRefunds = adjustments
+    .filter(item => item.type === 'refund' && item.status !== 'failed')
+    .reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
+  let amountDueOnDelivery = 0;
+  if (paymentIsPaid) {
+    const paidBalance = Math.max(0, paidAmount - priorItemRefunds);
+    const refundAmount = Number(Math.max(0, paidBalance - total).toFixed(2));
+    if (refundAmount > 0) {
+      if (!onlinePayment) return res.status(409).json({ message: 'This paid order was not paid through an online gateway, so it cannot be refunded automatically.' });
+      const refundIntent = { type: 'refund', amount: refundAmount, method: 'Original online payment method', status: 'submitting', requestId, createdAt: new Date().toISOString() };
+      store.orders[idx] = { ...current, itemAdjustments: [...adjustments, refundIntent], _id: current._id };
+      syncData(store);
+      try {
+        await persistNowStrict();
+      } catch (error) {
+        return res.status(503).json({ message: 'Could not safely save the refund request before contacting the payment gateway. No refund was sent.' });
+      }
+      try {
+        const refund = await refundOrderItemAdjustment(current, refundAmount, requestId);
+        refundEntry = { ...refundIntent, gateway: refund.gateway, gatewayRefundId: refund.refundId, status: refund.status };
+        adjustments.push(refundEntry);
+        priorItemRefunds += refundAmount;
+      } catch (error) {
+        const latestOrder = store.orders[idx];
+        const status = error.gatewayNetworkError ? 'unknown' : 'failed';
+        const nextAdjustments = (latestOrder.itemAdjustments || []).map(item => item.requestId === requestId && item.type === 'refund' ? { ...item, status, message: status === 'unknown' ? 'Gateway response was not received; reconcile before retrying.' : '' } : item);
+        store.orders[idx] = { ...latestOrder, itemAdjustments: nextAdjustments, _id: latestOrder._id };
+        syncData(store);
+        try { await persistNowStrict(); } catch { /* Keep the persisted submitting record if the update cannot be saved. */ }
+        if (status === 'unknown') {
+          return res.status(502).json({ message: 'The gateway response was lost. Check the payment gateway refund status before editing this order again.' });
+        }
+        return res.status(error.status || 502).json({ message: error.message || 'The original payment method could not process this refund.' });
+      }
+    }
+    amountDueOnDelivery = Number(Math.max(0, total - (paidAmount - priorItemRefunds)).toFixed(2));
+  } else if (orderUsesCashOnDelivery(current)) {
+    amountDueOnDelivery = total;
+  }
+
+  const now = new Date().toISOString();
+  const oldOrderTotal = Number(current.total ?? current.amount ?? 0) || 0;
+  const change = Number((total - oldOrderTotal).toFixed(2));
+  const nextBill = {
+    ...bill,
+    itemsPrice: itemsTotal,
+    itemsTotal,
+    subtotal: itemsTotal,
+    couponDiscount,
+    storeDiscount: otherDiscount || bill.storeDiscount || 0,
+    deliveryCharge,
+    searchCharge,
+    platformFee,
+    taxAmount,
+    taxPercent,
+    taxIncluded,
+    deliveryTips,
+    handlingFee,
+    total,
+    amountDueOnDelivery,
+  };
+  const nextBilling = current.billing ? {
+    ...current.billing,
+    itemsPrice: itemsTotal,
+    subtotal: itemsTotal,
+    discount: otherDiscount,
+    couponDiscount,
+    deliveryFee: deliveryCharge,
+    searchCharge,
+    platformFee,
+    taxAmount,
+    taxPercent,
+    taxIncluded,
+    deliveryTips,
+    handlingFee,
+    total,
+  } : current.billing;
+  adjustments.push({ type: 'items_changed', requestId, createdAt: now, previousTotal: oldOrderTotal, total, difference: change, amountDueOnDelivery, refundAmount: refundEntry?.amount || 0, refundStatus: refundEntry?.status || '' });
+  store.orders[idx] = {
+    ...current,
+    details,
+    products: details.map(line => ({ ...line, unitPrice: line.price, total: Number((Number(line.price) * Number(line.qty)).toFixed(2)) })),
+    items: details.length,
+    itemsTotal,
+    deliveryCharge,
+    searchCharge,
+    platformFee,
+    taxAmount,
+    amount: total,
+    total,
+    bill: nextBill,
+    billing: nextBilling,
+    paidAmount: paymentIsPaid ? paidAmount : current.paidAmount,
+    amountDueOnDelivery,
+    itemAdjustments: adjustments,
+    _id: current._id,
+  };
+  syncData(store);
+  try {
+    await persistNowStrict();
+  } catch (error) {
+    schedulePersist();
+    console.error('Order item update could not be saved to MongoDB:', error.message);
+    return res.status(503).json({
+      message: refundEntry
+        ? 'The refund request reached the payment gateway, but the server could not confirm saving the updated bill. Refresh the order and check the refund status before retrying.'
+        : 'The server could not confirm saving the updated order. Refresh the order before trying again.',
+    });
+  }
+  res.json(store.orders[idx]);
+});
+
 function matchOrderProductsToCatalog(orderProducts, catalog) {
   return orderProducts.map(op => {
     const on = (op.name || '').toLowerCase();
@@ -6816,13 +7200,14 @@ function paymentGatewayRequest(hostname, pathname, method, headers = {}, payload
         if (response.statusCode < 200 || response.statusCode >= 300) {
           const error = new Error(data.message || data.error_description || data.error?.description || 'Payment gateway request failed.');
           error.status = 502;
+          error.gatewayResponded = true;
           return reject(error);
         }
         resolve(data);
       });
     });
-    outgoing.setTimeout(15000, () => outgoing.destroy(new Error('Payment gateway request timed out.')));
-    outgoing.on('error', error => reject(Object.assign(new Error('Payment gateway is unavailable.'), { status: 502, cause: error })));
+    outgoing.setTimeout(15000, () => outgoing.destroy(Object.assign(new Error('Payment gateway request timed out.'), { gatewayNetworkError: true })));
+    outgoing.on('error', error => reject(Object.assign(new Error('Payment gateway is unavailable.'), { status: 502, gatewayNetworkError: true, cause: error })));
     if (body) outgoing.write(body);
     outgoing.end();
   });
@@ -9558,7 +9943,10 @@ router.get('/shop/orders/:id', shopAuth, (req, res) => {
       && isShopWebsiteRecord(item, req.websiteContext)
       && String(item.websiteId || '') === websiteId)
     : null;
-  const { customerId: _customerId, customerEmail: _customerEmail, paymentGateway: _paymentGateway, gatewayOrderId: _gatewayOrderId, ...customerOrder } = order;
+  const { customerId: _customerId, customerEmail: _customerEmail, paymentGateway: _paymentGateway, gatewayOrderId: _gatewayOrderId, paymentId: _paymentId, paidAmount: _paidAmount, ...customerOrder } = order;
+  customerOrder.itemAdjustments = (order.itemAdjustments || [])
+    .filter(adjustment => adjustment.type === 'refund' && adjustment.status !== 'failed')
+    .map(adjustment => ({ type: 'refund', amount: adjustment.amount, status: adjustment.status, createdAt: adjustment.createdAt }));
   const completedDeliveries = riderRecord
     ? riderCompletedCount(riderRecord._id, websiteId, riderRecord.websiteModuleSlug || order.websiteModuleSlug)
     : 0;

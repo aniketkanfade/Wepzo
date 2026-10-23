@@ -27,23 +27,29 @@ function hasAssignedRider(order) {
   return !!order?.rider?.name;
 }
 
-function teardrop(color, label, letter) {
+const markerArt = {
+  store: '<path d="M3 9h18v11H3zM2 9l2-5h16l2 5M7 20v-6h4v6M15 13h3M7 13h3"/>',
+  rider: '<circle cx="5" cy="17" r="2.5"/><circle cx="18" cy="17" r="2.5"/><circle cx="13" cy="4" r="2"/><path d="m12 7-3 5 4 2 2-5 3 3M9 12H5l4-5M13 14h5l-3-5"/>',
+  customer: '<circle cx="12" cy="7" r="3"/><path d="M5 21v-1.5a7 7 0 0 1 14 0V21M8 13l4 3 4-3"/>',
+};
+
+function marker(kind, color, shadowColor, label) {
   return L.divIcon({
     className: 'qc-track-pin',
-    html: `<div style="display:flex;flex-direction:column;align-items:center;transform:translateY(-6px)">
-      <div style="width:32px;height:32px;border-radius:50% 50% 50% 0;background:${color};transform:rotate(-45deg);border:3px solid #fff;box-shadow:0 4px 12px rgba(0,0,0,.28);display:flex;align-items:center;justify-content:center">
-        <span style="transform:rotate(45deg);color:#fff;font-size:13px;font-weight:800;line-height:1">${letter}</span>
+    html: `<div style="display:flex;flex-direction:column;align-items:center;transform:translateY(-10px);filter:drop-shadow(0 7px 6px rgba(15,23,42,.28))">
+      <div style="position:relative;width:44px;height:44px;border-radius:17px 17px 17px 5px;background:linear-gradient(145deg,#fff 0%,${color} 24%,${shadowColor} 100%);transform:rotate(-45deg);border:3px solid #fff;box-shadow:inset 2px 2px 3px rgba(255,255,255,.45),inset -3px -3px 5px rgba(0,0,0,.16)">
+        <span style="position:absolute;inset:0;display:grid;place-items:center;transform:rotate(45deg)"><svg width="25" height="25" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round">${markerArt[kind]}</svg></span>
       </div>
-      <span style="margin-top:4px;font-size:10px;font-weight:800;letter-spacing:.04em;color:#0f172a;background:#fff;padding:2px 7px;border-radius:999px;box-shadow:0 2px 8px rgba(0,0,0,.18);white-space:nowrap">${label}</span>
+      <span style="margin-top:6px;font-size:9px;font-weight:900;letter-spacing:.06em;color:#0f172a;background:linear-gradient(180deg,#fff,#f8fafc);padding:3px 8px;border:1px solid #e2e8f0;border-radius:999px;box-shadow:0 3px 8px rgba(15,23,42,.16);white-space:nowrap">${label}</span>
     </div>`,
-    iconSize: [88, 52],
-    iconAnchor: [44, 30],
+    iconSize: [100, 66],
+    iconAnchor: [50, 42],
   });
 }
 
-const storeIcon = teardrop('#059669', 'STORE', 'S');
-const customerIcon = teardrop('#2563eb', 'YOU', 'Y');
-const riderIcon = teardrop('#ea580c', 'RIDER', 'R');
+const storeIcon = marker('store', '#10b981', '#047857', 'STORE');
+const customerIcon = marker('customer', '#3b82f6', '#1d4ed8', 'YOU');
+const riderIcon = marker('rider', '#f97316', '#c2410c', 'RIDER');
 
 function Fit({ points }) {
   const map = useMap();
@@ -112,10 +118,7 @@ export default function TrackMap({ order }) {
     async function load() {
       if (waiting) {
         setPickupPath(null);
-        if (store && customer) {
-          const drop = await fetchDrivingRoute(store, customer);
-          if (!cancelled) setDropPath(drop);
-        } else if (!cancelled) setDropPath(null);
+        if (!cancelled) setDropPath(null);
         return;
       }
       if (!picked && rider && store) {
@@ -124,9 +127,8 @@ export default function TrackMap({ order }) {
       } else if (!cancelled) {
         setPickupPath(null);
       }
-      const dropFrom = picked && rider ? rider : store;
-      if (dropFrom && customer) {
-        const drop = await fetchDrivingRoute(dropFrom, customer);
+      if (picked && rider && customer) {
+        const drop = await fetchDrivingRoute(rider, customer);
         if (!cancelled) setDropPath(drop);
       } else if (!cancelled) {
         setDropPath(null);
@@ -162,7 +164,7 @@ export default function TrackMap({ order }) {
     <div className="space-y-2">
       <div className="relative rounded-2xl overflow-hidden border border-slate-200 shadow-sm min-h-[420px] h-[420px] z-0">
         <MapContainer center={center} zoom={13} className="h-full w-full min-h-[420px]" scrollWheelZoom>
-          <TileLayer attribution="&copy; OpenStreetMap" url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+          <TileLayer attribution="&copy; OpenStreetMap contributors" url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
           {fitPoints.length >= 1 && <Fit points={fitPoints} />}
           {dropPath && dropPath.length >= 2 && (
             <Polyline

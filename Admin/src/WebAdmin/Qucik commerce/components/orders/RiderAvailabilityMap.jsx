@@ -25,6 +25,7 @@ const riderIcon = markerIcon('rider', '#059669');
 
 function FitMarkers({ points }) {
   const map = useMap();
+  const pointKey = points.map(([lat, lng]) => `${lat.toFixed(6)},${lng.toFixed(6)}`).join('|');
   useEffect(() => {
     const timer = window.setTimeout(() => {
       map.invalidateSize();
@@ -32,7 +33,7 @@ function FitMarkers({ points }) {
       else if (points.length === 1) map.setView(points[0], 14);
     }, 80);
     return () => window.clearTimeout(timer);
-  }, [map, points]);
+  }, [map, pointKey]);
   return null;
 }
 
@@ -45,10 +46,10 @@ export default function RiderAvailabilityMap({ storeRef, customerLocation, rider
   const center = storePoint || customerPoint || (riderPoints[0] ? [Number(riderPoints[0].lat), Number(riderPoints[0].lng)] : [21.1458, 79.0882]);
 
   return <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
-    <MapContainer center={center} zoom={13} scrollWheelZoom={false} className="h-52 w-full">
+    <MapContainer center={center} zoom={13} scrollWheelZoom className="h-52 w-full">
       <TileLayer attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>' url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
       <FitMarkers points={points} />
-      {storePoint && <Marker position={storePoint} icon={storeIcon}><Popup><strong>Store: {storeRef.name}</strong><br />{storeRef.location || storeRef.address || storeRef.area}</Popup></Marker>}
+      {storePoint && <Marker position={storePoint} icon={storeIcon} zIndexOffset={1000}><Popup><strong>Store: {storeRef.name}</strong><br />{storeRef.location || storeRef.address || storeRef.area}</Popup></Marker>}
       {customerPoint && <Marker position={customerPoint} icon={customerIcon}><Popup><strong>Customer delivery location</strong><br />{customerLocation.address}</Popup></Marker>}
       {riderPoints.map(rider => <Marker key={rider._id} position={[Number(rider.lat), Number(rider.lng)]} icon={riderIcon}>
         <Popup><strong>{rider.name}</strong><br />Available rider {rider.distanceLabel ? `· ${rider.distanceLabel} from store` : ''}<br />{rider.location || rider.area}</Popup>

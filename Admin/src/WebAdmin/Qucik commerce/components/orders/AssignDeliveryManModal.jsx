@@ -113,15 +113,28 @@ export default function AssignDeliveryManModal({ order, onClose, onAssign, onAss
       setLoading(true);
       api.get('/stores')
         .then(storesRes => {
-          const current = (storesRes.data || []).find(s => s.name === order?.store);
-          setStoreRef(current || null);
+          const current = (storesRes.data || []).find(store => String(store._id || store.id || store.storeId) === String(order?.storeId || ''))
+            || (storesRes.data || []).find(store => store.name === order?.store);
+          const orderStore = {
+            name: order?.storeDetails?.name || order?.store || 'Store',
+            lat: order?.storeLat ?? order?.storeDetails?.lat ?? order?.storeDetails?.latitude,
+            lng: order?.storeLng ?? order?.storeDetails?.lng ?? order?.storeDetails?.longitude,
+            location: order?.storeAddress || order?.storeLocation || order?.storeDetails?.address || order?.pickupAddress || order?.area || '',
+          };
+          const resolvedStore = current ? {
+            ...orderStore,
+            ...current,
+            lat: current.lat ?? current.latitude ?? orderStore.lat,
+            lng: current.lng ?? current.longitude ?? orderStore.lng,
+          } : orderStore;
+          setStoreRef(resolvedStore);
           const params = {};
           if (search) params.search = search;
           if (order?._id) params.orderId = order._id;
-          params.area = current?.zone || current?.area || order?.area || '';
-          if (current?.lat && current?.lng) {
-            params.refLat = current.lat;
-            params.refLng = current.lng;
+          params.area = resolvedStore.zone || resolvedStore.area || order?.area || '';
+          if (resolvedStore.lat && resolvedStore.lng) {
+            params.refLat = resolvedStore.lat;
+            params.refLng = resolvedStore.lng;
           }
           return api.get('/delivery-men', { params });
         })
@@ -130,7 +143,7 @@ export default function AssignDeliveryManModal({ order, onClose, onAssign, onAss
         .finally(() => setLoading(false));
     }, search ? 300 : 0);
     return () => clearTimeout(t);
-  }, [order?.store, order?.area, search]);
+  }, [order?._id, order?.store, order?.storeId, order?.storeLat, order?.storeLng, order?.storeAddress, order?.storeLocation, order?.storeDetails?.name, order?.storeDetails?.lat, order?.storeDetails?.lng, order?.storeDetails?.latitude, order?.storeDetails?.longitude, order?.storeDetails?.address, order?.pickupAddress, order?.area, search]);
 
   const availableRiders = riders.filter(r => r._id !== excludeRiderId);
   const nearRiders = availableRiders.filter(r => r.nearStore || (r.distanceM != null && r.distanceM <= 800));

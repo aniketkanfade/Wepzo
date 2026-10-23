@@ -1,11 +1,13 @@
 import { useState, useEffect } from 'react';
 import {
   User, Store, Phone, MapPin, Bike, Printer, Mail, ShoppingBag,
-  Pencil, ChevronDown, Settings, CreditCard, Package, Calendar, AlertCircle, ArrowRightLeft, Navigation,
+  Pencil, ChevronDown, Settings, CreditCard, Package, Calendar, AlertCircle, ArrowRightLeft, Navigation, Star, Plus, Image as ImageIcon, Loader2, X,
 } from 'lucide-react';
 import { ORDER_STATUS_STYLE, ORDER_STATUS_OPTIONS, STATUSES_REQUIRING_RIDER, STATUSES_ALLOWING_ASSIGN } from '../../../../constants/orderStatus';
+import api from '../../../../api/axios';
 import { printOrderInvoice } from './orderPrint';
 import AssignDeliveryManModal from './AssignDeliveryManModal';
+import OrderItemsEditor from './OrderItemsEditor';
 import OrderTrackingMap from './OrderTrackingMap';
 import TransferStoreModal from './TransferStoreModal';
 import ConfirmModal from '../ConfirmModal';
@@ -44,10 +46,15 @@ function MetaTile({ label, value, valueClass = 'text-gray-800' }) {
   );
 }
 
-export default function OrderDetailView({ order, onStatusChange, onAssignRider, onAssignPartner, onTransferStore }) {
+export default function OrderDetailView({ order, onStatusChange, onAssignRider, onAssignPartner, onTransferStore, onUpdateItems, itemsNotice }) {
   const [showAssignModal, setShowAssignModal] = useState(false);
   const [assignModalMode, setAssignModalMode] = useState('assign');
   const [showTransferStoreModal, setShowTransferStoreModal] = useState(false);
+  const [showItemsEditor, setShowItemsEditor] = useState(false);
+  const [imagePreview, setImagePreview] = useState('');
+  const [detailProduct, setDetailProduct] = useState(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailError, setDetailError] = useState('');
   const [statusConfirm, setStatusConfirm] = useState(null);
   const [statusError, setStatusError] = useState('');
   const [selectStatus, setSelectStatus] = useState('Pending');
@@ -83,6 +90,8 @@ export default function OrderDetailView({ order, onStatusChange, onAssignRider, 
     ? order.products
     : order.details?.length
       ? order.details.map(item => ({
+        ...item,
+        id: item.id || item.productId || item._id,
         name: item.name,
         variant: item.variant || item.unit,
         qty: item.qty,
@@ -101,11 +110,32 @@ export default function OrderDetailView({ order, onStatusChange, onAssignRider, 
     : '—';
   const orderStoreName = order.source === 'e_commerce' ? 'My Website' : (order.store || '—');
   const paymentStatus = order.paymentStatus || 'Unpaid';
+  const itemRefunds = (order.itemAdjustments || []).filter(adjustment => adjustment.type === 'refund' && adjustment.status !== 'failed');
+  const itemRefundTotal = itemRefunds.reduce((total, adjustment) => total + (Number(adjustment.amount) || 0), 0);
+  const unresolvedItemRefund = itemRefunds.some(item => ['submitting', 'unknown'].includes(item.status));
 
   const canAssign = onAssignRider && !rider && !partnerDelivery && STATUSES_ALLOWING_ASSIGN.includes(order.status);
   const canTransferRider = onAssignRider && rider && !['Delivered', 'Cancelled'].includes(order.status);
   const canTransferStore = onTransferStore && !['Delivered', 'Cancelled'].includes(order.status);
+  const canEditItems = !!onUpdateItems && ['Scheduled', 'Pending', 'Accepted', 'Processing'].includes(order.status)
+    && String(paymentStatus).toLowerCase() !== 'pending' && !unresolvedItemRefund;
   const showRiderDetails = !!rider;
+
+  const openProductDetails = async (product) => {
+    setDetailError('');
+    setDetailProduct(product);
+    const productId = product.id || product._id;
+    if (!productId) return;
+    setDetailLoading(true);
+    try {
+      const { data } = await api.get(`/product-items/${encodeURIComponent(productId)}`);
+      setDetailProduct({ ...product, ...data, orderPrice: product.price ?? product.unitPrice });
+    } catch {
+      setDetailError('Full product details are unavailable. Showing the saved order details.');
+    } finally {
+      setDetailLoading(false);
+    }
+  };
 
   const openAssignModal = (mode = 'assign') => {
     setAssignModalMode(mode);
@@ -197,10 +227,12 @@ export default function OrderDetailView({ order, onStatusChange, onAssignRider, 
         </div>
       </div>
 
-      <OrderTrackingMap order={order} />
+      {itemsNotice && <div role="status" className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800">{itemsNotice}</div>}
 
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-5">
-        <div className="xl:col-span-2 space-y-4">
+        <div className="order-last space-y-4 xl:order-none xl:col-span-2">
+          <OrderTrackingMap order={order} className="w-full" />
+
           {/* Items + Bill side by side */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
             <div className="bg-white rounded-xl border border-gray-200/80 shadow-sm overflow-hidden h-full">
@@ -210,6 +242,7 @@ export default function OrderDetailView({ order, onStatusChange, onAssignRider, 
                 <span className="ml-auto text-xs text-gray-400 bg-white border border-gray-200 px-2 py-0.5 rounded-full">
                   {products.length} item{products.length !== 1 ? 's' : ''}
                 </span>
+                {canEditItems && <button type="button" onClick={() => setShowItemsEditor(true)} className="inline-flex items-center gap-1.5 rounded-lg bg-primary-600 px-3 py-2 text-xs font-bold text-white shadow-sm hover:bg-primary-700"><Plus size={14} /> Edit items</button>}
               </div>
               <table className="w-full text-sm">
                 <thead>
@@ -226,14 +259,16 @@ export default function OrderDetailView({ order, onStatusChange, onAssignRider, 
                       <td className="px-4 py-3.5">
                         <div className="flex items-center gap-2.5">
                           {p.image ? (
-                            <img src={p.image} alt="" className="w-12 h-12 rounded-lg object-cover border border-gray-100" />
+                            <button type="button" onClick={() => setImagePreview(p.image)} aria-label={`Open ${p.name} image`} className="shrink-0 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500">
+                              <img src={p.image} alt={p.name || ''} className="w-12 h-12 rounded-lg object-cover border border-gray-100" />
+                            </button>
                           ) : (
                             <div className="w-12 h-12 rounded-lg bg-gray-100 border border-gray-100 flex items-center justify-center">
                               <ShoppingBag size={18} className="text-gray-400" />
                             </div>
                           )}
                           <div className="min-w-0">
-                            <p className="font-semibold text-gray-800 text-sm leading-tight">{p.name}</p>
+                            <button type="button" onClick={() => openProductDetails(p)} className="text-left font-semibold text-gray-800 text-sm leading-tight hover:text-primary-600 hover:underline">{p.name} · View details</button>
                             <p className="text-[11px] text-gray-400 mt-0.5">{p.qty} x {fmt(p.unitPrice)}</p>{p.variant && <p className="text-[11px] text-gray-500 mt-0.5">{p.variant}</p>}
                           </div>
                         </div>
@@ -276,13 +311,25 @@ export default function OrderDetailView({ order, onStatusChange, onAssignRider, 
                   <span className="font-bold text-gray-900 text-base">Total</span>
                   <span className="font-bold text-primary-600 text-2xl">{fmt(billing.total)}</span>
                 </div>
+                {Number(order.amountDueOnDelivery) > 0 && (
+                  <div className="flex justify-between gap-3 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                    <span>{String(paymentStatus).toLowerCase() === 'paid' ? 'Additional COD at delivery' : 'COD to collect at delivery'}</span>
+                    <span className="shrink-0 font-bold">{fmt(order.amountDueOnDelivery)}</span>
+                  </div>
+                )}
+                {itemRefundTotal > 0 && (
+                  <div className="flex justify-between gap-3 rounded-lg bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
+                    <span>Refund to original payment method · {unresolvedItemRefund ? 'Check gateway status' : itemRefunds.some(item => item.status === 'processing') ? 'Processing' : itemRefunds.some(item => item.status === 'completed') ? 'Refunded' : 'Initiated'}</span>
+                    <span className="shrink-0 font-bold">{fmt(itemRefundTotal)}</span>
+                  </div>
+                )}
               </div>
             </div>
           </div>
         </div>
 
         {/* Sidebar */}
-        <div className="space-y-4">
+        <div className="order-first space-y-4 xl:order-none">
           {onStatusChange && (
             <div className="bg-white rounded-xl border border-primary-200 shadow-sm overflow-hidden">
               <div className="px-4 py-3 bg-gradient-to-r from-primary-600 to-primary-700 flex items-center gap-2">
@@ -495,6 +542,51 @@ export default function OrderDetailView({ order, onStatusChange, onAssignRider, 
           </InfoCard>
         </div>
       </div>
+
+      {showItemsEditor && (
+        <OrderItemsEditor
+          order={order}
+          onClose={() => setShowItemsEditor(false)}
+          onSave={onUpdateItems}
+          onPreviewImage={setImagePreview}
+        />
+      )}
+
+      {imagePreview && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-950/80 p-4" role="dialog" aria-modal="true" aria-label="Product image preview" onClick={() => setImagePreview('')}>
+          <button type="button" onClick={() => setImagePreview('')} aria-label="Close image" className="absolute right-4 top-4 rounded-full bg-white/15 p-2 text-white hover:bg-white/25"><X size={20} /></button>
+          <img src={imagePreview} alt="Product" className="max-h-[90vh] max-w-[min(92vw,1000px)] rounded-xl object-contain shadow-2xl" onClick={event => event.stopPropagation()} />
+        </div>
+      )}
+
+      {detailProduct && (
+        <div className="fixed inset-0 z-[105] flex items-center justify-center bg-slate-950/55 p-4" role="dialog" aria-modal="true" aria-labelledby="order-product-detail-title" onClick={() => setDetailProduct(null)}>
+          <section className="relative max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl bg-white shadow-2xl" onClick={event => event.stopPropagation()}>
+            <button type="button" onClick={() => setDetailProduct(null)} aria-label="Close product details" className="absolute right-3 top-3 z-10 rounded-lg bg-white/90 p-2 text-slate-500 shadow-sm hover:bg-slate-100"><X size={17} /></button>
+            {detailProduct.image ? <button type="button" onClick={() => setImagePreview(detailProduct.image)} className="block w-full bg-slate-50"><img src={detailProduct.image} alt={detailProduct.name || 'Product'} className="h-64 w-full object-contain p-4 sm:h-80" /></button>
+              : <div className="grid h-40 place-items-center bg-slate-50 text-slate-300"><ImageIcon size={32} /></div>}
+            <div className="space-y-4 p-5">
+              <div><h2 id="order-product-detail-title" className="text-lg font-bold text-slate-900">{detailProduct.name || 'Product details'}</h2><p className="mt-1 text-sm text-slate-500">{detailProduct.shortDesc || detailProduct.description || detailProduct.variant || detailProduct.unit || 'Saved order product'}</p></div>
+              {detailLoading && <p className="flex items-center gap-2 text-xs text-slate-500"><Loader2 size={14} className="animate-spin" /> Loading full product details...</p>}
+              {detailError && <p className="text-xs text-amber-700">{detailError}</p>}
+              {Array.isArray(detailProduct.images) && detailProduct.images.length > 1 && <div className="flex gap-2 overflow-x-auto">{detailProduct.images.map((image, index) => <button key={`${image}-${index}`} type="button" onClick={() => setImagePreview(image)} className="shrink-0"><img src={image} alt={`${detailProduct.name} ${index + 1}`} className="h-14 w-14 rounded-lg border border-slate-200 object-cover" /></button>)}</div>}
+              <div className="grid grid-cols-2 gap-3 rounded-xl bg-slate-50 p-4 text-xs sm:grid-cols-3">
+                <div><p className="text-slate-400">Price in order</p><p className="mt-1 font-bold text-slate-800">{fmt(detailProduct.orderPrice ?? detailProduct.price ?? detailProduct.unitPrice)}</p></div>
+                <div><p className="text-slate-400">Quantity</p><p className="mt-1 font-bold text-slate-800">{detailProduct.qty || 1}</p></div>
+                <div><p className="text-slate-400">Unit / option</p><p className="mt-1 font-bold text-slate-800">{detailProduct.variant || detailProduct.unit || 'Standard'}</p></div>
+                {detailProduct.sku && <div><p className="text-slate-400">SKU</p><p className="mt-1 font-bold text-slate-800">{detailProduct.sku}</p></div>}
+                {detailProduct.mainCategory && <div><p className="text-slate-400">Category</p><p className="mt-1 font-bold text-slate-800">{detailProduct.mainCategory}</p></div>}
+                {detailProduct.stock != null && <div><p className="text-slate-400">Stock</p><p className="mt-1 font-bold text-slate-800">{detailProduct.stock}</p></div>}
+              </div>
+              {detailProduct.description && detailProduct.description !== detailProduct.shortDesc && <p className="whitespace-pre-wrap text-sm leading-6 text-slate-600">{detailProduct.description}</p>}
+              {detailProduct.specifications && typeof detailProduct.specifications === 'object' && <div className="grid gap-2 sm:grid-cols-2">{Object.entries(detailProduct.specifications).map(([label, value]) => <div key={label} className="rounded-lg border border-slate-100 px-3 py-2 text-xs"><p className="text-slate-400">{label}</p><p className="mt-1 font-semibold text-slate-700">{String(value)}</p></div>)}</div>}
+              {Array.isArray(detailProduct.tags) && detailProduct.tags.length > 0 && <div className="flex flex-wrap gap-1.5">{detailProduct.tags.map(tag => <span key={tag} className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] text-slate-600">{tag}</span>)}</div>}
+              {(detailProduct.brand || detailProduct.store) && <p className="text-xs text-slate-500">{[detailProduct.brand, detailProduct.store].filter(Boolean).join(' · ')}</p>}
+              {detailProduct._id && <a href={`/products/setup/view/${encodeURIComponent(detailProduct._id)}`} target="_blank" rel="noreferrer" className="inline-flex rounded-lg border border-primary-200 px-3 py-2 text-xs font-bold text-primary-700 hover:bg-primary-50">Open full product page</a>}
+            </div>
+          </section>
+        </div>
+      )}
 
       {!isEcommerceOrder && showAssignModal && (
         <AssignDeliveryManModal

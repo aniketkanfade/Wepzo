@@ -4,6 +4,24 @@ import { ArrowLeft, ChevronLeft, ChevronRight, Loader2 } from 'lucide-react';
 import api from '../../api/axios';
 import OrderDetailView from './components/orders/OrderDetailView';
 
+function fmtMoney(value) {
+  return `₹ ${(Number(value) || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
+}
+
+function orderItemsErrorMessage(err) {
+  const serverMessage = err.response?.data?.message;
+  if (typeof serverMessage === 'string' && serverMessage.trim()) return serverMessage;
+  if (!err.response) {
+    return err.code === 'ECONNABORTED'
+      ? 'Server response timed out. Check the connection and try again.'
+      : 'Could not connect to the server. The order was not confirmed as saved.';
+  }
+  if (err.response.status === 404) {
+    return 'The server does not have the order update API yet. Deploy the latest backend and try again.';
+  }
+  return `Order items could not be updated (HTTP ${err.response.status}).`;
+}
+
 export default function OrderDetailPage() {
   const { orderId } = useParams();
   const navigate = useNavigate();
@@ -11,10 +29,12 @@ export default function OrderDetailPage() {
   const [allOrders, setAllOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [itemsNotice, setItemsNotice] = useState('');
 
   const loadOrder = useCallback(() => {
     setLoading(true);
     setError('');
+    setItemsNotice('');
     Promise.all([
       api.get(`/orders/detail/${orderId}`),
       api.get('/orders').catch(() => ({ data: [] })),
@@ -76,6 +96,26 @@ export default function OrderDetailPage() {
     setAllOrders(prev => prev.map(o => o._id === data._id ? data : o));
   };
 
+  const updateItems = async (id, payload) => {
+    try {
+      const { data } = await api.put(`/orders/${encodeURIComponent(id)}/items`, payload);
+      setOrder(data);
+      setAllOrders(prev => prev.map(o => o._id === data._id ? data : o));
+      const latestRefund = [...(data.itemAdjustments || [])].reverse().find(item => item.type === 'refund' && item.requestId === payload.requestId);
+      const due = Number(data.amountDueOnDelivery) || 0;
+      setItemsNotice(latestRefund
+        ? latestRefund.status === 'completed'
+          ? `Bill updated. ${fmtMoney(latestRefund.amount)} was refunded to the original ${latestRefund.gateway} payment method.`
+          : `${fmtMoney(latestRefund.amount)} refund is ${latestRefund.status} with the original ${latestRefund.gateway} payment method.`
+        : due > 0
+          ? `Bill updated. ${fmtMoney(due)} ${String(data.paymentStatus || '').toLowerCase() === 'paid' ? 'extra COD' : 'COD'} will be collected at delivery.`
+          : 'Products and bill updated.');
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, message: orderItemsErrorMessage(err) };
+    }
+  };
+
   const goToOrder = (idx) => {
     if (idx >= 0 && idx < allOrders.length) navigate(`/orders/view/${allOrders[idx]._id}`);
   };
@@ -127,7 +167,7 @@ export default function OrderDetailPage() {
         </div>
       </div>
 
-      <OrderDetailView order={order} onStatusChange={updateStatus} onAssignRider={assignRider} onAssignPartner={assignPartner} onTransferStore={transferStore} />
+      <OrderDetailView order={order} onStatusChange={updateStatus} onAssignRider={assignRider} onAssignPartner={assignPartner} onTransferStore={transferStore} onUpdateItems={updateItems} itemsNotice={itemsNotice} />
     </div>
   );
 }
