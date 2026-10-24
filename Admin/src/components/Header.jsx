@@ -9,7 +9,6 @@ import { getAdminModulePath } from '../constants/adminModules';
 import { getAdminSidebarMenu } from '../WebAdmin/Qucik commerce/components/Sidebar';
 import { SETTINGS_SIDEBARS } from '../constants/settingsNav';
 import ModuleSwitcher from './ModuleSwitcher';
-import usePublicWelcomeLogo from '../hooks/usePublicWelcomeLogo';
 
 function grantedHeaderChildren(items, granted) {
   return items.flatMap(item => [
@@ -34,7 +33,6 @@ function flattenDeliveryItems(items) {
 
 export default function Header({ onMenuToggle, showMenuToggle = true, websiteAccess }) {
   const { user, logout } = useAuthStore();
-  const publicWelcomeLogo = usePublicWelcomeLogo();
   const resetBuilder = useBuilderStore(state => state.reset);
   const activeModule = useModuleStore(state => state.activeModule);
   const navigate = useNavigate();
@@ -241,6 +239,9 @@ export default function Header({ onMenuToggle, showMenuToggle = true, websiteAcc
       </div>
 
       <div className="flex shrink-0 items-center gap-1 sm:gap-2 lg:gap-3">
+        {adminDeliveryItems.length > 0 && <button type="button" onClick={() => navigate('/delivery/riders')} aria-label="Delivery" title="Delivery" className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 text-slate-700 transition hover:border-blue-200 hover:bg-blue-50 hover:text-[#1a3a8a] lg:hidden">
+          <Bike size={16} />
+        </button>}
         {adminDeliveryItems.length > 0 && <button type="button" onClick={() => navigate('/delivery/riders')} className="hidden h-9 items-center gap-1 rounded-lg border border-slate-200 px-2 text-xs font-semibold text-slate-700 transition hover:border-blue-200 hover:bg-blue-50 hover:text-[#1a3a8a] lg:inline-flex xl:gap-1.5 xl:px-3 xl:text-sm">
           <Bike size={16} /><span className="hidden xl:inline">Delivery</span>
         </button>}
@@ -303,13 +304,6 @@ export default function Header({ onMenuToggle, showMenuToggle = true, websiteAcc
           </div>
         </div>
       </div>
-
-      {adminDeliveryItems.length > 0 && <div className="flex w-full items-center justify-between border-t border-gray-100 pt-1.5 lg:hidden">
-        {publicWelcomeLogo
-          ? <img src={publicWelcomeLogo} alt="WEPZO" className="h-8 max-w-32 object-contain object-left"/>
-          : <span className="text-lg font-bold tracking-tight text-primary-600">WEPZO</span>}
-        <button type="button" onClick={() => navigate('/delivery/riders')} aria-label="Delivery" title="Delivery" className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-700 shadow-sm transition hover:border-blue-200 hover:bg-blue-50 hover:text-[#1a3a8a]"><Bike size={17}/></button>
-      </div>}
 
       {orderNotificationNotice && <div role="status" className="absolute right-3 top-full z-50 mt-2 max-w-[min(92vw,360px)] rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700 shadow-lg">{orderNotificationNotice}</div>}
 

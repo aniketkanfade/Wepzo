@@ -74,18 +74,17 @@ export default function PublicWelcomeLandingPage({ content: suppliedContent }) {
           <a href="#features" className="text-sm font-medium text-slate-600 hover:text-[var(--welcome-secondary)]">Features</a>
           <a href="#contact" className="text-sm font-medium text-slate-600 hover:text-[var(--welcome-secondary)]">Contact</a>
         </nav>
-        <div className="hidden items-center gap-2 sm:flex">
-          <button type="button" onClick={() => navigate('/login')} className="rounded-lg border border-slate-200 px-5 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">Login</button>
-          <button type="button" onClick={() => navigate('/register')} className="rounded-lg bg-[var(--welcome-primary)] px-5 py-2 text-sm font-bold text-white hover:brightness-95">Sign Up</button>
+        <div className="flex shrink-0 items-center gap-1 sm:gap-2">
+          <button type="button" onClick={() => navigate('/login')} className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 sm:px-5 sm:py-2 sm:text-sm">Login</button>
+          <button type="button" onClick={() => navigate('/register')} className="rounded-lg bg-[var(--welcome-primary)] px-2.5 py-1.5 text-xs font-bold text-white hover:brightness-95 sm:px-5 sm:py-2 sm:text-sm">Sign Up</button>
         </div>
-        <button type="button" aria-label="Toggle navigation" aria-expanded={menuOpen} onClick={() => setMenuOpen(open => !open)} className="rounded-lg p-2 text-slate-700 hover:bg-slate-100 sm:hidden">{menuOpen ? <X size={21}/> : <Menu size={21}/>}</button>
+        <button type="button" aria-label="Toggle navigation" aria-expanded={menuOpen} onClick={() => setMenuOpen(open => !open)} className="rounded-lg p-1.5 text-slate-700 hover:bg-slate-100 sm:hidden">{menuOpen ? <X size={21}/> : <Menu size={21}/>}</button>
       </div>
       {menuOpen && <nav className="grid gap-1 border-t border-slate-100 bg-white p-3 sm:hidden">
         {['Home|#top', 'How It Works|#steps', 'Features|#features', 'Contact|#contact'].map(item => {
           const [label, href] = item.split('|');
           return <a key={label} href={href} onClick={() => setMenuOpen(false)} className="rounded-lg px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">{label}</a>;
         })}
-        <div className="mt-1 flex gap-2"><button type="button" onClick={() => navigate('/login')} className="flex-1 rounded-lg border border-slate-200 py-2 text-sm font-semibold">Login</button><button type="button" onClick={() => navigate('/register')} className="flex-1 rounded-lg bg-[var(--welcome-primary)] py-2 text-sm font-bold text-white">Sign Up</button></div>
       </nav>}
     </header>
 
