@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import {
   GitBranch, HelpCircle, Tag, BarChart3, Upload, Camera, FolderTree, Layers,
-  Edit, Trash2, Search, ChevronDown, ChevronLeft, ChevronRight
+  Edit, Trash2, Search, ChevronDown
 } from 'lucide-react';
 import api from '../../api/axios';
 import { downloadFile } from '../../api/download';
@@ -20,7 +20,7 @@ export default function ChildCategoriesPage() {
   const [page, setPage] = useState(1);
   const [editingId, setEditingId] = useState(null);
   const fileRef = useRef(null);
-  const perPage = 25;
+  const [perPage, setPerPage] = useState(25);
 
   const [form, setForm] = useState({
     name: '', categoryId: '', subCategoryId: '',
@@ -202,7 +202,7 @@ export default function ChildCategoriesPage() {
 
         <ListTable
         title="Child Category List" count={items.length} search={search} setSearch={setSearch} setPage={setPage}
-        paginated={paginated} page={page} perPage={perPage} filtered={filtered} totalPages={totalPages}
+        paginated={paginated} page={page} perPage={perPage} setPerPage={setPerPage} filtered={filtered} totalPages={totalPages}
         columns={['mainCategory', 'subCategory', 'childCategory']}
         idKey="childCategoryId"
         onEdit={handleEdit} onDelete={handleDelete} onToggle={toggleField}

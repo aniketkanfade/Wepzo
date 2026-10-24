@@ -29,7 +29,7 @@ export default function StoreNewRequestsPage() {
     String(s.storeId || '').includes(search)
   );
 
-  const { page, setPage, perPage, totalPages, paginated, total } = useListPagination(filtered, { resetDeps: [search, tab, zone] });
+  const { page, setPage, perPage, setPerPage, totalPages, paginated, total } = useListPagination(filtered, { resetDeps: [search, tab, zone] });
 
   const approve = async (id) => {
     if (!confirm('Store approve karna hai?')) return;
@@ -70,6 +70,7 @@ export default function StoreNewRequestsPage() {
       total={total}
       perPage={perPage}
       onPageChange={setPage}
+      onPerPageChange={setPerPage}
       isEmpty={paginated.length === 0}
       emptyMessage={tab === 'pending' ? 'Koi pending store nahi' : 'Koi denied store nahi'}
       beforeCard={(

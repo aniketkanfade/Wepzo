@@ -71,7 +71,7 @@ export default function FlashSalesPage() {
     });
   }, [items, search]);
 
-  const { page, setPage, perPage, totalPages, paginated, total } = useListPagination(filtered, { resetDeps: [search, moduleId] });
+  const { page, setPage, perPage, setPerPage, totalPages, paginated, total } = useListPagination(filtered, { resetDeps: [search, moduleId] });
 
   const changeModule = (id) => {
     setSearchParams({ moduleId: id });
@@ -152,6 +152,7 @@ export default function FlashSalesPage() {
         total={total}
         perPage={perPage}
         onPageChange={setPage}
+        onPerPageChange={setPerPage}
         isEmpty={!loading && !error && paginated.length === 0}
         emptyColSpan={8}
         emptyMessage="No flash sales match this search."

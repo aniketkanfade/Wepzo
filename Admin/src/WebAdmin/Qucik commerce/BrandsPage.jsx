@@ -4,8 +4,7 @@ import api from '../../api/axios';
 import SimpleListTable from './components/SimpleListTable';
 import { PageCard, PageCardHeader, PageCardBody } from './components/PageCard';
 import ViewableImage from './components/ViewableImage';
-
-const perPage = 25;
+import { useListPagination } from '../../hooks/useListPagination';
 
 function toCsv(rows) {
   if (!rows.length) return '';
@@ -20,7 +19,6 @@ function toCsv(rows) {
 export default function BrandsPage() {
   const [items, setItems] = useState([]);
   const [search, setSearch] = useState('');
-  const [page, setPage] = useState(1);
   const [editingId, setEditingId] = useState(null);
   const [form, setForm] = useState({ name: '', image: '' });
   const fileRef = useRef(null);
@@ -30,8 +28,7 @@ export default function BrandsPage() {
   const load = () => api.get('/brands').then(res => setItems(res.data)).catch(() => {});
 
   const filtered = items.filter(i => i.name.toLowerCase().includes(search.toLowerCase()));
-  const totalPages = Math.ceil(filtered.length / perPage) || 1;
-  const paginated = filtered.slice((page - 1) * perPage, page * perPage);
+  const { page, setPage, perPage, setPerPage, totalPages, paginated } = useListPagination(filtered, { resetDeps: [search] });
 
   const resetForm = () => {
     setForm({ name: '', image: '' });
@@ -161,6 +158,7 @@ export default function BrandsPage() {
           paginated={paginated}
           page={page}
           perPage={perPage}
+          setPerPage={setPerPage}
           filtered={filtered}
           totalPages={totalPages}
           idKey="brandId"

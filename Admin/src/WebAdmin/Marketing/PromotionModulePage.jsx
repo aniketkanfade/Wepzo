@@ -78,7 +78,7 @@ export default function PromotionModulePage() {
   const filtered = items.filter(i =>
     Object.values(i).some(v => String(v).toLowerCase().includes(search.toLowerCase()))
   );
-  const { page, setPage, perPage, totalPages, paginated, total } = useListPagination(filtered, { resetDeps: [search] });
+  const { page, setPage, perPage, setPerPage, totalPages, paginated, total } = useListPagination(filtered, { resetDeps: [search] });
 
   const openAdd = () => {
     const init = {};
@@ -211,6 +211,7 @@ export default function PromotionModulePage() {
         total={total}
         perPage={perPage}
         onPageChange={setPage}
+        onPerPageChange={setPerPage}
         isEmpty={paginated.length === 0}
         emptyMessage="Koi record nahi"
         footerBar={(

@@ -3,6 +3,7 @@ import { Check, ChevronDown, ChevronLeft, ChevronRight, ClipboardList, Download,
 import { useLocation, useNavigate } from 'react-router-dom';
 import api from '../../../../api/axios';
 import { useListPagination } from '../../../../hooks/useListPagination';
+import PaginationControls from '../PaginationControls';
 import { ORDER_STATUS_STYLE } from '../../../../constants/orderStatus';
 import { printOrderInvoice } from './orderPrint';
 
@@ -173,7 +174,7 @@ export default function StoreOrderManagement() {
       return matchesStatus && matchesSearch && matchesPayment && isInDateRange(order, dateFilter);
     });
   }, [dateFilter, normalizedOrders, orderView.statuses, paymentFilter, search]);
-  const { page, setPage, totalPages, perPage, paginated } = useListPagination(visibleOrders, {
+  const { page, setPage, perPage, setPerPage, totalPages, paginated } = useListPagination(visibleOrders, {
     resetDeps: [dateFilter, orderView.label, paymentFilter, search],
   });
 
@@ -333,14 +334,8 @@ export default function StoreOrderManagement() {
             </tbody>
           </table>
           </div>
-          {visibleOrders.length > perPage && <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 px-4 py-3">
-            <p className="text-xs text-slate-500">Showing {(page - 1) * perPage + 1}–{Math.min(page * perPage, visibleOrders.length)} of {visibleOrders.length}</p>
-            <div className="flex items-center gap-1.5">
-              <button type="button" onClick={() => setPage(current => Math.max(1, current - 1))} disabled={page === 1} aria-label="Previous page" className="rounded-md border border-slate-200 p-2 text-slate-600 disabled:opacity-40"><ChevronLeft size={15}/></button>
-              <span className="px-2 text-xs font-medium text-slate-600">Page {page} of {totalPages}</span>
-              <button type="button" onClick={() => setPage(current => Math.min(totalPages, current + 1))} disabled={page === totalPages} aria-label="Next page" className="rounded-md border border-slate-200 p-2 text-slate-600 disabled:opacity-40"><ChevronRight size={15}/></button>
-            </div>
-          </footer>}
+          <PaginationControls page={page} totalPages={totalPages} total={visibleOrders.length} perPage={perPage}
+            onPageChange={setPage} onPerPageChange={setPerPage} label="orders"/>
         </div>}
   </section>;
 }

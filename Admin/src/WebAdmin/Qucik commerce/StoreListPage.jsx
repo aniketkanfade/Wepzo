@@ -35,7 +35,7 @@ export default function StoreListPage() {
     String(s.storeId || '').includes(search)
   );
 
-  const { page, setPage, perPage, totalPages, paginated, total } = useListPagination(filtered, { resetDeps: [search, zone] });
+  const { page, setPage, perPage, setPerPage, totalPages, paginated, total } = useListPagination(filtered, { resetDeps: [search, zone] });
 
   const patchStore = async (storeId, data) => {
     try {
@@ -95,6 +95,7 @@ export default function StoreListPage() {
       total={total}
       perPage={perPage}
       onPageChange={setPage}
+      onPerPageChange={setPerPage}
       isEmpty={paginated.length === 0}
       emptyMessage="Koi store nahi mila"
       emptyColSpan={9}

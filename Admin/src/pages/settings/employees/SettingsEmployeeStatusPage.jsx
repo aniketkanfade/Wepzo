@@ -42,6 +42,7 @@ export default function SettingsEmployeeStatusPage() {
       total={pager.total}
       perPage={pager.perPage}
       onPageChange={pager.setPage}
+      onPerPageChange={pager.setPerPage}
       isEmpty={pager.paginated.length === 0}
       emptyMessage="Koi employee nahi"
     >

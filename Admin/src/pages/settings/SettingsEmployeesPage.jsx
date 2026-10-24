@@ -24,7 +24,7 @@ export default function SettingsEmployeesPage() {
     if (!q) return true;
     return e.name.toLowerCase().includes(q) || (e.email || '').toLowerCase().includes(q) || (e.roleName || '').toLowerCase().includes(q);
   });
-  const { page, setPage, perPage, totalPages, paginated, total } = useListPagination(filtered, { resetDeps: [search] });
+  const { page, setPage, perPage, setPerPage, totalPages, paginated, total } = useListPagination(filtered, { resetDeps: [search] });
 
   const handleDelete = async (id) => {
     if (!confirm('Employee delete karna hai?')) return;
@@ -47,6 +47,7 @@ export default function SettingsEmployeesPage() {
       total={total}
       perPage={perPage}
       onPageChange={setPage}
+      onPerPageChange={setPerPage}
       isEmpty={paginated.length === 0}
       emptyMessage="Koi employee nahi"
       headerActions={(

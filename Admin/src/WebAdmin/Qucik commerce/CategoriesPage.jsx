@@ -1,13 +1,14 @@
 import { useState, useEffect, useRef } from 'react';
 import {
   LayoutGrid, HelpCircle, Tag, BarChart3, Upload, Camera, Layers,
-  Edit, Trash2, Search, ChevronDown, ChevronLeft, ChevronRight
+  Edit, Trash2, Search, ChevronDown
 } from 'lucide-react';
 import api from '../../api/axios';
 import { Link } from 'react-router-dom';
 import { downloadFile } from '../../api/download';
 import { PageCard, PageCardHeader } from './components/PageCard';
 import ViewableImage from './components/ViewableImage';
+import PaginationControls from './components/PaginationControls';
 import {
   LIST_NAVY, LIST_CARD_BORDER, listBtnNavy, listBtnOutline,
   listTheadClass, listTheadStyle, listThClass, listRowClass, listRowStyle, listTdClass,
@@ -42,7 +43,7 @@ export default function CategoriesPage() {
     status: true, featured: false, image: ''
   });
 
-  const perPage = 25;
+  const [perPage, setPerPage] = useState(25);
 
   useEffect(() => {
     loadCategories();
@@ -308,43 +309,8 @@ export default function CategoriesPage() {
             </tbody>
           </table>
 
-          <div className="shrink-0 flex flex-wrap items-center justify-between gap-3 px-6 py-4 border-t bg-white"
-            style={{ borderColor: LIST_CARD_BORDER }}>
-          <p className="text-sm text-gray-500">
-            Showing {filtered.length ? (page - 1) * perPage + 1 : 0} to {Math.min(page * perPage, filtered.length)} of {filtered.length} entries
-          </p>
-          <div className="flex items-center gap-1.5">
-            <button type="button"
-              onClick={() => setPage(p => Math.max(1, p - 1))}
-              disabled={page === 1}
-              className={`p-2 rounded-lg disabled:opacity-40 transition ${listBtnOutline}`}
-            >
-              <ChevronLeft size={16} />
-            </button>
-            {Array.from({ length: totalPages }, (_, i) => i + 1)
-              .filter(p => p === 1 || p === totalPages || Math.abs(p - page) <= 2)
-              .reduce((acc, p, i, arr) => {
-                if (i > 0 && p - arr[i - 1] > 1) acc.push('…');
-                acc.push(p);
-                return acc;
-              }, [])
-              .map((p, i) => typeof p === 'string' ? (
-                <span key={`gap-${i}`} className="w-8 text-center text-gray-400 text-sm">…</span>
-              ) : (
-                <button key={p} type="button" onClick={() => setPage(p)}
-                  className={`min-w-9 h-9 px-1 rounded-lg text-sm font-medium transition ${page === p ? listBtnNavy : listBtnOutline}`}>
-                  {p}
-                </button>
-              ))}
-            <button type="button"
-              onClick={() => setPage(p => Math.min(totalPages, p + 1))}
-              disabled={page === totalPages}
-              className={`p-2 rounded-lg disabled:opacity-40 transition ${listBtnOutline}`}
-            >
-              <ChevronRight size={16} />
-            </button>
-          </div>
-          </div>
+          <PaginationControls page={page} totalPages={totalPages} total={filtered.length} perPage={perPage}
+            onPageChange={setPage} onPerPageChange={size => { setPerPage(size); setPage(1); }} label="entries"/>
         </div>
       </PageCard>
     </div>

@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
-import { Plus, Edit, Trash2, Layers, Save, X, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Plus, Edit, Trash2, Layers, Save, X, Search, LockKeyhole, LockKeyholeOpen } from 'lucide-react';
 import api from '../api/axios';
 import { numericInputValue } from '../utils/numericInput';
 import { useModuleStore } from '../store/useStore';
 import { getAdminModuleLabel } from '../constants/adminModules';
+import PaginationControls from '../WebAdmin/Qucik commerce/components/PaginationControls';
 
 const getDefaultModuleType = (module) => {
   const value = String(module?.slug || module?.type || 'ecommerce').toLowerCase();
@@ -30,15 +31,49 @@ export default function ComponentsPage() {
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [form, setForm] = useState({ ...EMPTY_FORM, moduleType: getDefaultModuleType(activeModule) });
+  const [search, setSearch] = useState('');
+  const [locked, setLocked] = useState(false);
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [typeFilter, setTypeFilter] = useState('all');
   const totalPages = Math.max(1, Math.ceil(components.length / pageSize));
   const currentPage = Math.min(page, totalPages);
-  const paginatedComponents = components.slice((currentPage - 1) * pageSize, currentPage * pageSize);
-  const startRow = components.length ? (currentPage - 1) * pageSize + 1 : 0;
-  const endRow = Math.min(currentPage * pageSize, components.length);
+  const filteredComponents = components.filter(component => {
+    const matchesSearch = `${component.name || ''} ${component.type || ''} ${component.moduleType || ''}`.toLowerCase().includes(search.trim().toLowerCase());
+    const matchesStatus = statusFilter === 'all' || String(component.status || 'active') === statusFilter;
+    const matchesType = typeFilter === 'all' || component.type === typeFilter;
+    return matchesSearch && matchesStatus && matchesType;
+  });
+  const filteredPages = Math.max(1, Math.ceil(filteredComponents.length / pageSize));
+  const safePage = Math.min(currentPage, filteredPages);
+  const paginatedComponents = filteredComponents.slice((safePage - 1) * pageSize, safePage * pageSize);
 
   useEffect(() => {
-    if (page !== currentPage) setPage(currentPage);
-  }, [page, currentPage]);
+    if (page !== safePage) setPage(safePage);
+  }, [page, safePage]);
+
+  useEffect(() => {
+    const key = `wepzo-list-filter:component-management`;
+    const saved = localStorage.getItem(key);
+    if (saved === null) return;
+    const value = JSON.parse(saved);
+    if (value && typeof value === 'object') {
+      setSearch(value.search || '');
+      setStatusFilter(value.status || 'all');
+      setTypeFilter(value.type || 'all');
+      setLocked(true);
+    }
+  }, []);
+
+  const toggleFiltersLock = () => {
+    const key = 'wepzo-list-filter:component-management';
+    if (locked) {
+      localStorage.removeItem(key);
+      setLocked(false);
+      return;
+    }
+    localStorage.setItem(key, JSON.stringify({ search, status: statusFilter, type: typeFilter }));
+    setLocked(true);
+  };
 
   const loadComponents = async () => {
     try {
@@ -201,6 +236,26 @@ export default function ComponentsPage() {
       )}
 
       <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+        <div className="flex flex-wrap items-center gap-2 border-b border-gray-100 p-3">
+          <label className="relative min-w-[180px] flex-1">
+            <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"/>
+            <input value={search} onChange={event => { setSearch(event.target.value); setPage(1); }} disabled={locked} placeholder="Search component name, type or module..." aria-label="Search components"
+              className="h-10 w-full rounded-lg border border-gray-200 bg-white pl-9 pr-3 text-sm outline-none focus:border-blue-400 disabled:bg-slate-50"/>
+          </label>
+          <select value={typeFilter} onChange={event => { setTypeFilter(event.target.value); setPage(1); }} disabled={locked} aria-label="Filter by component type" className="h-10 rounded-lg border border-gray-200 bg-white px-3 text-sm disabled:bg-slate-50">
+            <option value="all">All Types</option>
+            {[...new Set(components.map(component => component.type).filter(Boolean))].sort().map(type => <option key={type} value={type}>{type.replaceAll('_', ' ')}</option>)}
+          </select>
+          <select value={statusFilter} onChange={event => { setStatusFilter(event.target.value); setPage(1); }} disabled={locked} aria-label="Filter by status" className="h-10 rounded-lg border border-gray-200 bg-white px-3 text-sm disabled:bg-slate-50">
+            <option value="all">All Statuses</option><option value="active">Active</option><option value="inactive">Inactive</option>
+          </select>
+          <button type="button" onClick={toggleFiltersLock} aria-label={locked ? 'Unlock saved filters' : 'Lock current filters'} title={locked ? 'Unlock saved filters' : 'Lock current filters'}
+            className={`grid h-10 w-10 place-items-center rounded-lg border ${locked ? 'border-blue-200 bg-blue-50 text-blue-800' : 'border-gray-200 text-slate-500 hover:bg-slate-50'}`}>
+            {locked ? <LockKeyhole size={16}/> : <LockKeyholeOpen size={16}/>}
+          </button>
+          {(search || statusFilter !== 'all' || typeFilter !== 'all') && <button type="button" onClick={() => { setSearch(''); setStatusFilter('all'); setTypeFilter('all'); setPage(1); }}
+            className="h-10 rounded-lg px-3 text-sm font-semibold text-slate-600 hover:bg-slate-100">Clear filters</button>}
+        </div>
         <div className="max-h-[65vh] overflow-auto">
         <table className="w-full min-w-[760px] text-sm">
           <thead className="sticky top-0 z-10 bg-gray-50 text-gray-500">
@@ -217,7 +272,7 @@ export default function ComponentsPage() {
           <tbody>
             {paginatedComponents.length ? paginatedComponents.map((c, i) => (
               <tr key={c._id} className="border-t border-gray-50 hover:bg-gray-50">
-                <td className="px-6 py-3">{(currentPage - 1) * pageSize + i + 1}</td>
+                <td className="px-6 py-3">{(safePage - 1) * pageSize + i + 1}</td>
                 <td className="px-6 py-3 font-medium">{c.name}</td>
                 <td className="px-6 py-3 capitalize">{String(c.type || '').replace('_', ' ')}</td>
                 <td className="px-6 py-3">{c.moduleType === 'ecommerce' ? getAdminModuleLabel(activeModule) : String(c.moduleType || '').replace(/[-_]/g, ' ')}</td>
@@ -237,26 +292,12 @@ export default function ComponentsPage() {
                 </td>
               </tr>
             )) : <tr><td colSpan={7} className="px-6 py-10 text-center text-sm text-gray-500">No components found.</td></tr>}
+            {paginatedComponents.length === 0 && <tr><td colSpan={7} className="px-6 py-10 text-center text-sm text-gray-500">No components match these filters.</td></tr>}
           </tbody>
         </table>
         </div>
-        <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-gray-100 px-4 py-3 text-sm text-gray-500">
-          <span>Showing {startRow}–{endRow} of {components.length} components</span>
-          <div className="flex items-center gap-2">
-            <label className="flex items-center gap-2">Rows per page
-              <select value={pageSize} onChange={event => { setPageSize(Number(event.target.value)); setPage(1); }} aria-label="Rows per page" className="h-9 rounded-lg border border-gray-200 bg-white px-2 text-sm text-gray-700">
-                {[10, 25, 50, 100].map(size => <option key={size} value={size}>{size}</option>)}
-              </select>
-            </label>
-            <span className="whitespace-nowrap tabular-nums">Page {currentPage} of {totalPages}</span>
-            <button type="button" onClick={() => setPage(value => Math.max(1, value - 1))} disabled={currentPage <= 1} aria-label="Previous page" className="grid h-9 w-9 place-items-center rounded-lg border border-gray-200 hover:bg-gray-50 disabled:opacity-40">
-              <ChevronLeft size={17} />
-            </button>
-            <button type="button" onClick={() => setPage(value => Math.min(totalPages, value + 1))} disabled={currentPage >= totalPages} aria-label="Next page" className="grid h-9 w-9 place-items-center rounded-lg border border-gray-200 hover:bg-gray-50 disabled:opacity-40">
-              <ChevronRight size={17} />
-            </button>
-          </div>
-        </footer>
+        <PaginationControls page={safePage} totalPages={filteredPages} total={filteredComponents.length} perPage={pageSize}
+          onPageChange={setPage} onPerPageChange={value => { setPageSize(value); setPage(1); }} label="components"/>
       </div>
     </div>
   );

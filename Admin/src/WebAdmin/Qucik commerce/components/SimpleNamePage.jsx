@@ -3,8 +3,7 @@ import { Tag } from 'lucide-react';
 import api from '../../../api/axios';
 import SimpleListTable from './SimpleListTable';
 import { PageCard, PageCardHeader, PageCardBody } from './PageCard';
-
-const perPage = 25;
+import { useListPagination } from '../../../hooks/useListPagination';
 
 function toCsv(rows) {
   if (!rows.length) return '';
@@ -22,7 +21,6 @@ export default function SimpleNamePage({
 }) {
   const [items, setItems] = useState([]);
   const [search, setSearch] = useState('');
-  const [page, setPage] = useState(1);
   const [editingId, setEditingId] = useState(null);
   const [form, setForm] = useState({ name: '' });
 
@@ -31,8 +29,7 @@ export default function SimpleNamePage({
   const load = () => api.get(apiPath).then(res => setItems(res.data)).catch(() => {});
 
   const filtered = items.filter(i => i.name.toLowerCase().includes(search.toLowerCase()));
-  const totalPages = Math.ceil(filtered.length / perPage) || 1;
-  const paginated = filtered.slice((page - 1) * perPage, page * perPage);
+  const { page, setPage, perPage, setPerPage, totalPages, paginated } = useListPagination(filtered, { resetDeps: [search] });
 
   const resetForm = () => {
     setForm({ name: '' });
@@ -122,6 +119,7 @@ export default function SimpleNamePage({
           search={search}
           setSearch={setSearch}
           setPage={setPage}
+          setPerPage={setPerPage}
           searchPlaceholder={searchPlaceholder}
           onExport={handleExport}
           paginated={paginated}

@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
-import { Activity, Bike, ChevronLeft, ChevronRight, CircleDollarSign, ClipboardList, Download, RefreshCw, Search, Store, UserRound, Users, Wallet } from 'lucide-react';
+import { Activity, Bike, CircleDollarSign, ClipboardList, Download, RefreshCw, Search, Store, UserRound, Users, Wallet } from 'lucide-react';
 import { useAuthStore } from '../store/useStore';
 import { useLocation, useNavigate } from 'react-router-dom';
 import api from '../api/axios';
+import PaginationControls from '../WebAdmin/Qucik commerce/components/PaginationControls';
 
 const money = value => `₹${(Number(value) || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
 const displayDate = value => value ? new Date(value).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' }) : '—';
@@ -98,19 +99,8 @@ function ReportTable({ columns, rows, empty, filename }) {
         <tbody className="divide-y divide-slate-100">{pageRows.length ? pageRows.map((row, index) => <tr key={row.id || row.orderNo || index} className="text-slate-700 hover:bg-slate-50/70">{columns.map(column => <td key={column.key} className="whitespace-nowrap px-4 py-3">{column.render ? column.render(row) : row[column.key] ?? '—'}</td>)}</tr>) : <tr><td colSpan={columns.length} className="px-4 py-10 text-center text-sm text-slate-500">{search || filterKey ? 'No rows match these filters.' : empty || 'No records found.'}</td></tr>}</tbody>
       </table>
     </div>
-    <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 px-3 py-2.5 text-xs text-slate-500">
-      <span>Showing {startRow}–{endRow} of {filteredRows.length} rows</span>
-      <div className="flex items-center gap-2">
-        <label className="flex items-center gap-1.5">Rows
-          <select value={pageSize} onChange={event => { setPageSize(Number(event.target.value)); setPage(1); }} aria-label="Rows per page" className="h-8 rounded-md border border-slate-200 bg-white px-2 text-slate-700">
-            {[10, 25, 50, 100].map(size => <option key={size} value={size}>{size}</option>)}
-          </select>
-        </label>
-        <span className="tabular-nums">Page {currentPage} of {totalPages}</span>
-        <button type="button" onClick={() => setPage(value => Math.max(1, value - 1))} disabled={currentPage <= 1} aria-label="Previous page" className="grid h-8 w-8 place-items-center rounded-md border border-slate-200 hover:bg-slate-50 disabled:opacity-40"><ChevronLeft size={16}/></button>
-        <button type="button" onClick={() => setPage(value => Math.min(totalPages, value + 1))} disabled={currentPage >= totalPages} aria-label="Next page" className="grid h-8 w-8 place-items-center rounded-md border border-slate-200 hover:bg-slate-50 disabled:opacity-40"><ChevronRight size={16}/></button>
-      </div>
-    </footer>
+    <PaginationControls page={currentPage} totalPages={totalPages} total={filteredRows.length} perPage={pageSize}
+      onPageChange={setPage} onPerPageChange={size => { setPageSize(size); setPage(1); }} label="rows"/>
   </section>;
 }
 

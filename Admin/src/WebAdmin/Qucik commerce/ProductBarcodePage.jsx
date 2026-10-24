@@ -1,13 +1,14 @@
 import { useState, useEffect } from 'react';
-import { Barcode, Search, Printer, RotateCcw, CheckSquare, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Barcode, Search, Printer, RotateCcw, CheckSquare } from 'lucide-react';
 import api from '../../api/axios';
 import { PageCard } from './components/PageCard';
 import ViewableImage from './components/ViewableImage';
 import BarcodeSvg from './components/BarcodeSvg';
+import PaginationControls from './components/PaginationControls';
 import { getBarcodeValue, getProductCode, printBarcodeLabels } from '../../utils/barcodeUtils';
 import { useListPagination } from '../../hooks/useListPagination';
 import {
-  LIST_PER_PAGE, LIST_CARD_BORDER, listBtnNavy, listBtnOutline,
+  listBtnNavy, listBtnOutline,
   listTheadClass, listTheadStyle, listThClass, listRowClass, listRowStyle, listTdClass,
 } from '../../constants/listTheme';
 
@@ -33,7 +34,7 @@ export default function ProductBarcodePage() {
     getProductCode(i).toLowerCase().includes(search.toLowerCase()) ||
     (i.sku || '').toLowerCase().includes(search.toLowerCase())
   );
-  const { page, setPage, perPage, totalPages, paginated } = useListPagination(filtered, { resetDeps: [search] });
+  const { page, setPage, perPage, setPerPage, totalPages, paginated } = useListPagination(filtered, { resetDeps: [search] });
   const selectedItems = items.filter(i => selected.includes(i._id));
   const preview = selectedItems[0] || items[0];
 
@@ -175,24 +176,8 @@ export default function ProductBarcodePage() {
                 </tbody>
               </table>
 
-              {filtered.length > perPage && (
-                <div className="shrink-0 flex flex-wrap items-center justify-between gap-3 px-6 py-4 border-t bg-white"
-                  style={{ borderColor: LIST_CARD_BORDER }}>
-                <p className="text-sm text-gray-500">
-                  Showing {(page - 1) * perPage + 1} to {Math.min(page * perPage, filtered.length)} of {filtered.length} entries
-                </p>
-                <div className="flex items-center gap-1.5">
-                  <button type="button" disabled={page === 1} onClick={() => setPage(p => Math.max(1, p - 1))}
-                    className={`p-2 rounded-lg disabled:opacity-40 transition ${listBtnOutline}`}>
-                    <ChevronLeft size={16} />
-                  </button>
-                  <button type="button" disabled={page === totalPages} onClick={() => setPage(p => Math.min(totalPages, p + 1))}
-                    className={`p-2 rounded-lg disabled:opacity-40 transition ${listBtnOutline}`}>
-                    <ChevronRight size={16} />
-                  </button>
-                </div>
-                </div>
-              )}
+              <PaginationControls page={page} totalPages={totalPages} total={filtered.length} perPage={perPage}
+                onPageChange={setPage} onPerPageChange={setPerPage}/>
             </div>
           </PageCard>
         </div>

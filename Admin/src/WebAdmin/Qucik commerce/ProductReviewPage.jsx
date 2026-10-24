@@ -100,7 +100,7 @@ export default function ProductReviewPage() {
     [items, filters, search]
   );
 
-  const { page, setPage, perPage, totalPages, paginated, total } = useListPagination(filtered, { resetDeps: [filters, search] });
+  const { page, setPage, perPage, setPerPage, totalPages, paginated, total } = useListPagination(filtered, { resetDeps: [filters, search] });
 
   const updateFilter = (key, value) => setFilters(f => ({ ...f, [key]: value }));
 
@@ -185,6 +185,7 @@ export default function ProductReviewPage() {
         total={total}
         perPage={perPage}
         onPageChange={setPage}
+        onPerPageChange={setPerPage}
         isEmpty={paginated.length === 0}
         emptyMessage="Koi review nahi mila — filters reset karein"
         beforeCard={(

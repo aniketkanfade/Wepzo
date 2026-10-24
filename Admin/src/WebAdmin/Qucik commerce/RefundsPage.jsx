@@ -25,7 +25,7 @@ export default function RefundsPage() {
     o.customer.toLowerCase().includes(search.toLowerCase())
   );
 
-  const { page, setPage, perPage, totalPages, paginated, total } = useListPagination(filtered, { resetDeps: [search, isRefunded] });
+  const { page, setPage, perPage, setPerPage, totalPages, paginated, total } = useListPagination(filtered, { resetDeps: [search, isRefunded] });
   const title = isRefunded ? 'Refunded Orders' : 'Refund Requests';
 
   return (
@@ -43,6 +43,7 @@ export default function RefundsPage() {
       total={total}
       perPage={perPage}
       onPageChange={setPage}
+      onPerPageChange={setPerPage}
       isEmpty={paginated.length === 0}
       emptyMessage="Koi record nahi mila"
       beforeCard={(

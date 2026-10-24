@@ -1,15 +1,16 @@
 import { useState, useEffect, useRef } from 'react';
 import {
   Layers, HelpCircle, Tag, BarChart3, Upload, Camera, FolderTree,
-  Edit, Trash2, Search, ChevronDown, ChevronLeft, ChevronRight
+  Edit, Trash2, Search, ChevronDown
 } from 'lucide-react';
 import api from '../../api/axios';
 import { downloadFile } from '../../api/download';
 import Toggle from './components/Toggle';
 import { PageCard, PageCardHeader } from './components/PageCard';
 import ViewableImage from './components/ViewableImage';
+import PaginationControls from './components/PaginationControls';
 import {
-  LIST_NAVY, LIST_CARD_BORDER, listBtnNavy, listBtnOutline,
+  LIST_NAVY, LIST_CARD_BORDER, listBtnOutline,
   listTheadClass, listTheadStyle, listThClass, listRowClass, listRowStyle, listTdClass,
 } from '../../constants/listTheme';
 
@@ -22,7 +23,7 @@ export default function SubCategoriesPage() {
   const [page, setPage] = useState(1);
   const [editingId, setEditingId] = useState(null);
   const fileRef = useRef(null);
-  const perPage = 25;
+  const [perPage, setPerPage] = useState(25);
 
   const [form, setForm] = useState({
     name: '', categoryId: '', priority: 'Normal',
@@ -182,7 +183,7 @@ export default function SubCategoriesPage() {
 
         <ListTable
         title="Sub Category List" count={items.length} search={search} setSearch={setSearch} setPage={setPage}
-        paginated={paginated} page={page} perPage={perPage} filtered={filtered} totalPages={totalPages}
+        paginated={paginated} page={page} perPage={perPage} setPerPage={setPerPage} filtered={filtered} totalPages={totalPages}
         columns={['mainCategory', 'subCategory']}
         idKey="subCategoryId"
         onEdit={handleEdit} onDelete={handleDelete} onToggle={toggleField}
@@ -193,16 +194,8 @@ export default function SubCategoriesPage() {
   );
 }
 
-function ListTable({ title, count, search, setSearch, setPage, paginated, page, perPage, filtered, totalPages, columns, idKey, onEdit, onDelete, onToggle, onExport, searchPlaceholder, embedded = false }) {
+function ListTable({ title, count, search, setSearch, setPage, paginated, page, perPage, setPerPage, filtered, totalPages, columns, idKey, onEdit, onDelete, onToggle, onExport, searchPlaceholder, embedded = false }) {
   const priorities = ['Normal', 'High', 'Low'];
-
-  const pages = Array.from({ length: totalPages }, (_, i) => i + 1)
-    .filter(p => p === 1 || p === totalPages || Math.abs(p - page) <= 2)
-    .reduce((acc, p, i, arr) => {
-      if (i > 0 && p - arr[i - 1] > 1) acc.push('…');
-      acc.push(p);
-      return acc;
-    }, []);
 
   const outerClass = embedded ? 'flex flex-col min-h-0' : 'flex flex-col max-h-[calc(100vh-7rem)] rounded-xl border shadow-sm overflow-hidden bg-white';
   return (
@@ -270,25 +263,9 @@ function ListTable({ title, count, search, setSearch, setPage, paginated, page, 
             ))}
           </tbody>
         </table>
-        <div className="shrink-0 flex flex-wrap items-center justify-between gap-3 px-6 py-4 border-t bg-white"
-          style={{ borderColor: LIST_CARD_BORDER }}>
-        <p className="text-sm text-gray-500">
-          Showing {filtered.length ? (page - 1) * perPage + 1 : 0} to {Math.min(page * perPage, filtered.length)} of {filtered.length} entries
-        </p>
-        <div className="flex items-center gap-1.5">
-          <button type="button" onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}
-            className={`p-2 rounded-lg disabled:opacity-40 transition ${listBtnOutline}`}><ChevronLeft size={16} /></button>
-          {pages.map((p, i) => typeof p === 'string' ? (
-            <span key={`gap-${i}`} className="w-8 text-center text-gray-400 text-sm">…</span>
-          ) : (
-            <button key={p} type="button" onClick={() => setPage(p)}
-              className={`min-w-9 h-9 px-1 rounded-lg text-sm font-medium transition ${page === p ? listBtnNavy : listBtnOutline}`}>{p}</button>
-          ))}
-          <button type="button" onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages}
-            className={`p-2 rounded-lg disabled:opacity-40 transition ${listBtnOutline}`}><ChevronRight size={16} /></button>
-        </div>
-        </div>
       </div>
+      <PaginationControls page={page} totalPages={totalPages} total={filtered.length} perPage={perPage}
+        onPageChange={setPage} onPerPageChange={setPerPage} label="entries"/>
     </div>
   );
 }

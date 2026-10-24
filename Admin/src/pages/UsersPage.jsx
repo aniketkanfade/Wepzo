@@ -22,14 +22,14 @@ export default function UsersPage() {
   useEffect(() => { api.get('/users').then(res => setUsers(res.data || [])).catch(() => setUsers([])); }, []);
 
   const filtered = users.filter(user => `${user.name || ''} ${user.email || ''} ${user.role || ''}`.toLowerCase().includes(search.toLowerCase()));
-  const { page, setPage, perPage, totalPages, paginated, total } = useListPagination(filtered, { resetDeps: [search] });
+  const { page, setPage, perPage, setPerPage, totalPages, paginated, total } = useListPagination(filtered, { resetDeps: [search] });
 
   return <AdminListLayout
     breadcrumb={<>Dashboard &gt; <span className="text-gray-600">User Management</span></>}
     title="User Management" icon={Users} count={filtered.length}
     searchValue={searchInput} onSearchChange={setSearchInput} onSearchSubmit={() => setSearch(searchInput.trim())}
     searchPlaceholder="Search name, email or role..." page={page} totalPages={totalPages} total={total}
-    perPage={perPage} onPageChange={setPage} isEmpty={paginated.length === 0} emptyMessage="Koi user nahi mila"
+    perPage={perPage} onPageChange={setPage} onPerPageChange={setPerPage} isEmpty={paginated.length === 0} emptyMessage="Koi user nahi mila"
   >
     <table className="w-full text-sm">
       <thead className="sticky top-0 z-10"><tr className={listTheadClass} style={listTheadStyle}>

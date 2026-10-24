@@ -51,7 +51,7 @@ export default function ProductRequestPage() {
     (i.brand || '').toLowerCase().includes(search.toLowerCase())
   );
 
-  const { page, setPage, perPage, totalPages, paginated, total } = useListPagination(filtered, { resetDeps: [search, activeTab] });
+  const { page, setPage, perPage, setPerPage, totalPages, paginated, total } = useListPagination(filtered, { resetDeps: [search, activeTab] });
 
   const setTab = (key) => {
     setSearch('');
@@ -113,6 +113,7 @@ export default function ProductRequestPage() {
         total={total}
         perPage={perPage}
         onPageChange={setPage}
+        onPerPageChange={setPerPage}
         isEmpty={paginated.length === 0}
         emptyMessage={isPendingTab ? 'Koi pending request nahi hai.' : 'Koi rejected request nahi hai.'}
         beforeCard={(

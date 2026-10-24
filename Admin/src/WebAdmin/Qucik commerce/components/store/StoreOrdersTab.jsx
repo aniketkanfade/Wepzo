@@ -5,10 +5,11 @@ import {
   ShoppingBag, CalendarClock, Clock, PackageCheck, PackageX,
 } from 'lucide-react';
 import { useListPagination } from '../../../../hooks/useListPagination';
+import PaginationControls from '../PaginationControls';
 import { printOrderInvoice } from '../orders/orderPrint';
 import { ORDER_STATUS_STYLE } from '../../../../constants/orderStatus';
 import {
-  LIST_NAVY as NAVY, LIST_TEAL as TEAL, LIST_CARD_BORDER as CARD_BORDER, LIST_PER_PAGE as perPage,
+  LIST_NAVY as NAVY, LIST_TEAL as TEAL, LIST_CARD_BORDER as CARD_BORDER,
   listBtnNavy, listBtnOutline, listTheadClass, listTheadStyle, listThClass,
   listRowClass, listRowStyle, listTdClass,
 } from '../../../../constants/listTheme';
@@ -92,7 +93,7 @@ export default function StoreOrdersTab({ store, orders, loading }) {
     return list;
   }, [orders, statusFilter, search]);
 
-  const { page, setPage, totalPages, paginated } = useListPagination(filtered, { resetDeps: [search, statusFilter] });
+  const { page, setPage, perPage, setPerPage, totalPages, paginated } = useListPagination(filtered, { resetDeps: [search, statusFilter] });
 
   const runSearch = () => { setSearch(searchInput.trim()); setPage(1); };
 
@@ -252,38 +253,8 @@ export default function StoreOrdersTab({ store, orders, loading }) {
           </table>
         </div>
 
-        {filtered.length > perPage && (
-          <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-4 border-t bg-white" style={{ borderColor: CARD_BORDER }}>
-            <p className="text-sm text-gray-500">
-              Showing {(page - 1) * perPage + 1} to {Math.min(page * perPage, filtered.length)} of {filtered.length}
-            </p>
-            <div className="flex items-center gap-1.5">
-              <button type="button" onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}
-                className={`p-2 rounded-lg disabled:opacity-40 transition ${btnOutline}`}>
-                <ChevronLeft size={16} />
-              </button>
-              {Array.from({ length: totalPages }, (_, idx) => idx + 1)
-                .filter(p => p === 1 || p === totalPages || Math.abs(p - page) <= 2)
-                .reduce((acc, p, idx, arr) => {
-                  if (idx > 0 && p - arr[idx - 1] > 1) acc.push('…');
-                  acc.push(p);
-                  return acc;
-                }, [])
-                .map((p, i) => typeof p === 'string' ? (
-                  <span key={`gap-${i}`} className="w-8 text-center text-gray-400 text-sm">…</span>
-                ) : (
-                  <button key={p} type="button" onClick={() => setPage(p)}
-                    className={`min-w-9 h-9 px-1 rounded-lg text-sm font-medium transition ${page === p ? btnNavy : btnOutline}`}>
-                    {p}
-                  </button>
-                ))}
-              <button type="button" onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages}
-                className={`p-2 rounded-lg disabled:opacity-40 transition ${btnOutline}`}>
-                <ChevronRight size={16} />
-              </button>
-            </div>
-          </div>
-        )}
+        <PaginationControls page={page} totalPages={totalPages} total={filtered.length} perPage={perPage}
+          onPageChange={setPage} onPerPageChange={setPerPage} label="orders"/>
       </div>
     </div>
   );

@@ -15,7 +15,7 @@ export default function StoreRecommendedPage() {
   }, []);
 
   const filtered = stores.filter(s => s.name.toLowerCase().includes(search.toLowerCase()));
-  const { page, setPage, perPage, totalPages, paginated, total } = useListPagination(filtered, { resetDeps: [search] });
+  const { page, setPage, perPage, setPerPage, totalPages, paginated, total } = useListPagination(filtered, { resetDeps: [search] });
 
   const toggleRecommend = async (storeId) => {
     const { data } = await api.post(`/stores/${storeId}/toggle-recommend`);
@@ -38,6 +38,7 @@ export default function StoreRecommendedPage() {
       total={total}
       perPage={perPage}
       onPageChange={setPage}
+      onPerPageChange={setPerPage}
       isEmpty={paginated.length === 0}
       emptyMessage="Koi recommended store nahi"
     >

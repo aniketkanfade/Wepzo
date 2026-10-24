@@ -23,7 +23,7 @@ export default function ProductLowStockPage() {
   const filtered = items.filter(i =>
     i.name.toLowerCase().includes(search.toLowerCase()) || (i.sku || '').toLowerCase().includes(search.toLowerCase())
   );
-  const { page, setPage, perPage, totalPages, paginated, total } = useListPagination(filtered, { resetDeps: [search] });
+  const { page, setPage, perPage, setPerPage, totalPages, paginated, total } = useListPagination(filtered, { resetDeps: [search] });
 
   const handleDelete = async () => {
     if (!deleteTarget) return;
@@ -55,6 +55,7 @@ export default function ProductLowStockPage() {
       total={total}
       perPage={perPage}
       onPageChange={setPage}
+      onPerPageChange={setPerPage}
       isEmpty={paginated.length === 0}
       emptyMessage="Koi low stock item nahi mila"
       headerActions={(

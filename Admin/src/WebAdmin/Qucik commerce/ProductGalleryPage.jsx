@@ -26,7 +26,7 @@ export default function ProductGalleryPage() {
   });
   const stores = [...new Set(items.map(i => i.store))];
   const categories = [...new Set(items.map(i => i.mainCategory))];
-  const { page, setPage, perPage, totalPages, paginated, total } = useListPagination(filtered, { resetDeps: [search, store, category] });
+  const { page, setPage, perPage, setPerPage, totalPages, paginated, total } = useListPagination(filtered, { resetDeps: [search, store, category] });
 
   const applySearch = () => setSearch(searchInput.trim());
 
@@ -46,6 +46,7 @@ export default function ProductGalleryPage() {
         total={total}
         perPage={perPage}
         onPageChange={setPage}
+        onPerPageChange={setPerPage}
         isEmpty={paginated.length === 0}
         emptyMessage="Koi product nahi mila"
         headerActions={(
