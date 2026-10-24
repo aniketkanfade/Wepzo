@@ -6450,6 +6450,48 @@ router.delete('/system-modules/:id', auth, (req, res) => {
   store.systemModules = (store.systemModules || []).filter(m => m._id !== req.params.id || !isInAdminWebsiteModule(req, m));
   res.json({ message: 'Deleted' });
 });
+const publicWelcomePageFields = [
+  'brandName', 'heroEyebrow', 'heroTitle', 'heroDescription', 'heroImage',
+  'primaryButton', 'secondaryButton', 'trustPoints',
+  'stepsTitle', 'stepsSubtitle', 'steps',
+  'featuresTitle', 'featuresSubtitle', 'features',
+  'ctaTitle', 'ctaDescription', 'ctaButton',
+  'footerTagline', 'footerLinks', 'footerCopyright',
+  'primaryColor', 'secondaryColor', 'pageBackground', 'textColor',
+];
+const publicWelcomePageColors = new Set(['primaryColor', 'secondaryColor', 'pageBackground', 'textColor']);
+router.get('/public/welcome-page', (req, res) => {
+  res.json(store.publicWelcomePage || {});
+});
+router.put('/public/welcome-page', auth, (req, res) => {
+  if (req.user?.role !== 'main_admin') return res.status(403).json({ message: 'Only Main Admin can manage the public welcome page' });
+  const body = req.body || {};
+  const unknownField = Object.keys(body).find(key => !publicWelcomePageFields.includes(key));
+  if (unknownField) return res.status(400).json({ message: `Unsupported welcome page field: ${unknownField}` });
+  const next = { ...(store.publicWelcomePage || {}) };
+  for (const key of publicWelcomePageFields) {
+    if (body[key] === undefined) continue;
+    if (typeof body[key] !== 'string') return res.status(400).json({ message: `${key} must be text` });
+    const value = body[key].trim();
+    if (value.length > (key === 'heroImage' ? 2000 : 5000)) {
+      return res.status(400).json({ message: `${key} is too long` });
+    }
+    if (publicWelcomePageColors.has(key) && !/^#[0-9a-f]{6}$/i.test(value)) {
+      return res.status(400).json({ message: `${key} must be a 6-digit hex color` });
+    }
+    if (key === 'heroImage' && value) {
+      let imageUrl;
+      try { imageUrl = new URL(value); } catch { return res.status(400).json({ message: 'Hero image must be a valid HTTP or HTTPS URL' }); }
+      if (!['http:', 'https:'].includes(imageUrl.protocol)) {
+        return res.status(400).json({ message: 'Hero image must be a valid HTTP or HTTPS URL' });
+      }
+    }
+    next[key] = value;
+  }
+  store.publicWelcomePage = next;
+  schedulePersist();
+  res.json(store.publicWelcomePage);
+});
 router.get('/public/website-modules', (req, res) => res.json((store.websiteModules || []).filter(module => module.status !== false && module.status !== 'false' && module.status !== 'inactive').map(({ _id, name, slug, type, image, images, videoUrl, description, welcomeTitle, welcomeDescription, welcomeIntro, builderTip, addressTitle, addressDescription, showSubdomainOption, showOwnDomainOption, subdomainTitle, subdomainDescription, subdomainBadge, subdomainBenefits, subdomainPriceMode, subdomainPrice, ownDomainTitle, ownDomainDescription, ownDomainBadge, ownDomainBenefits, fullPurchasePriceMode, fullPurchaseAmount, continueLabel, tutorialTitle, tutorialDescription, helpTitle, helpDescription, helpLinks, supportTitle, supportDescription, supportEmail, supportWhatsApp, supportWhatsappLabel, supportEmailLabel, helpCenterLabel }) => {
   const canonicalSlug = normalizeWebsiteModuleSlug(slug || type || '');
   return { _id, name, slug: canonicalSlug || slug, type: normalizeWebsiteModuleSlug(type || slug || '') || type, image, images: Array.isArray(images) ? images : (image ? [image] : []), videoUrl, description, welcomeTitle: welcomeTitle || '', welcomeDescription: welcomeDescription || '', welcomeIntro: welcomeIntro || '', builderTip: builderTip || '', addressTitle: addressTitle || '', addressDescription: addressDescription || '', showSubdomainOption: showSubdomainOption !== false, showOwnDomainOption: showOwnDomainOption !== false, subdomainTitle: subdomainTitle || '', subdomainDescription: subdomainDescription || '', subdomainBadge: subdomainBadge || '', subdomainBenefits: Array.isArray(subdomainBenefits) ? subdomainBenefits : [], subdomainPriceMode: subdomainPriceMode === 'free' || (subdomainPriceMode == null && Number(subdomainPrice) === 0) ? 'free' : 'fixed', subdomainPrice: Math.max(0, Number(subdomainPrice ?? 500) || 0), fullPurchasePriceMode: ['free', 'fixed'].includes(fullPurchasePriceMode) ? fullPurchasePriceMode : 'components', fullPurchaseAmount: Math.max(0, Number(fullPurchaseAmount) || 0), ownDomainTitle: ownDomainTitle || '', ownDomainDescription: ownDomainDescription || '', ownDomainBadge: ownDomainBadge || '', ownDomainBenefits: Array.isArray(ownDomainBenefits) ? ownDomainBenefits : [], continueLabel: continueLabel || '', tutorialTitle: tutorialTitle || '', tutorialDescription: tutorialDescription || '', helpTitle: helpTitle || '', helpDescription: helpDescription || '', helpLinks: Array.isArray(helpLinks) ? helpLinks : [], supportTitle: supportTitle || '', supportDescription: supportDescription || '', supportEmail: supportEmail || '', supportWhatsApp: supportWhatsApp || '', supportWhatsappLabel: supportWhatsappLabel || '', supportEmailLabel: supportEmailLabel || '', helpCenterLabel: helpCenterLabel || '' };

@@ -4,6 +4,7 @@ import api from '../../api/axios';
 import { listBtnNavy } from '../../constants/listTheme';
 import { useModuleStore } from '../../store/useStore';
 import NavyToggle from '../../WebAdmin/Qucik commerce/components/NavyToggle';
+import PublicWelcomePageEditor from './PublicWelcomePageEditor';
 
 const inputClass = 'w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100';
 const subdomainPriceLabel = module => module?.subdomainPriceMode === 'free'
@@ -49,6 +50,7 @@ export default function WelcomePageAdmin() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [savingVisibility, setSavingVisibility] = useState('');
+  const [activeEditor, setActiveEditor] = useState('public');
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const selectedModule = useMemo(() => {
@@ -168,10 +170,17 @@ export default function WelcomePageAdmin() {
       : <input value={content[key]} onChange={event => update(key, event.target.value)} className={`${inputClass} mt-1`} placeholder={placeholder}/>}
   </label>;
 
+  if (activeEditor === 'public') {
+    return <PublicWelcomePageEditor onShowOnboarding={() => setActiveEditor('onboarding')} />;
+  }
+
   return <main className="mx-auto max-w-6xl space-y-5">
-    <header className="flex items-start gap-3">
+    <header className="flex flex-wrap items-start justify-between gap-3">
+      <div className="flex items-start gap-3">
       <span className="rounded-xl bg-blue-50 p-3 text-blue-800"><BookOpen size={21}/></span>
       <div><h1 className="text-xl font-bold text-slate-900">Welcome Page</h1><p className="mt-1 text-sm text-slate-500">Customize each module’s onboarding copy, subdomain card, tutorial and support links. Module images and video are managed in Website Modules.</p></div>
+      </div>
+      <button type="button" onClick={() => setActiveEditor('public')} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">Public homepage settings</button>
     </header>
 
     {error && <p role="alert" className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</p>}

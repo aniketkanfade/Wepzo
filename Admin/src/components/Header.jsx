@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { Search, Bell, ChevronDown, Menu, Settings, Globe, X, Layers, UserRound, LogOut, Ban, Trash2, ExternalLink, CreditCard, Bike } from 'lucide-react';
+import { Search, Bell, ChevronDown, Menu, Settings, Globe, X, Layers, UserRound, LogOut, Ban, Trash2, ExternalLink, CreditCard, Bike, BookOpen } from 'lucide-react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuthStore, useBuilderStore, useModuleStore } from '../store/useStore';
 import useAdminOrderAlerts from '../hooks/useAdminOrderAlerts';
@@ -275,6 +275,9 @@ export default function Header({ onMenuToggle, showMenuToggle = true, websiteAcc
             </Link>
             {user?.role === 'main_admin' && <Link to="/settings/payment-gateway" className="block px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50">
               <CreditCard size={14} className="mr-2 inline" />Payment Gateway
+            </Link>}
+            {user?.role === 'main_admin' && <Link to="/settings/welcome-page" className="block px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50">
+              <BookOpen size={14} className="mr-2 inline" />Welcome Page
             </Link>}
             <button type="button" onClick={logout} className="w-full text-left px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 rounded-b-lg">
               Logout

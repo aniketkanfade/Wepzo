@@ -1,9 +1,10 @@
 import { lazy, Suspense, useEffect, useState } from 'react';
-import { Link, Navigate, Route, Routes } from 'react-router-dom';
+import { Link, Navigate, Outlet, Route, Routes, useLocation } from 'react-router-dom';
 import api from './api/axios';
 import { useAuthStore } from './store/useStore';
 const Login = lazy(() => import('./pages/Login'));
 const Register = lazy(() => import('./pages/Register'));
+const PublicWelcomeLandingPage = lazy(() => import('./pages/PublicWelcomeLandingPage'));
 const ComponentsPage = lazy(() => import('./pages/ComponentsPage'));
 const PlansPage = lazy(() => import('./pages/PlansPage'));
 const UsersPage = lazy(() => import('./pages/UsersPage'));
@@ -107,6 +108,20 @@ function PrivateRoute({ children }) {
   return token ? children : <Navigate to="/login" />;
 }
 
+function AdminRootLayout() {
+  const token = useAuthStore(state => state.token);
+  const location = useLocation();
+  if (location.pathname === '/') return <Outlet />;
+  return token ? <Layout /> : <Navigate to="/login" replace state={{ from: location }} />;
+}
+
+function HomeRoute() {
+  const token = useAuthStore(state => state.token);
+  const user = useAuthStore(state => state.user);
+  if (token) return <Navigate to={user?.role === 'website_user' ? '/website-dashboard' : '/quick-commerce'} replace />;
+  return <PublicWelcomeLandingPage />;
+}
+
 function MainAdminRoute({ children }) {
   const { user } = useAuthStore();
   return user?.role === 'main_admin' ? children : <Navigate to="/" replace />;
@@ -161,8 +176,8 @@ export default function App() {
         <Route path="tracking" element={<LiveOrdersTrackingPage />} />
         <Route path="reviews" element={<DeliveryManagementPage section="reviews" />} />
       </Route>
-      <Route path="/" element={<PrivateRoute><Layout /></PrivateRoute>}>
-        <Route index element={<Navigate to="/quick-commerce" replace />} />
+      <Route path="/" element={<AdminRootLayout />}>
+        <Route index element={<HomeRoute />} />
         <Route path="quick-commerce" element={<QuickCommerceAdminHome />} />
         <Route path="quick-commerce/modules" element={<MainModulesPage />} />
         <Route path="quick-commerce/modules/add" element={<MainModulesPage />} />

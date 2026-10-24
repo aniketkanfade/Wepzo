@@ -24,6 +24,7 @@ const store = {
   employeeLoginHistory: [],
   businessSettings: {},
   businessSettingsByModule: {},
+  publicWelcomePage: {},
   deliveryZones: [],
   nextZoneId: 54,
   systemModules: [],
@@ -83,7 +84,7 @@ const PERSIST_PATH = process.env.DATA_FILE
 const PERSIST_KEYS = [
   'productItems', 'products', 'productImportHistory', 'productExportHistory', 'orders', 'customers', 'deliveryZones', 'stores',
   'websiteSubscriptionPlans', 'ownDomainOrders',
-  'users', 'nextStoreId', 'nextZoneId', 'employees', 'employeeLoginHistory',
+  'users', 'nextStoreId', 'nextZoneId', 'employees', 'employeeLoginHistory', 'publicWelcomePage',
   'categories', 'subCategories', 'childCategories', 'brands', 'attributes', 'units',
   'storeDiscounts', 'productRequests', 'productReviews', 'businessSettings', 'businessSettingsByModule',
   'roles', 'accessSections', 'modules', 'components', 'plans', 'flashSales',
