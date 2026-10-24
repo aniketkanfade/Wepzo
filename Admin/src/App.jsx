@@ -251,6 +251,7 @@ export default function App() {
         <Route path="orders/flash-sales" element={<Navigate to="/quick-commerce/flash-sales" replace />} />
         <Route path="orders/view/:orderId" element={<OrderDetailPage />} />
         <Route path="transactions-reports" element={<TransactionsReportsPage />} />
+        <Route path="transactions-reports/:section" element={<TransactionsReportsPage />} />
         <Route path="orders/live" element={<LiveOrdersTrackingPage />} />
         <Route path="orders/quick-commerce" element={<QuickCommerceOrders />} />
         <Route path="orders/:status" element={<StoreSingleOrdersPage />} />

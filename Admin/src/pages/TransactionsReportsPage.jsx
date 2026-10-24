@@ -1,16 +1,8 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Activity, Bike, CircleDollarSign, ClipboardList, RefreshCw, Store, UserRound, Users, Wallet } from 'lucide-react';
 import { useAuthStore } from '../store/useStore';
+import { useLocation, useNavigate } from 'react-router-dom';
 import api from '../api/axios';
-
-const sections = [
-  { id: 'overview', label: 'Overview', icon: Activity },
-  { id: 'orders', label: 'Transactions', icon: ClipboardList },
-  { id: 'stores', label: 'Stores', icon: Store },
-  { id: 'riders', label: 'Riders', icon: Bike },
-  { id: 'customers', label: 'Customers', icon: Users },
-  { id: 'websiteOwners', label: 'Website Owners', icon: UserRound, mainAdminOnly: true },
-];
 
 const money = value => `₹${(Number(value) || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
 const displayDate = value => value ? new Date(value).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' }) : '—';
@@ -36,12 +28,23 @@ function ReportTable({ columns, rows, empty }) {
 export default function TransactionsReportsPage() {
   const { user } = useAuthStore();
   const isMainAdmin = user?.role === 'main_admin';
+  const location = useLocation();
+  const navigate = useNavigate();
   const [report, setReport] = useState(null);
-  const [section, setSection] = useState('overview');
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
-  const visibleSections = useMemo(() => sections.filter(item => !item.mainAdminOnly || isMainAdmin), [isMainAdmin]);
+  const sectionPath = location.pathname.replace(/^\/transactions-reports\/?/, '');
+  const currentSection = sectionPath === 'transactions' ? 'orders'
+    : sectionPath === 'website-owners' ? 'websiteOwners'
+      : sectionPath || 'overview';
+
+  useEffect(() => {
+    const validSections = ['overview', 'orders', 'stores', 'riders', 'customers', 'websiteOwners'];
+    if (!validSections.includes(currentSection) || (currentSection === 'websiteOwners' && !isMainAdmin)) {
+      navigate('/transactions-reports', { replace: true });
+    }
+  }, [currentSection, isMainAdmin, navigate]);
 
   const loadReport = async (refresh = false) => {
     if (refresh) setRefreshing(true);
@@ -50,7 +53,6 @@ export default function TransactionsReportsPage() {
     try {
       const { data } = await api.get('/transactions-reports');
       setReport(data);
-      if (data?.websiteOwners === undefined && section === 'websiteOwners') setSection('overview');
     } catch (requestError) {
       setError(requestError.response?.data?.message || requestError.message || 'Transactions report could not be loaded.');
     } finally {
@@ -66,7 +68,6 @@ export default function TransactionsReportsPage() {
   const riderRows = report?.riders || [];
   const ownerRows = isMainAdmin ? report?.websiteOwners || [] : [];
   const orderRows = report?.orders || [];
-  const currentSection = visibleSections.some(item => item.id === section) ? section : 'overview';
 
   return <div className="mx-auto max-w-[1600px] space-y-5">
     <header className="flex flex-wrap items-center justify-between gap-3">
@@ -75,14 +76,6 @@ export default function TransactionsReportsPage() {
     </header>
 
     {error && <div role="alert" className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</div>}
-    <div className="grid items-start gap-4 lg:grid-cols-[210px_minmax(0,1fr)]">
-    <nav aria-label="Transactions report sections" className="flex gap-2 overflow-x-auto lg:flex-col lg:gap-1 lg:overflow-visible">
-      {visibleSections.map(item => {
-        const Icon = item.icon;
-        return <button key={item.id} type="button" onClick={() => setSection(item.id)} aria-current={currentSection === item.id ? 'page' : undefined} className={`inline-flex h-10 shrink-0 items-center justify-start gap-2 rounded-lg border px-3 text-sm font-medium transition lg:w-full ${currentSection === item.id ? 'border-blue-800 bg-blue-800 text-white' : 'border-slate-200 bg-white text-slate-600 hover:border-blue-300 hover:text-blue-800'}`}><Icon size={16}/>{item.label}</button>;
-      })}
-    </nav>
-
     <div className="min-w-0 space-y-4">
     {loading ? <div className="rounded-xl border border-slate-200 bg-white p-8 text-center text-sm text-slate-500">Loading transactions and reports…</div> : report && <>
       {currentSection === 'overview' && <>
@@ -150,7 +143,6 @@ export default function TransactionsReportsPage() {
         { key: 'balanceDue', label: 'Balance due', render: row => money(row.balanceDue) },
       ]} rows={ownerRows} empty="No website-owner payment records found."/></>}
     </>}
-    </div>
     </div>
   </div>;
 }

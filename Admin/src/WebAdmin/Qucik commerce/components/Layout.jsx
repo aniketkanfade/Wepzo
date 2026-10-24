@@ -5,6 +5,7 @@ import { useAuthStore, useBuilderStore, useModuleStore } from '../../../store/us
 import api from '../../../api/axios';
 import Sidebar, { ADMIN_SIDEBAR_MENU } from './Sidebar';
 import SettingsSidebar from './SettingsSidebar';
+import TransactionsReportsSidebar from './TransactionsReportsSidebar';
 import { ImageViewerProvider } from './ImageViewerProvider';
 import PageErrorBoundary from './PageErrorBoundary';
 import AdminSupportDock from './AdminSupportDock';
@@ -42,6 +43,7 @@ export default function Layout() {
   const [websiteDomainOptions, setWebsiteDomainOptions] = useState({ showSubdomainOption: true, showOwnDomainOption: true });
   const [websiteDomainOptionsReady, setWebsiteDomainOptionsReady] = useState(false);
   const isWebsiteBuilder = location.pathname.startsWith('/website-builder');
+  const isTransactionsReports = location.pathname.startsWith('/transactions-reports');
   const isThemeColorsPage = location.pathname === '/settings/business/colors';
   const isOnDomainPage = location.pathname === '/on-domain';
   const isSubdomainPage = location.pathname === '/sub-domain';
@@ -130,15 +132,17 @@ export default function Layout() {
   return (
     <ImageViewerProvider>
       <div className={`admin-app-shell flex h-screen min-h-screen overflow-hidden bg-[#f3f4f6] ${isThemeColorsPage ? 'theme-colors-route-shell' : ''}`}>
-        {!isSubdomainPage && (!isWebsiteBuilder || !isWebsiteUser) && (!isWebsiteUser || hasPaidWebsite) && (isWebsiteUser
+        {!isSubdomainPage && (!isWebsiteBuilder || !isWebsiteUser) && (!isWebsiteUser || hasPaidWebsite) && (isTransactionsReports
+          ? <TransactionsReportsSidebar mobileOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+          : (isWebsiteUser
           ? (isSettings
             ? <SettingsSidebar mobileOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} allowedPaths={settingsAllowedPaths}/>
             : (allowedPaths.length > 0 && <Sidebar mobileOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} websiteAccess={effectiveWebsiteAccess} showOwnDomainOption={websiteDomainOptions.showOwnDomainOption}/>))
           : isSettings
             ? <SettingsSidebar mobileOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
-            : <Sidebar mobileOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />)}
+            : <Sidebar mobileOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />))}
         <div className={`flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden ${isThemeColorsPage ? 'theme-colors-route-content' : ''}`}>
-          {!isDomainSetupPage && (!isWebsiteUser || hasPaidWebsite) && (!isWebsiteUser || effectiveWebsiteAccess.header.length > 0 || effectiveWebsiteAccess.sidebar.some(path => path.startsWith('/delivery/'))) && <Header onMenuToggle={() => setSidebarOpen(!sidebarOpen)} showMenuToggle={!isWebsiteBuilder || isSettings} websiteAccess={effectiveWebsiteAccess}/>}
+          {!isDomainSetupPage && (!isWebsiteUser || hasPaidWebsite) && (!isWebsiteUser || effectiveWebsiteAccess.header.length > 0 || effectiveWebsiteAccess.sidebar.some(path => path.startsWith('/delivery/')) || isTransactionsReports) && <Header onMenuToggle={() => setSidebarOpen(!sidebarOpen)} showMenuToggle={!isWebsiteBuilder || isSettings} websiteAccess={effectiveWebsiteAccess}/>}
           <main className={`min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto bg-[#f3f4f6] ${isDomainSetupPage ? 'p-0' : 'p-4 lg:p-6'}`}>
             <PageErrorBoundary key={`${location.pathname}:${activeModule?.slug || 'ecommerce'}`}><Outlet /></PageErrorBoundary>
           </main>
