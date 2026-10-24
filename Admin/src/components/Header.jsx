@@ -146,22 +146,22 @@ export default function Header({ onMenuToggle, showMenuToggle = true, websiteAcc
       ? searchItems.filter(item => `${item.label} ${item.path}`.toLowerCase().includes(searchQuery.trim().toLowerCase())).slice(0, 8)
       : [];
     if (!links.length && !deliveryModuleItems.length) return null;
-    return <header className="sticky top-0 z-30 flex min-h-14 flex-wrap items-center justify-between gap-x-3 gap-y-2 border-b border-gray-200 bg-white px-3 py-2 sm:px-4 lg:px-5">
-      <nav className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2 text-xs sm:gap-x-4 sm:text-sm">{links.map(item => {
+    return <header className="sticky top-0 z-30 flex min-h-12 flex-wrap items-center justify-between gap-x-3 gap-y-1.5 border-b border-gray-200 bg-white px-2.5 py-1.5 sm:px-4 sm:py-2 lg:min-h-14 lg:px-5">
+      <nav className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-xs sm:gap-x-4 sm:text-sm">{links.map(item => {
         const children = grantedHeaderChildren(item.children || [], granted);
         const destination = item.path === '/settings/business' && !granted.has(item.path)
           ? (children.find(child => child.path === '/settings/business/info')?.path || children[0]?.path || item.path)
           : item.path;
         return <Link key={item.path} to={destination} className={location.pathname.startsWith(item.path) ? 'font-semibold text-blue-700' : 'text-gray-600 hover:text-blue-700'}>{item.label}</Link>;
-      })}{deliveryModuleItems.length > 0 && <button type="button" onClick={() => navigate(deliveryModuleItems.find(item => item.path === '/delivery/riders')?.path || deliveryModuleItems[0].path)} className="inline-flex items-center gap-1.5 font-semibold text-[#1a3a8a] hover:text-blue-700"><Bike size={16} />Delivery</button>}</nav>
+      })}{deliveryModuleItems.length > 0 && <button type="button" onClick={() => navigate(deliveryModuleItems.find(item => item.path === '/delivery/riders')?.path || deliveryModuleItems[0].path)} className="hidden items-center gap-1.5 rounded-md px-2 py-1 font-semibold text-[#1a3a8a] hover:bg-blue-50 hover:text-blue-700 lg:inline-flex"><Bike size={16} />Delivery</button>}</nav>
       {(websiteAccess.header.includes('/website-builder') || websiteAccess.sidebar.includes('/website-builder')) && <div className="relative hidden min-w-48 flex-1 px-4 md:block">
         <Search size={15} className="absolute left-7 top-1/2 -translate-y-1/2 text-slate-400"/>
         <input value={searchQuery} onFocus={() => setSearchOpen(true)} onChange={event => { setSearchQuery(event.target.value); setSearchOpen(true); }} onKeyDown={event => { if (event.key === 'Escape') setSearchOpen(false); if (event.key === 'Enter' && matchingSearchItems[0]) { navigate(matchingSearchItems[0].path); setSearchQuery(''); setSearchOpen(false); } }} placeholder="Search granted pages..." aria-label="Search granted admin pages" className="w-full rounded-lg border border-slate-200 bg-slate-50 py-2 pl-9 pr-3 text-sm outline-none focus:border-blue-300 focus:bg-white"/>
         {searchOpen && searchQuery.trim() && <div className="absolute left-4 right-0 top-full z-50 mt-1 max-h-80 overflow-y-auto rounded-lg border border-slate-200 bg-white py-1 shadow-xl">{matchingSearchItems.length ? matchingSearchItems.map(item => <button type="button" key={item.path} onClick={() => { navigate(item.path); setSearchQuery(''); setSearchOpen(false); }} className="block w-full px-3 py-2 text-left text-sm text-slate-700 hover:bg-blue-50"><span className="block font-medium">{item.label}</span><span className="text-xs text-slate-400">{item.path}</span></button>) : <p className="px-3 py-2 text-sm text-slate-500">No granted pages found.</p>}</div>}
       </div>}
-      <div className="relative flex items-center gap-2">
+      <div className="relative flex items-center gap-1.5">
         <span className="hidden text-xs text-slate-500 lg:block">{user.selectedModuleName || 'Website'}</span>
-        <button type="button" onClick={() => setProfileOpen(value => !value)} aria-expanded={profileOpen} className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm text-slate-700 hover:bg-slate-50"><span className="flex h-8 w-8 items-center justify-center rounded-full bg-blue-50 font-semibold text-blue-800">{String(user.name || 'U').slice(0, 1).toUpperCase()}</span><span className="hidden max-w-28 truncate sm:block">{user.name || 'Profile'}</span><ChevronDown size={14} className="text-slate-400"/></button>
+        <button type="button" onClick={() => setProfileOpen(value => !value)} aria-expanded={profileOpen} className="flex h-8 items-center gap-1.5 rounded-lg px-1.5 text-sm text-slate-700 hover:bg-slate-50 sm:gap-2 sm:px-2"><span className="flex h-7 w-7 items-center justify-center rounded-full bg-blue-50 font-semibold text-blue-800 sm:h-8 sm:w-8">{String(user.name || 'U').slice(0, 1).toUpperCase()}</span><span className="hidden max-w-28 truncate sm:block">{user.name || 'Profile'}</span><ChevronDown size={14} className="text-slate-400"/></button>
         {profileOpen && <div className="absolute right-0 top-full z-50 mt-2 w-64 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl">
           <div className="border-b border-slate-100 px-4 py-3"><p className="font-semibold text-slate-900">{user.name || 'Website account'}</p><p className="mt-0.5 truncate text-xs text-slate-500">{user.email || ''}</p></div>
           {accountActionError && <p role="alert" className="m-2 rounded-md bg-rose-50 px-3 py-2 text-xs text-rose-700">{accountActionError}</p>}
@@ -175,17 +175,20 @@ export default function Header({ onMenuToggle, showMenuToggle = true, websiteAcc
           </div>
         </div>}
       </div>
+      {deliveryModuleItems.length > 0 && <div className="flex w-full items-center border-t border-slate-100 pt-1.5 lg:hidden">
+        <button type="button" onClick={() => navigate(deliveryModuleItems.find(item => item.path === '/delivery/riders')?.path || deliveryModuleItems[0].path)} className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-semibold text-slate-700 shadow-sm hover:border-blue-200 hover:bg-blue-50 hover:text-[#1a3a8a]"><Bike size={15}/>Delivery</button>
+      </div>}
     </header>;
   }
   const adminDeliveryItems = flattenDeliveryItems(
     getAdminSidebarMenu(activeModule).find(item => item.label === 'Delivery Management')?.children || []
   );
   return (
-    <header className="sticky top-0 z-30 flex items-center justify-between gap-2 border-b border-gray-200 bg-white px-3 py-2.5 sm:px-4 lg:px-6">
-      <div className="flex min-w-0 flex-1 items-center gap-2 sm:gap-4">
+    <header className="sticky top-0 z-30 flex flex-wrap items-center justify-between gap-x-2 gap-y-1.5 border-b border-gray-200 bg-white px-2.5 py-1.5 sm:px-4 sm:py-2 lg:flex-nowrap lg:gap-2 lg:px-6 lg:py-2.5">
+      <div className="flex min-w-0 flex-1 items-center gap-1.5 sm:gap-4">
         {showMenuToggle && (
-          <button type="button" onClick={onMenuToggle} className="p-2 hover:bg-gray-100 rounded-lg lg:hidden">
-            <Menu size={20} className="text-gray-600" />
+          <button type="button" onClick={onMenuToggle} aria-label="Open navigation menu" className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg hover:bg-gray-100 lg:hidden">
+            <Menu size={18} className="text-gray-600" />
           </button>
         )}
         <nav className="hidden min-w-0 items-center gap-2 whitespace-nowrap text-xs lg:flex xl:gap-4 xl:text-sm">
@@ -226,7 +229,7 @@ export default function Header({ onMenuToggle, showMenuToggle = true, websiteAcc
       </div>
 
       <div className="flex shrink-0 items-center gap-1 sm:gap-2 lg:gap-3">
-        {adminDeliveryItems.length > 0 && <button type="button" onClick={() => navigate('/delivery/riders')} className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2 py-2 text-xs font-semibold text-slate-700 transition hover:border-blue-200 hover:bg-blue-50 hover:text-[#1a3a8a] sm:px-2.5 xl:gap-1.5 xl:px-3 xl:text-sm">
+        {adminDeliveryItems.length > 0 && <button type="button" onClick={() => navigate('/delivery/riders')} className="hidden h-9 items-center gap-1 rounded-lg border border-slate-200 px-2 text-xs font-semibold text-slate-700 transition hover:border-blue-200 hover:bg-blue-50 hover:text-[#1a3a8a] lg:inline-flex xl:gap-1.5 xl:px-3 xl:text-sm">
           <Bike size={16} /><span className="hidden xl:inline">Delivery</span>
         </button>}
         <div className="relative hidden xl:block">
@@ -248,22 +251,22 @@ export default function Header({ onMenuToggle, showMenuToggle = true, websiteAcc
             setOrderNotificationNotice(error.message || 'Could not enable mobile order alerts.');
           }
           navigate('/orders');
-        }} className="relative rounded-lg p-1.5 hover:bg-gray-100 sm:p-2">
-          <Bell size={20} className="text-gray-600" />
+        }} className="relative flex h-8 w-8 items-center justify-center rounded-lg hover:bg-gray-100 sm:h-9 sm:w-9">
+          <Bell size={18} className="text-gray-600" />
           {unread > 0 && (
             <span className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] bg-red-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center px-1">{unread > 9 ? '9+' : unread}</span>
           )}
         </button>
 
         <div className="relative group">
-          <button type="button" className="flex items-center gap-1 rounded-lg py-1 pl-1 pr-1 hover:bg-gray-100 sm:gap-2 sm:pr-3">
+          <button type="button" className="flex h-8 items-center gap-1 rounded-lg px-1 hover:bg-gray-100 sm:gap-2 sm:px-2">
             <img
               src="https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=64&h=64&fit=crop"
               alt="Admin"
-              className="w-8 h-8 rounded-full object-cover border-2 border-gray-200"
+              className="h-7 w-7 rounded-full border-2 border-gray-200 object-cover sm:h-8 sm:w-8"
               onError={e => { e.target.style.display = 'none'; e.target.nextSibling.style.display = 'flex'; }}
             />
-            <div className="w-8 h-8 bg-primary-100 rounded-full hidden items-center justify-center text-primary-600 font-semibold text-sm">
+            <div className="hidden h-7 w-7 items-center justify-center rounded-full bg-primary-100 text-sm font-semibold text-primary-600 sm:h-8 sm:w-8">
               {user?.name?.charAt(0) || 'A'}
             </div>
             <span className="text-sm font-medium hidden sm:block">{user?.name || 'Admin'}</span>
@@ -285,6 +288,10 @@ export default function Header({ onMenuToggle, showMenuToggle = true, websiteAcc
           </div>
         </div>
       </div>
+
+      {adminDeliveryItems.length > 0 && <div className="flex w-full items-center border-t border-gray-100 pt-1.5 lg:hidden">
+        <button type="button" onClick={() => navigate('/delivery/riders')} className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-semibold text-slate-700 shadow-sm transition hover:border-blue-200 hover:bg-blue-50 hover:text-[#1a3a8a]"><Bike size={15}/>Delivery</button>
+      </div>}
 
       {orderNotificationNotice && <div role="status" className="absolute right-3 top-full z-50 mt-2 max-w-[min(92vw,360px)] rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700 shadow-lg">{orderNotificationNotice}</div>}
 

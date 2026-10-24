@@ -67,9 +67,9 @@ export default function ModuleSwitcher() {
   };
 
   return (
-    <label className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm">
-      <LayoutGrid size={16} className="shrink-0 text-slate-500" />
-      <select aria-label="Active website module" value={selectedModuleValue} onChange={selectModule} disabled={!!lockedSlug} className="max-w-44 cursor-pointer bg-transparent outline-none disabled:cursor-default">
+    <label className="flex h-8 items-center gap-1 rounded-lg border border-slate-200 bg-white px-1.5 text-xs text-slate-700 shadow-sm sm:h-9 sm:gap-2 sm:px-3 sm:py-2 sm:text-sm">
+      <LayoutGrid size={14} className="shrink-0 text-slate-500 sm:h-4 sm:w-4" />
+      <select aria-label="Active website module" value={selectedModuleValue} onChange={selectModule} disabled={!!lockedSlug} className="max-w-32 cursor-pointer bg-transparent outline-none disabled:cursor-default sm:max-w-44">
         {modules.map(module => <option key={module._id || module.id || module.slug} value={String(module._id || module.id || module.slug || module.type).toLowerCase()}>{module.name || module.slug}</option>)}
       </select>
     </label>
