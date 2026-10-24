@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Plus, Edit, Trash2, Layers, Save, X } from 'lucide-react';
+import { Plus, Edit, Trash2, Layers, Save, X, ChevronLeft, ChevronRight } from 'lucide-react';
 import api from '../api/axios';
 import { numericInputValue } from '../utils/numericInput';
 import { useModuleStore } from '../store/useStore';
@@ -25,9 +25,20 @@ const EMPTY_FORM = {
 export default function ComponentsPage() {
   const { activeModule } = useModuleStore();
   const [components, setComponents] = useState([]);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [form, setForm] = useState({ ...EMPTY_FORM, moduleType: getDefaultModuleType(activeModule) });
+  const totalPages = Math.max(1, Math.ceil(components.length / pageSize));
+  const currentPage = Math.min(page, totalPages);
+  const paginatedComponents = components.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+  const startRow = components.length ? (currentPage - 1) * pageSize + 1 : 0;
+  const endRow = Math.min(currentPage * pageSize, components.length);
+
+  useEffect(() => {
+    if (page !== currentPage) setPage(currentPage);
+  }, [page, currentPage]);
 
   const loadComponents = async () => {
     try {
@@ -84,6 +95,7 @@ export default function ComponentsPage() {
       } else {
         const { data } = await api.post('/components', payload);
         setComponents(prev => [data, ...prev]);
+        setPage(1);
       }
 
       resetForm();
@@ -189,8 +201,9 @@ export default function ComponentsPage() {
       )}
 
       <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
-        <table className="w-full text-sm">
-          <thead className="bg-gray-50 text-gray-500">
+        <div className="max-h-[65vh] overflow-auto">
+        <table className="w-full min-w-[760px] text-sm">
+          <thead className="sticky top-0 z-10 bg-gray-50 text-gray-500">
             <tr>
               <th className="text-left px-6 py-3">#</th>
               <th className="text-left px-6 py-3">Name</th>
@@ -202,9 +215,9 @@ export default function ComponentsPage() {
             </tr>
           </thead>
           <tbody>
-            {components.map((c, i) => (
+            {paginatedComponents.length ? paginatedComponents.map((c, i) => (
               <tr key={c._id} className="border-t border-gray-50 hover:bg-gray-50">
-                <td className="px-6 py-3">{i + 1}</td>
+                <td className="px-6 py-3">{(currentPage - 1) * pageSize + i + 1}</td>
                 <td className="px-6 py-3 font-medium">{c.name}</td>
                 <td className="px-6 py-3 capitalize">{String(c.type || '').replace('_', ' ')}</td>
                 <td className="px-6 py-3">{c.moduleType === 'ecommerce' ? getAdminModuleLabel(activeModule) : String(c.moduleType || '').replace(/[-_]/g, ' ')}</td>
@@ -223,9 +236,27 @@ export default function ComponentsPage() {
                   </button>
                 </td>
               </tr>
-            ))}
+            )) : <tr><td colSpan={7} className="px-6 py-10 text-center text-sm text-gray-500">No components found.</td></tr>}
           </tbody>
         </table>
+        </div>
+        <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-gray-100 px-4 py-3 text-sm text-gray-500">
+          <span>Showing {startRow}–{endRow} of {components.length} components</span>
+          <div className="flex items-center gap-2">
+            <label className="flex items-center gap-2">Rows per page
+              <select value={pageSize} onChange={event => { setPageSize(Number(event.target.value)); setPage(1); }} aria-label="Rows per page" className="h-9 rounded-lg border border-gray-200 bg-white px-2 text-sm text-gray-700">
+                {[10, 25, 50, 100].map(size => <option key={size} value={size}>{size}</option>)}
+              </select>
+            </label>
+            <span className="whitespace-nowrap tabular-nums">Page {currentPage} of {totalPages}</span>
+            <button type="button" onClick={() => setPage(value => Math.max(1, value - 1))} disabled={currentPage <= 1} aria-label="Previous page" className="grid h-9 w-9 place-items-center rounded-lg border border-gray-200 hover:bg-gray-50 disabled:opacity-40">
+              <ChevronLeft size={17} />
+            </button>
+            <button type="button" onClick={() => setPage(value => Math.min(totalPages, value + 1))} disabled={currentPage >= totalPages} aria-label="Next page" className="grid h-9 w-9 place-items-center rounded-lg border border-gray-200 hover:bg-gray-50 disabled:opacity-40">
+              <ChevronRight size={17} />
+            </button>
+          </div>
+        </footer>
       </div>
     </div>
   );
