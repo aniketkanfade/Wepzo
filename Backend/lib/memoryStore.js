@@ -551,6 +551,11 @@ function ensureWebsiteModuleContent() {
       image: 'https://images.unsplash.com/photo-1472851294608-062f824d29cc?w=1200&auto=format&fit=crop&q=80',
       videoUrl: '',
     },
+    'store-singlepage-web': {
+      description: 'Create a polished single-page storefront to showcase your business, products and contact details.',
+      image: 'https://images.unsplash.com/photo-1497366754035-f200968a6e72?w=1200&auto=format&fit=crop&q=80',
+      videoUrl: '',
+    },
     marketing: {
       description: 'Create campaign landing pages, collect leads and share promotions from one marketing website.',
       image: 'https://images.unsplash.com/photo-1460925895917-afdab827c52f?w=1200&auto=format&fit=crop&q=80',

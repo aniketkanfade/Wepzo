@@ -6527,6 +6527,29 @@ router.get('/website-modules', auth, (req, res) => {
     return res.json(ownModule ? [{ ...ownModule, slug: websiteModuleSlugFor(ownModule), type: websiteModuleSlugFor(ownModule) }] : []);
   }
   if (req.user.role !== 'main_admin') return res.status(403).json({ message: 'Only Main Admin can manage Website Modules' });
+  if (!Array.isArray(store.websiteModules)) store.websiteModules = [];
+  const hasStoreSinglepageModule = store.websiteModules.some(module =>
+    normalizeWebsiteModuleSlug(module.slug || module.type || module.name) === 'store-single'
+  );
+  if (!hasStoreSinglepageModule) {
+    const storeSinglepageModule = {
+      _id: uuidv4(),
+      name: 'Store Singlepage Web',
+      slug: 'store-singlepage-web',
+      type: 'store-singlepage-web',
+      image: 'https://images.unsplash.com/photo-1497366754035-f200968a6e72?w=1200&auto=format&fit=crop&q=80',
+      images: ['https://images.unsplash.com/photo-1497366754035-f200968a6e72?w=1200&auto=format&fit=crop&q=80'],
+      description: 'Create a polished single-page storefront to showcase your business, products and contact details.',
+      status: true,
+      access: { header: [], sidebar: [] },
+    };
+    const insertBefore = store.websiteModules.findIndex(module =>
+      ['marketing', 'general', 'information-web'].includes(normalizeWebsiteModuleSlug(module.slug || module.type))
+    );
+    if (insertBefore < 0) store.websiteModules.push(storeSinglepageModule);
+    else store.websiteModules.splice(insertBefore, 0, storeSinglepageModule);
+    schedulePersist();
+  }
   res.json(store.websiteModules || []);
 });
 router.get('/my-website-access', auth, (req, res) => {
