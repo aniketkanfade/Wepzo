@@ -9,6 +9,8 @@ import Toggle from './components/Toggle';
 import { PageCard, PageCardHeader } from './components/PageCard';
 import ViewableImage from './components/ViewableImage';
 import PaginationControls from './components/PaginationControls';
+import BulkSelectionBar from './components/BulkSelectionBar';
+import { useBulkSelection } from '../../hooks/useBulkSelection';
 import {
   LIST_NAVY, LIST_CARD_BORDER, listBtnOutline,
   listTheadClass, listTheadStyle, listThClass, listRowClass, listRowStyle, listTdClass,
@@ -41,6 +43,7 @@ export default function SubCategoriesPage() {
   );
   const totalPages = Math.ceil(filtered.length / perPage) || 1;
   const paginated = filtered.slice((page - 1) * perPage, page * perPage);
+  const selection = useBulkSelection(filtered);
 
   const resetForm = () => {
     setForm({ name: '', categoryId: '', priority: 'Normal', status: true, featured: false, image: '' });
@@ -85,9 +88,19 @@ export default function SubCategoriesPage() {
   };
 
   const handleDelete = async (id) => {
-    if (!confirm('Delete this sub category?')) return;
+    const item = items.find(subCategory => subCategory._id === id);
+    if (!confirm(`Delete sub-category "${item?.name || 'this sub-category'}"?`)) return;
     await api.delete(`/sub-categories/${id}`);
     setItems(prev => prev.filter(i => i._id !== id));
+  };
+
+  const handleBulkDelete = async selectedItems => {
+    if (!selectedItems.length || !confirm(`Delete ${selectedItems.length} selected sub-categories? Their child categories will also be removed.`)) return;
+    const results = await Promise.allSettled(selectedItems.map(item => api.delete(`/sub-categories/${item._id}`)));
+    const deletedIds = new Set(selectedItems.filter((_, index) => results[index].status === 'fulfilled').map(item => item._id));
+    setItems(prev => prev.filter(item => !deletedIds.has(item._id)));
+    const failedCount = results.length - deletedIds.size;
+    if (failedCount) alert(`${failedCount} sub-category(ies) could not be deleted.`);
   };
 
   const toggleField = async (id, field, value) => {
@@ -187,6 +200,8 @@ export default function SubCategoriesPage() {
         columns={['mainCategory', 'subCategory']}
         idKey="subCategoryId"
         onEdit={handleEdit} onDelete={handleDelete} onToggle={toggleField}
+        onBulkDelete={handleBulkDelete}
+        selection={selection}
         onExport={() => downloadFile('/bulk/sub-categories/export', `sub-categories_${new Date().toISOString().slice(0, 10)}.csv`)}
         searchPlaceholder="Search sub categories..."
       />
@@ -194,8 +209,10 @@ export default function SubCategoriesPage() {
   );
 }
 
-function ListTable({ title, count, search, setSearch, setPage, paginated, page, perPage, setPerPage, filtered, totalPages, columns, idKey, onEdit, onDelete, onToggle, onExport, searchPlaceholder, embedded = false }) {
+function ListTable({ title, count, search, setSearch, setPage, paginated, page, perPage, setPerPage, filtered, totalPages, columns, idKey, onEdit, onDelete, onToggle, onExport, searchPlaceholder, onBulkDelete, selection: suppliedSelection, embedded = false }) {
   const priorities = ['Normal', 'High', 'Low'];
+  const localSelection = useBulkSelection(filtered || []);
+  const selection = suppliedSelection || localSelection;
 
   const outerClass = embedded ? 'flex flex-col min-h-0' : 'flex flex-col max-h-[calc(100vh-7rem)] rounded-xl border shadow-sm overflow-hidden bg-white';
   return (
@@ -222,6 +239,10 @@ function ListTable({ title, count, search, setSearch, setPage, paginated, page, 
         <table className="w-full text-sm">
           <thead className="sticky top-0 z-10">
             <tr className={listTheadClass} style={listTheadStyle}>
+              <th className={`${listThClass} w-10`}>
+                <input type="checkbox" checked={selection.allSelected} onChange={selection.toggleAll}
+                  aria-label={`Select all ${filtered.length} filtered ${title.toLowerCase()}`} />
+              </th>
               <th className={`${listThClass} w-12`}>#</th>
               <th className={listThClass}>ID</th>
               <th className={listThClass}>Image</th>
@@ -237,6 +258,10 @@ function ListTable({ title, count, search, setSearch, setPage, paginated, page, 
           <tbody>
             {paginated.map((item, i) => (
               <tr key={item._id} className={listRowClass} style={listRowStyle}>
+                <td className={listTdClass}>
+                  <input type="checkbox" checked={selection.selectedIds.has(String(item._id))}
+                    onChange={() => selection.toggle(item._id)} aria-label={`Select ${item.name}`} />
+                </td>
                 <td className={`${listTdClass} text-gray-500 tabular-nums`}>{(page - 1) * perPage + i + 1}</td>
                 <td className={`${listTdClass} text-gray-600 font-medium`}>{item[idKey] ?? (page - 1) * perPage + i + 1}</td>
                 <td className={listTdClass}>
@@ -265,7 +290,13 @@ function ListTable({ title, count, search, setSearch, setPage, paginated, page, 
         </table>
       </div>
       <PaginationControls page={page} totalPages={totalPages} total={filtered.length} perPage={perPage}
-        onPageChange={setPage} onPerPageChange={setPerPage} label="entries"/>
+        onPageChange={setPage} onPerPageChange={setPerPage} label="entries"
+        selection={onBulkDelete ? {
+          allSelected: selection.allSelected,
+          selectedCount: selection.selectedItems.length,
+          onToggleAll: selection.toggleAll,
+          onBulkDelete: () => onBulkDelete(selection.selectedItems),
+        } : undefined}/>
     </div>
   );
 }

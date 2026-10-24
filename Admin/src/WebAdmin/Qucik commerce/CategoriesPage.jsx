@@ -9,6 +9,8 @@ import { downloadFile } from '../../api/download';
 import { PageCard, PageCardHeader } from './components/PageCard';
 import ViewableImage from './components/ViewableImage';
 import PaginationControls from './components/PaginationControls';
+import BulkSelectionBar from './components/BulkSelectionBar';
+import { useBulkSelection } from '../../hooks/useBulkSelection';
 import {
   LIST_NAVY, LIST_CARD_BORDER, listBtnNavy, listBtnOutline,
   listTheadClass, listTheadStyle, listThClass, listRowClass, listRowStyle, listTdClass,
@@ -59,6 +61,7 @@ export default function CategoriesPage() {
   );
   const totalPages = Math.ceil(filtered.length / perPage) || 1;
   const paginated = filtered.slice((page - 1) * perPage, page * perPage);
+  const selection = useBulkSelection(filtered);
 
   const resetForm = () => {
     setForm({ name: '', priority: 'Normal', moduleId: '', status: true, featured: false, image: '' });
@@ -100,9 +103,20 @@ export default function CategoriesPage() {
   };
 
   const handleDelete = async (id) => {
-    if (!confirm('Delete this category?')) return;
+    const category = categories.find(item => item._id === id);
+    if (!confirm(`Delete category "${category?.name || 'this category'}"?`)) return;
     await api.delete(`/categories/${id}`);
     setCategories(prev => prev.filter(c => c._id !== id));
+  };
+
+  const handleBulkDelete = async () => {
+    const selectedItems = selection.selectedItems;
+    if (!selectedItems.length || !confirm(`Delete ${selectedItems.length} selected category(ies)? This cannot be undone.`)) return;
+    const results = await Promise.allSettled(selectedItems.map(item => api.delete(`/categories/${item._id}`)));
+    const deletedIds = new Set(selectedItems.filter((_, index) => results[index].status === 'fulfilled').map(item => item._id));
+    setCategories(prev => prev.filter(item => !deletedIds.has(item._id)));
+    const failedCount = results.length - deletedIds.size;
+    if (failedCount) alert(`${failedCount} category(ies) could not be deleted.`);
   };
 
   const toggleField = async (id, field, value) => {
@@ -250,6 +264,10 @@ export default function CategoriesPage() {
           <table className="w-full text-sm">
             <thead>
               <tr className={listTheadClass} style={listTheadStyle}>
+                <th className={`${listThClass} w-10`}>
+                  <input type="checkbox" checked={selection.allSelected} onChange={selection.toggleAll}
+                    aria-label={`Select all ${filtered.length} filtered categories`} />
+                </th>
                 <th className={`${listThClass} w-12`}>#</th>
                 <th className={listThClass}>ID</th>
                 <th className={listThClass}>Image</th>
@@ -264,6 +282,10 @@ export default function CategoriesPage() {
             <tbody>
               {paginated.map((cat, i) => (
                 <tr key={cat._id} className={listRowClass} style={listRowStyle}>
+                  <td className={listTdClass}>
+                    <input type="checkbox" checked={selection.selectedIds.has(String(cat._id))}
+                      onChange={() => selection.toggle(cat._id)} aria-label={`Select ${cat.name}`} />
+                  </td>
                   <td className={`${listTdClass} text-gray-500 tabular-nums`}>{(page - 1) * perPage + i + 1}</td>
                   <td className={`${listTdClass} text-gray-600`}>{cat.categoryId}</td>
                   <td className={listTdClass}>
@@ -304,11 +326,13 @@ export default function CategoriesPage() {
                 </tr>
               ))}
               {paginated.length === 0 && (
-                <tr><td colSpan={9} className="px-6 py-20 text-center text-gray-400">No categories found</td></tr>
+                <tr><td colSpan={10} className="px-6 py-20 text-center text-gray-400">No categories found</td></tr>
               )}
             </tbody>
           </table>
 
+          <BulkSelectionBar total={filtered.length} label="categories" allSelected={selection.allSelected}
+            selectedCount={selection.selectedItems.length} onToggleAll={selection.toggleAll} onBulkDelete={handleBulkDelete}/>
           <PaginationControls page={page} totalPages={totalPages} total={filtered.length} perPage={perPage}
             onPageChange={setPage} onPerPageChange={size => { setPerPage(size); setPage(1); }} label="entries"/>
         </div>

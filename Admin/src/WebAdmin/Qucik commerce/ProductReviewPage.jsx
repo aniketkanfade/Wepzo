@@ -9,6 +9,7 @@ import AdminListLayout from './components/AdminListLayout';
 import ViewableImage from './components/ViewableImage';
 import ProductReviewDetailModal from './components/ProductReviewDetailModal';
 import { useListPagination } from '../../hooks/useListPagination';
+import { useBulkSelection } from '../../hooks/useBulkSelection';
 import {
   LIST_NAVY, LIST_CARD_BORDER, listBtnNavy, listBtnOutline,
   listTheadClass, listTheadStyle, listThClass, listRowClass, listRowStyle, listTdClass,
@@ -71,7 +72,6 @@ export default function ProductReviewPage() {
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [viewItem, setViewItem] = useState(null);
   const [editOnOpen, setEditOnOpen] = useState(false);
-  const [selected, setSelected] = useState([]);
   const stopRow = (e) => e.stopPropagation();
 
   const loadItems = useCallback(() => {
@@ -101,6 +101,7 @@ export default function ProductReviewPage() {
   );
 
   const { page, setPage, perPage, setPerPage, totalPages, paginated, total } = useListPagination(filtered, { resetDeps: [filters, search] });
+  const selection = useBulkSelection(filtered);
 
   const updateFilter = (key, value) => setFilters(f => ({ ...f, [key]: value }));
 
@@ -133,28 +134,25 @@ export default function ProductReviewPage() {
   };
 
   const handleDelete = async (id) => {
-    if (!confirm('Delete this review?')) return;
+    const item = items.find(review => review._id === id);
+    if (!confirm(`Delete review for "${item?.productName || item?.product?.name || item?.name || 'this product'}"?`)) return;
     await api.delete(`/product-reviews/${id}`);
     setItems(prev => prev.filter(i => i._id !== id));
-    setSelected(prev => prev.filter(x => x !== id));
     if (viewItem?._id === id) setViewItem(null);
   };
 
   const handleBulkDelete = async () => {
-    if (!selected.length) return alert('Pehle reviews select karein');
-    if (!confirm(`Delete ${selected.length} selected review(s)?`)) return;
-    await Promise.all(selected.map(id => api.delete(`/product-reviews/${id}`)));
-    setItems(prev => prev.filter(i => !selected.includes(i._id)));
-    setSelected([]);
+    const selectedItems = selection.selectedItems;
+    if (!selectedItems.length || !confirm(`Delete ${selectedItems.length} selected review(s)? This cannot be undone.`)) return;
+    const results = await Promise.allSettled(selectedItems.map(item => api.delete(`/product-reviews/${item._id}`)));
+    const deletedIds = new Set(selectedItems.filter((_, index) => results[index].status === 'fulfilled').map(item => item._id));
+    setItems(prev => prev.filter(item => !deletedIds.has(item._id)));
+    if (viewItem && deletedIds.has(viewItem._id)) setViewItem(null);
+    const failedCount = results.length - deletedIds.size;
+    if (failedCount) alert(`${failedCount} review(s) could not be deleted.`);
   };
 
   const handleExport = () => downloadFile('/product-reviews/export', 'product_reviews.csv');
-
-  const toggleAll = () => {
-    const ids = paginated.map(i => i._id);
-    const allOn = ids.every(id => selected.includes(id));
-    setSelected(allOn ? selected.filter(id => !ids.includes(id)) : [...new Set([...selected, ...ids])]);
-  };
 
   const dateLabel = filters.dateFrom || filters.dateTo
     ? `${filters.dateFrom || '...'} – ${filters.dateTo || '...'}`
@@ -205,12 +203,6 @@ export default function ProductReviewPage() {
         )}
         headerActions={(
           <>
-            {selected.length > 0 && (
-              <button type="button" onClick={handleBulkDelete}
-                className="flex items-center gap-1 px-3 py-2.5 border border-red-200 text-red-600 rounded-lg text-sm hover:bg-red-50">
-                <Trash2 size={14} /> Delete ({selected.length})
-              </button>
-            )}
             <button type="button" onClick={handleExport}
               className={`flex items-center gap-1 px-4 py-2.5 rounded-lg text-sm font-medium transition ${listBtnOutline}`}>
               <Download size={14} /> Export <ChevronDown size={12} />
@@ -289,12 +281,19 @@ export default function ProductReviewPage() {
         </div>
           </>
         )}
+        selection={{
+          allSelected: selection.allSelected,
+          selectedCount: selection.selectedItems.length,
+          onToggleAll: selection.toggleAll,
+          onBulkDelete: handleBulkDelete,
+        }}
       >
         <table className="w-full text-sm">
           <thead className="sticky top-0 z-10">
             <tr className={listTheadClass} style={listTheadStyle}>
               <th className={`${listThClass} w-10`}>
-                <input type="checkbox" checked={paginated.length > 0 && paginated.every(i => selected.includes(i._id))} onChange={toggleAll} />
+                <input type="checkbox" checked={selection.allSelected} onChange={selection.toggleAll}
+                  aria-label={`Select all ${filtered.length} filtered reviews`} />
               </th>
               <th className={`${listThClass} w-14`}>#</th>
               <th className={listThClass}>Product</th>
@@ -311,8 +310,8 @@ export default function ProductReviewPage() {
             {paginated.map((item, i) => (
               <tr key={item._id} className={listRowClass} style={listRowStyle}>
                 <td className={listTdClass} onClick={stopRow}>
-                  <input type="checkbox" checked={selected.includes(item._id)}
-                    onChange={() => setSelected(prev => prev.includes(item._id) ? prev.filter(x => x !== item._id) : [...prev, item._id])} />
+                  <input type="checkbox" checked={selection.selectedIds.has(String(item._id))}
+                    onChange={() => selection.toggle(item._id)} aria-label={`Select review for ${item.productName}`} />
                 </td>
                 <td className={`${listTdClass} text-gray-500 tabular-nums`}>{(page - 1) * perPage + i + 1}</td>
                 <td className={listTdClass}>

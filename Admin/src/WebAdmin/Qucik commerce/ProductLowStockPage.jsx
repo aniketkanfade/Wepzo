@@ -6,6 +6,7 @@ import AdminListLayout from './components/AdminListLayout';
 import ViewableImage from './components/ViewableImage';
 import ConfirmModal from './components/ConfirmModal';
 import { useListPagination } from '../../hooks/useListPagination';
+import { useBulkSelection } from '../../hooks/useBulkSelection';
 import { LIST_TEAL, listBtnOutline, listTheadClass, listTheadStyle, listThClass, listRowClass, listRowStyle, listTdClass } from '../../constants/listTheme';
 
 export default function ProductLowStockPage() {
@@ -24,6 +25,7 @@ export default function ProductLowStockPage() {
     i.name.toLowerCase().includes(search.toLowerCase()) || (i.sku || '').toLowerCase().includes(search.toLowerCase())
   );
   const { page, setPage, perPage, setPerPage, totalPages, paginated, total } = useListPagination(filtered, { resetDeps: [search] });
+  const selection = useBulkSelection(filtered);
 
   const handleDelete = async () => {
     if (!deleteTarget) return;
@@ -38,6 +40,16 @@ export default function ProductLowStockPage() {
     } finally {
       setDeleting(false);
     }
+  };
+
+  const handleBulkDelete = async () => {
+    const selectedItems = selection.selectedItems;
+    if (!selectedItems.length || !confirm(`Delete ${selectedItems.length} selected product(s)? This cannot be undone.`)) return;
+    const results = await Promise.allSettled(selectedItems.map(item => api.delete(`/product-items/${item._id}`)));
+    const deletedIds = new Set(selectedItems.filter((_, index) => results[index].status === 'fulfilled').map(item => item._id));
+    setItems(prev => prev.filter(item => !deletedIds.has(item._id)));
+    const failedCount = results.length - deletedIds.size;
+    if (failedCount) alert(`${failedCount} product(s) could not be deleted.`);
   };
 
   return (
@@ -56,6 +68,13 @@ export default function ProductLowStockPage() {
       perPage={perPage}
       onPageChange={setPage}
       onPerPageChange={setPerPage}
+      emptyColSpan={10}
+      selection={{
+        allSelected: selection.allSelected,
+        selectedCount: selection.selectedItems.length,
+        onToggleAll: selection.toggleAll,
+        onBulkDelete: handleBulkDelete,
+      }}
       isEmpty={paginated.length === 0}
       emptyMessage="Koi low stock item nahi mila"
       headerActions={(
@@ -67,6 +86,10 @@ export default function ProductLowStockPage() {
       <table className="w-full text-sm">
         <thead className="sticky top-0 z-10">
           <tr className={listTheadClass} style={listTheadStyle}>
+            <th className={`${listThClass} w-10`}>
+              <input type="checkbox" checked={selection.allSelected} onChange={selection.toggleAll}
+                aria-label={`Select all ${filtered.length} filtered low-stock products`} />
+            </th>
             <th className={`${listThClass} w-14`}>SI</th>
             <th className={listThClass}>Name</th>
             <th className={listThClass}>SKU</th>
@@ -81,6 +104,10 @@ export default function ProductLowStockPage() {
         <tbody>
           {paginated.map((item, i) => (
             <tr key={item._id} onClick={() => navigate(`/products/setup/view/${item._id}`)} className={listRowClass} style={listRowStyle}>
+              <td className={listTdClass} onClick={stopRow}>
+                <input type="checkbox" checked={selection.selectedIds.has(String(item._id))}
+                  onChange={() => selection.toggle(item._id)} aria-label={`Select ${item.name}`} />
+              </td>
               <td className={`${listTdClass} text-gray-500 tabular-nums`}>{(page - 1) * perPage + i + 1}</td>
               <td className={listTdClass} onClick={stopRow}>
                 <div className="flex items-center gap-3 min-w-0">

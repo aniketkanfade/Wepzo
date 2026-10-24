@@ -1,6 +1,6 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import {
-  PackagePlus, Tag, Store, DollarSign, Ruler, Layers, Trash2, Plus, Info, Lock
+  PackagePlus, Tag, Store, DollarSign, Ruler, Layers, Trash2, Plus, Info, Lock, Loader2
 } from 'lucide-react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import api from '../../api/axios';
@@ -18,6 +18,7 @@ import { capitalizeWords } from '../../utils/mediaUtils';
 import { isColorAttribute, getColorHex, hashColor } from '../../utils/colorMap';
 import { numericInputValue } from '../../utils/numericInput';
 import { buildVariantSpecs } from './components/VariantSpecPanel';
+import ConfirmModal from './components/ConfirmModal';
 
 const ATTRIBUTE_PRESETS = {
   color: ['Red', 'Blue', 'Green', 'Black', 'White', 'Yellow', 'Pink', 'Grey', 'Brown', 'Navy', 'Maroon', 'Beige'],
@@ -161,6 +162,9 @@ export default function ProductAddPage() {
   const [catSpecFields, setCatSpecFields] = useState([]);
   const [catVariantAttrs, setCatVariantAttrs] = useState([]);
   const [selectedVariantId, setSelectedVariantId] = useState(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [duplicateProduct, setDuplicateProduct] = useState(null);
+  const submittingRef = useRef(false);
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const editId = searchParams.get('edit');
@@ -381,7 +385,8 @@ export default function ProductAddPage() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!form.name.trim()) return;
+    if (submittingRef.current) return;
+    if (!form.name.trim()) return alert('Product name is required.');
     if (!form.mainModuleId || !form.mainCategoryId || !form.subCategoryId || !form.childCategoryId) {
       return alert('Select Main Module, Main Category, Sub Category and Child Category before saving the product.');
     }
@@ -446,6 +451,8 @@ export default function ProductAddPage() {
       payload.extraVariantAttributes = [];
     }
     payload.quickCommerce = true;
+    submittingRef.current = true;
+    setSubmitting(true);
     try {
       if (isRequestEdit) {
         const status = form.status || 'Pending';
@@ -466,7 +473,17 @@ export default function ProductAddPage() {
         await api.post('/product-items', payload);
         navigate('/products/setup/list');
       }
-    } catch (err) { console.error(err); }
+    } catch (err) {
+      const duplicate = err.response?.data?.duplicate;
+      if (err.response?.status === 409 && duplicate?._id) {
+        setDuplicateProduct(duplicate);
+      } else {
+        alert(err.response?.data?.message || 'Product could not be saved. Please try again.');
+      }
+    } finally {
+      submittingRef.current = false;
+      setSubmitting(false);
+    }
   };
 
   const getCategoryRef = id => categories.find(category => String(category._id) === String(id) || String(category.categoryId) === String(id));
@@ -1050,16 +1067,28 @@ export default function ProductAddPage() {
           )}
 
           <div className="flex justify-end gap-3 pt-2">
-            <button type="button" onClick={() => navigate(isRequestEdit ? '/products/setup/requests' : '/products/setup/list')}
+            <button type="button" disabled={submitting} onClick={() => navigate(isRequestEdit ? '/products/setup/requests' : '/products/setup/list')}
               className="px-6 py-2.5 border border-gray-200 rounded-lg text-sm text-gray-600 hover:bg-gray-50 transition">
               {isRequestEdit ? 'Back to Requests' : 'Reset'}
             </button>
-            <button type="submit" className="px-6 py-2.5 bg-primary-600 text-white rounded-lg text-sm font-medium hover:bg-primary-700 shadow-sm transition">
-              {isRequestEdit ? 'Update Request' : editId ? 'Update Item' : 'Submit'}
+            <button type="submit" disabled={submitting}
+              className="inline-flex items-center justify-center gap-2 px-6 py-2.5 bg-primary-600 text-white rounded-lg text-sm font-medium hover:bg-primary-700 shadow-sm transition disabled:cursor-wait disabled:bg-slate-400 disabled:opacity-80">
+              {submitting && <Loader2 size={16} className="animate-spin" />}
+              {submitting ? 'Saving...' : isRequestEdit ? 'Update Request' : editId ? 'Update Item' : 'Submit'}
             </button>
           </div>
         </form>
       </PageCard>
+      {duplicateProduct && (
+        <ConfirmModal
+          title="Product already exists"
+          message={`“${duplicateProduct.name}” already exists in this store and category. Open the existing product instead?`}
+          confirmLabel="View existing product"
+          cancelLabel="Keep editing"
+          onClose={() => setDuplicateProduct(null)}
+          onConfirm={() => navigate(`/products/setup/view/${encodeURIComponent(duplicateProduct._id)}`)}
+        />
+      )}
     </div>
   );
 }

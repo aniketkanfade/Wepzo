@@ -1,12 +1,14 @@
-import { useState, useEffect } from 'react';
+import { useRef, useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Bell, Plus, Eye, Check, X, Edit, Trash2 } from 'lucide-react';
+import { Bell, Plus, Eye, Check, X, Edit, Trash2, Loader2 } from 'lucide-react';
 import api from '../../api/axios';
 import AdminListLayout from './components/AdminListLayout';
 import ViewableImage from './components/ViewableImage';
 import ProductRequestDetailModal from './components/ProductRequestDetailModal';
 import { useListPagination } from '../../hooks/useListPagination';
+import { useBulkSelection } from '../../hooks/useBulkSelection';
 import { LIST_NAVY, LIST_TEAL, LIST_CARD_BORDER, listBtnNavy, listTheadClass, listTheadStyle, listThClass, listRowClass, listRowStyle, listTdClass } from '../../constants/listTheme';
+import ConfirmModal from './components/ConfirmModal';
 
 const TABS = [
   { key: 'pending', label: 'Pending' },
@@ -18,6 +20,9 @@ export default function ProductRequestPage() {
   const [searchInput, setSearchInput] = useState('');
   const [search, setSearch] = useState('');
   const [viewItem, setViewItem] = useState(null);
+  const [approvingId, setApprovingId] = useState(null);
+  const [duplicateProduct, setDuplicateProduct] = useState(null);
+  const approvingRef = useRef(false);
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const activeTab = searchParams.get('tab') === 'rejected' ? 'rejected' : 'pending';
@@ -52,6 +57,7 @@ export default function ProductRequestPage() {
   );
 
   const { page, setPage, perPage, setPerPage, totalPages, paginated, total } = useListPagination(filtered, { resetDeps: [search, activeTab] });
+  const selection = useBulkSelection(filtered);
 
   const setTab = (key) => {
     setSearch('');
@@ -61,12 +67,25 @@ export default function ProductRequestPage() {
   };
 
   const handleApprove = async (item) => {
+    if (approvingRef.current) return;
     if (!confirm(`Approve "${item.name}" and add to product list?`)) return;
+    approvingRef.current = true;
+    setApprovingId(item._id);
     try {
       await api.post(`/product-requests/${item._id}/approve`);
       setItems(prev => prev.filter(i => i._id !== item._id));
       if (viewItem?._id === item._id) setViewItem(null);
-    } catch { /* ignore */ }
+    } catch (error) {
+      const duplicate = error.response?.data?.duplicate;
+      if (error.response?.status === 409 && duplicate?._id) {
+        setDuplicateProduct(duplicate);
+      } else {
+        alert(error.response?.data?.message || 'Product request could not be approved.');
+      }
+    } finally {
+      approvingRef.current = false;
+      setApprovingId(null);
+    }
   };
 
   const handleReject = async (item) => {
@@ -79,10 +98,22 @@ export default function ProductRequestPage() {
   };
 
   const handleDelete = async (id) => {
-    if (!confirm('Delete this request?')) return;
+    const item = items.find(request => request._id === id);
+    if (!confirm(`Delete product request "${item?.name || 'this request'}"?`)) return;
     await api.delete(`/product-requests/${id}`);
     setItems(prev => prev.filter(i => i._id !== id));
     if (viewItem?._id === id) setViewItem(null);
+  };
+
+  const handleBulkDelete = async () => {
+    const selectedItems = selection.selectedItems;
+    if (!selectedItems.length || !confirm(`Delete ${selectedItems.length} selected product request(s)? This cannot be undone.`)) return;
+    const results = await Promise.allSettled(selectedItems.map(item => api.delete(`/product-requests/${item._id}`)));
+    const deletedIds = new Set(selectedItems.filter((_, index) => results[index].status === 'fulfilled').map(item => item._id));
+    setItems(prev => prev.filter(item => !deletedIds.has(item._id)));
+    if (viewItem && deletedIds.has(viewItem._id)) setViewItem(null);
+    const failedCount = results.length - deletedIds.size;
+    if (failedCount) alert(`${failedCount} product request(s) could not be deleted.`);
   };
 
   const openEdit = (item) => {
@@ -157,11 +188,20 @@ export default function ProductRequestPage() {
             <Plus size={16} /> New Item Request
           </button>
         )}
+        selection={{
+          allSelected: selection.allSelected,
+          selectedCount: selection.selectedItems.length,
+          onToggleAll: selection.toggleAll,
+          onBulkDelete: handleBulkDelete,
+        }}
       >
         <table className="w-full text-sm">
           <thead className="sticky top-0 z-10">
             <tr className={listTheadClass} style={listTheadStyle}>
-              <th className={`${listThClass} w-10`}><input type="checkbox" /></th>
+              <th className={`${listThClass} w-10`}>
+                <input type="checkbox" checked={selection.allSelected} onChange={selection.toggleAll}
+                  aria-label={`Select all ${filtered.length} filtered product requests`} />
+              </th>
               <th className={`${listThClass} w-14`}>#</th>
               <th className={listThClass}>Image</th>
               <th className={listThClass}>Item Name</th>
@@ -176,7 +216,10 @@ export default function ProductRequestPage() {
           <tbody>
             {paginated.map((item, i) => (
               <tr key={item._id} className={listRowClass} style={listRowStyle}>
-                <td className={listTdClass} onClick={stopRow}><input type="checkbox" /></td>
+                <td className={listTdClass} onClick={stopRow}>
+                  <input type="checkbox" checked={selection.selectedIds.has(String(item._id))}
+                    onChange={() => selection.toggle(item._id)} aria-label={`Select ${item.name}`} />
+                </td>
                 <td className={`${listTdClass} text-gray-500 tabular-nums`}>{(page - 1) * perPage + i + 1}</td>
                 <td className={listTdClass} onClick={stopRow}>
                   <ViewableImage src={item.image} images={[item.image].filter(Boolean)} title={item.name} alt="" className="w-10 h-10 rounded-lg object-cover" />
@@ -201,9 +244,9 @@ export default function ProductRequestPage() {
                     </button>
                     {isPendingTab && (
                       <>
-                        <button type="button" title="Approve" onClick={() => handleApprove(item)}
-                          className="p-1.5 border border-green-200 text-green-600 rounded hover:bg-green-50 transition">
-                          <Check size={14} />
+                        <button type="button" title="Approve" onClick={() => handleApprove(item)} disabled={!!approvingId}
+                          className="p-1.5 border border-green-200 text-green-600 rounded hover:bg-green-50 transition disabled:cursor-wait disabled:bg-slate-100 disabled:text-slate-400">
+                          {approvingId === item._id ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
                         </button>
                         <button type="button" title="Reject" onClick={() => handleReject(item)}
                           className="p-1.5 border border-red-200 text-red-500 rounded hover:bg-red-50 transition">
@@ -234,6 +277,16 @@ export default function ProductRequestPage() {
           onApprove={isPendingTab && viewItem.status === 'Pending' ? handleApprove : undefined}
           onReject={isPendingTab && viewItem.status === 'Pending' ? handleReject : undefined}
           onEdit={isPendingTab ? openEdit : undefined}
+        />
+      )}
+      {duplicateProduct && (
+        <ConfirmModal
+          title="Product already exists"
+          message={`“${duplicateProduct.name}” already exists in this store and category. Open the existing product instead?`}
+          confirmLabel="View existing product"
+          cancelLabel="Close"
+          onClose={() => setDuplicateProduct(null)}
+          onConfirm={() => navigate(`/products/setup/view/${encodeURIComponent(duplicateProduct._id)}`)}
         />
       )}
     </>

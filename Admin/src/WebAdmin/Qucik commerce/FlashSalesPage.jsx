@@ -5,6 +5,7 @@ import api from '../../api/axios';
 import { downloadFile } from '../../api/download';
 import AdminListLayout from './components/AdminListLayout';
 import { useListPagination } from '../../hooks/useListPagination';
+import { useBulkSelection } from '../../hooks/useBulkSelection';
 import { STATUS_STYLES } from '../Marketing/promotionModules';
 import { LIST_TEAL, listBtnNavy, listBtnOutline, listTheadClass, listTheadStyle, listThClass, listRowClass, listRowStyle, listTdClass } from '../../constants/listTheme';
 
@@ -72,6 +73,7 @@ export default function FlashSalesPage() {
   }, [items, search]);
 
   const { page, setPage, perPage, setPerPage, totalPages, paginated, total } = useListPagination(filtered, { resetDeps: [search, moduleId] });
+  const selection = useBulkSelection(filtered);
 
   const changeModule = (id) => {
     setSearchParams({ moduleId: id });
@@ -102,6 +104,16 @@ export default function FlashSalesPage() {
     } finally {
       setActionId('');
     }
+  };
+
+  const bulkDeleteSales = async () => {
+    const selectedItems = selection.selectedItems;
+    if (!selectedItems.length || !confirm(`Delete ${selectedItems.length} selected flash sale(s)? This cannot be undone.`)) return;
+    const results = await Promise.allSettled(selectedItems.map(item => api.delete(`/flash-sales/${item._id}`)));
+    const deletedIds = new Set(selectedItems.filter((_, index) => results[index].status === 'fulfilled').map(item => item._id));
+    setItems(current => current.filter(item => !deletedIds.has(item._id)));
+    const failedCount = results.length - deletedIds.size;
+    if (failedCount) alert(`${failedCount} flash sale(s) could not be deleted.`);
   };
 
   const toggleStatus = async sale => {
@@ -153,8 +165,14 @@ export default function FlashSalesPage() {
         perPage={perPage}
         onPageChange={setPage}
         onPerPageChange={setPerPage}
+        selection={{
+          allSelected: selection.allSelected,
+          selectedCount: selection.selectedItems.length,
+          onToggleAll: selection.toggleAll,
+          onBulkDelete: bulkDeleteSales,
+        }}
         isEmpty={!loading && !error && paginated.length === 0}
-        emptyColSpan={8}
+        emptyColSpan={9}
         emptyMessage="No flash sales match this search."
       >
         {error && <div role="alert" className="border-b border-red-200 bg-red-50 px-5 py-3 text-sm text-red-700">{error}</div>}
@@ -164,6 +182,10 @@ export default function FlashSalesPage() {
           <table className="w-full min-w-[920px] text-sm">
             <thead className="sticky top-0 z-10">
               <tr className={listTheadClass} style={listTheadStyle}>
+                <th className={listThClass + ' w-10'}>
+                  <input type="checkbox" checked={selection.allSelected} onChange={selection.toggleAll}
+                    aria-label={`Select all ${filtered.length} filtered flash sales`} />
+                </th>
                 <th className={listThClass + ' w-14'}>#</th>
                 <th className={listThClass}>Sale</th>
                 <th className={listThClass}>Store</th>
@@ -180,6 +202,10 @@ export default function FlashSalesPage() {
                 const productNames = products.slice(0, 3).map(product => product.name).filter(Boolean);
                 return (
                   <tr key={sale._id} className={listRowClass} style={listRowStyle}>
+                    <td className={listTdClass}>
+                      <input type="checkbox" checked={selection.selectedIds.has(String(sale._id))}
+                        onChange={() => selection.toggle(sale._id)} aria-label={`Select ${sale.title || 'flash sale'}`} />
+                    </td>
                     <td className={listTdClass + ' text-gray-500 tabular-nums'}>{(page - 1) * perPage + index + 1}</td>
                     <td className={listTdClass}>
                       <p className="font-semibold text-slate-900">{sale.title || 'Untitled sale'}</p>

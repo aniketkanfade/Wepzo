@@ -68,6 +68,16 @@ function childToRows(list, references = {}) {
 
 const { attachStoreRef, findStoreById } = require('./storeDataUtils');
 const ExcelJS = require('exceljs');
+const normalizeProductKey = value => String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');
+
+function productStoreKey(product, stores) {
+  const referencedStore = product.storeId ? findStoreById(product.storeId, stores) : null;
+  const namedStore = referencedStore || (product.store
+    ? stores.find(item => normalizeProductKey(item.name) === normalizeProductKey(product.store))
+    : null);
+  if (namedStore) return `id:${namedStore.storeId}`;
+  return product.storeId ? `id:${String(product.storeId)}` : `name:${normalizeProductKey(product.store)}`;
+}
 
 function excelCellText(value) {
   if (value == null) return '';
@@ -336,6 +346,25 @@ function importProductsFromRows(rows, store, uuidv4) {
     if (requestedModuleId && categoryRecord && String(categoryRecord.moduleId || '') !== requestedModuleId) {
       failed += 1;
       errors.push({ row: rowNumber, reason: 'Main Module ID does not belong to the Category ID' });
+      return;
+    }
+
+    const duplicate = store.productItems.find(item => {
+      const itemCategoryId = item.categoryId || item.mainCategoryId;
+      const itemCategory = itemCategoryId
+        ? store.categories.find(category => String(category._id) === String(itemCategoryId)
+          || String(category.categoryId || '') === String(itemCategoryId))
+        : store.categories.find(category => normalizeProductKey(category.name) === normalizeProductKey(item.mainCategory));
+      const sameCategory = itemCategory
+        ? String(itemCategory._id) === String(categoryRecord._id)
+        : normalizeProductKey(item.mainCategory) === normalizeProductKey(categoryRecord.name);
+      return normalizeProductKey(item.name) === normalizeProductKey(name) &&
+        productStoreKey(item, store.stores) === productStoreKey({ storeId: storeRecord?.storeId, store: storeRecord?.name }, store.stores) &&
+        sameCategory;
+    });
+    if (duplicate) {
+      failed += 1;
+      errors.push({ row: rowNumber, reason: `Product already exists in this store and category: ${duplicate.name}` });
       return;
     }
 

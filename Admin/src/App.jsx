@@ -63,6 +63,7 @@ const RefundDetailPage = lazy(() => import('./WebAdmin/Qucik commerce/RefundDeta
 const FlashSalesPage = lazy(() => import('./WebAdmin/Qucik commerce/FlashSalesPage'));
 const FlashSaleFormPage = lazy(() => import('./WebAdmin/Qucik commerce/FlashSaleFormPage'));
 import Layout from './WebAdmin/Qucik commerce/components/Layout';
+import RequiredFieldValidation from './components/RequiredFieldValidation';
 import WebsiteBuilder from './WebAdmin/Qucik commerce/components/WebsiteBuilder';
 const SettingsBusinessPage = lazy(() => import('./pages/settings/SettingsBusinessPage'));
 const ThirdPartySettingsPage = lazy(() => import('./pages/settings/ThirdPartySettingsPage'));
@@ -113,7 +114,7 @@ function AdminRootLayout() {
   const token = useAuthStore(state => state.token);
   const location = useLocation();
   if (location.pathname === '/') return <Outlet />;
-  return token ? <Layout /> : <Navigate to="/login" replace state={{ from: location }} />;
+  return token ? <><RequiredFieldValidation /><Layout /></> : <Navigate to="/login" replace state={{ from: location }} />;
 }
 
 function HomeRoute() {

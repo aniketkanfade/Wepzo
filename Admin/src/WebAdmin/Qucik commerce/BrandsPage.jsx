@@ -67,9 +67,19 @@ export default function BrandsPage() {
   };
 
   const handleDelete = async (id) => {
-    if (!confirm('Delete this brand?')) return;
+    const item = items.find(brand => brand._id === id);
+    if (!confirm(`Delete brand "${item?.name || 'this brand'}"?`)) return;
     await api.delete(`/brands/${id}`);
     setItems(prev => prev.filter(i => i._id !== id));
+  };
+
+  const handleBulkDelete = async selectedItems => {
+    if (!selectedItems.length || !confirm(`Delete ${selectedItems.length} selected brand(s)? This cannot be undone.`)) return;
+    const results = await Promise.allSettled(selectedItems.map(item => api.delete(`/brands/${item._id}`)));
+    const deletedIds = new Set(selectedItems.filter((_, index) => results[index].status === 'fulfilled').map(item => item._id));
+    setItems(prev => prev.filter(item => !deletedIds.has(item._id)));
+    const failedCount = results.length - deletedIds.size;
+    if (failedCount) alert(`${failedCount} brand(s) could not be deleted.`);
   };
 
   const handleExport = () => {
@@ -164,6 +174,7 @@ export default function BrandsPage() {
           idKey="brandId"
           onEdit={handleEdit}
           onDelete={handleDelete}
+          onBulkDelete={handleBulkDelete}
           extraColumns={[{
             key: 'image',
             label: 'Image',

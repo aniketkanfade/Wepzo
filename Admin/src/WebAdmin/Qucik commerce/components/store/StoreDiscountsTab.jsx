@@ -216,7 +216,8 @@ export default function StoreDiscountsTab({ store }) {
   };
 
   const handleDelete = async (id) => {
-    if (!confirm('Ye discount delete karna hai?')) return;
+    const discount = discounts.find(item => item._id === id);
+    if (!confirm(`Delete discount "${discount?.name || discount?.title || 'this discount'}"?`)) return;
     await api.delete(`/stores/${store.storeId}/store-discounts/${id}`);
     load();
     runCalculate();

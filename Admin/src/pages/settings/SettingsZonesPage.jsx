@@ -6,6 +6,8 @@ import { useAuthStore, useModuleStore } from '../../store/useStore';
 import NavyToggle from '../../WebAdmin/Qucik commerce/components/NavyToggle';
 import ZoneDrawMap from '../../WebAdmin/Qucik commerce/components/ZoneDrawMap';
 import { useListPagination } from '../../hooks/useListPagination';
+import { useBulkSelection } from '../../hooks/useBulkSelection';
+import PaginationControls from '../../WebAdmin/Qucik commerce/components/PaginationControls';
 import { fetchPincodePolygon } from '../../constants/nagpurPincodes';
 import {
   getCity, pincodeLabel, findPin,
@@ -215,6 +217,7 @@ export default function SettingsZonesPage() {
     .filter(z => isQuick ? z.commerceType !== 'ecommerce' : z.commerceType === 'ecommerce')
     .filter(matchesSearch);
   const pager = useListPagination(listZones, { resetDeps: [search, isQuick] });
+  const selection = useBulkSelection(listZones);
 
   const pinOptions = useMemo(() => {
     const q = pinQuery.trim().toLowerCase();
@@ -400,6 +403,18 @@ export default function SettingsZonesPage() {
     setMenuId(null);
     if (editingId === z._id) resetForm();
     load();
+  };
+
+  const handleBulkDelete = async () => {
+    const selectedItems = selection.selectedItems;
+    if (!selectedItems.length || !confirm(`Delete ${selectedItems.length} selected zone(s)? This cannot be undone.`)) return;
+    const results = await Promise.allSettled(selectedItems.map(zone => api.delete(`/zones/${zone._id}`)));
+    const deletedIds = new Set(selectedItems.filter((_, index) => results[index].status === 'fulfilled').map(zone => String(zone._id)));
+    setZones(current => current.filter(zone => !deletedIds.has(String(zone._id))));
+    if (selectedItems.some(zone => zone._id === editingId && deletedIds.has(String(zone._id)))) resetForm();
+    setMenuId(null);
+    const failedCount = results.length - deletedIds.size;
+    if (failedCount) alert(`${failedCount} zone(s) could not be deleted.`);
   };
 
   const exportCsv = () => {
@@ -722,6 +737,8 @@ export default function SettingsZonesPage() {
         }}
         onSearchCharge={(z) => { setMenuId(null); navigate(`/settings/zones/${z._id}/search-charges`); }}
         onDelete={handleDelete}
+        selection={selection}
+        onBulkDelete={handleBulkDelete}
       />
 
       {viewZone && (
@@ -774,7 +791,7 @@ export default function SettingsZonesPage() {
   );
 }
 
-function ZoneTable({ title, rows, pager, searchInput, onSearchInputChange, onSearch, searchPlaceholder, onExport, coverKind, menuId, setMenuId, onDefault, onToggle, onView, onEdit, onConnect, onSearchCharge, onDelete }) {
+function ZoneTable({ title, rows, pager, searchInput, onSearchInputChange, onSearch, searchPlaceholder, onExport, coverKind, menuId, setMenuId, onDefault, onToggle, onView, onEdit, onConnect, onSearchCharge, onDelete, selection, onBulkDelete }) {
   const { page, perPage, total } = pager;
   return (
     <div className="bg-white rounded-xl border shadow-sm overflow-hidden" style={{ borderColor: CARD_BORDER }}>
@@ -803,6 +820,10 @@ function ZoneTable({ title, rows, pager, searchInput, onSearchInputChange, onSea
         <table className="w-full text-sm">
           <thead>
             <tr className={listTheadClass} style={listTheadStyle}>
+              <th className={`${listThClass} w-10`}>
+                <input type="checkbox" checked={selection.allSelected} onChange={selection.toggleAll}
+                  aria-label={`Select all ${total} filtered zones`} />
+              </th>
               <th className={`${listThClass} w-12`}>SL</th>
               <th className={listThClass}>Zone Id</th>
               <th className={listThClass}>Business Zone Name</th>
@@ -818,13 +839,17 @@ function ZoneTable({ title, rows, pager, searchInput, onSearchInputChange, onSea
           <tbody>
             {rows.length === 0 && (
               <tr>
-                <td colSpan={10} className="px-5 py-8 text-center text-sm text-gray-400">
+                <td colSpan={11} className="px-5 py-8 text-center text-sm text-gray-400">
                   {coverKind === 'ecom' ? 'Abhi koi E-Commerce zone nahi' : 'Abhi koi Quick Commerce zone nahi'}
                 </td>
               </tr>
             )}
             {rows.map((z, i) => (
               <tr key={z._id} className={listRowClass} style={{ ...listRowStyle, cursor: 'default' }}>
+                <td className={listTdClass}>
+                  <input type="checkbox" checked={selection.selectedIds.has(String(z._id))}
+                    onChange={() => selection.toggle(z._id)} aria-label={`Select zone ${z.name}`} />
+                </td>
                 <td className={`${listTdClass} text-gray-500`}>{(page - 1) * perPage + i + 1}</td>
                 <td className={`${listTdClass} tabular-nums`}>{z.zoneId}</td>
                 <td className={`${listTdClass} font-medium`}>{z.name}</td>
@@ -885,6 +910,14 @@ function ZoneTable({ title, rows, pager, searchInput, onSearchInputChange, onSea
           </tbody>
         </table>
       </div>
+      <PaginationControls page={page} totalPages={pager.totalPages} total={total} perPage={perPage}
+        onPageChange={pager.setPage} onPerPageChange={pager.setPerPage}
+        label="zones" selection={{
+          allSelected: selection.allSelected,
+          selectedCount: selection.selectedItems.length,
+          onToggleAll: selection.toggleAll,
+          onBulkDelete,
+        }} />
     </div>
   );
 }

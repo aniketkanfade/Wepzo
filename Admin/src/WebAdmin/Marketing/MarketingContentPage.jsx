@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronDown, ChevronLeft, ChevronRight, Filter, Lock, Pencil, Plus, Search, Send, Trash2, X } from 'lucide-react';
 import api from '../../api/axios';
+import { useBulkSelection } from '../../hooks/useBulkSelection';
+import BulkSelectionBar from '../Qucik commerce/components/BulkSelectionBar';
 
 const emptyForm = {
   title: '', assignedUserId: '', contentType: 'Post', platform: 'Instagram', platforms: ['Instagram'], caption: '', hashtags: '',
@@ -78,6 +80,7 @@ export default function MarketingContentPage() {
   }), [content, users, searchText, appliedFilters]);
   const totalPages = Math.max(1, Math.ceil(filteredContent.length / 10));
   const visibleContent = filteredContent.slice((page - 1) * 10, page * 10);
+  const selection = useBulkSelection(filteredContent);
 
   useEffect(() => { setPage(1); }, [searchText, appliedFilters]);
   useEffect(() => { if (page > totalPages) setPage(totalPages); }, [page, totalPages]);
@@ -172,6 +175,17 @@ export default function MarketingContentPage() {
     }
   };
 
+  const deleteSelectedContent = async () => {
+    const selectedItems = selection.selectedItems;
+    if (!selectedItems.length || !window.confirm(`Delete ${selectedItems.length} selected content item(s)? This cannot be undone.`)) return;
+    const results = await Promise.allSettled(selectedItems.map(item => api.delete(`/marketing/content/${item._id}`)));
+    const deletedIds = new Set(selectedItems.filter((_, index) => results[index].status === 'fulfilled').map(item => String(item._id)));
+    setContent(current => current.filter(item => !deletedIds.has(String(item._id))));
+    const failedCount = results.length - deletedIds.size;
+    if (failedCount) setError(`${failedCount} content item(s) could not be deleted.`);
+    else setNotice(`${deletedIds.size} content item(s) deleted.`);
+  };
+
   return <section className="mx-auto max-w-6xl space-y-5 pb-10">
     <header><p className="text-sm font-semibold uppercase tracking-wide text-blue-700">Admin / Web / Marketing</p><h1 className="mt-1 text-2xl font-bold text-slate-900">Content Add</h1><p className="mt-2 text-sm text-slate-600">Create and manage day-wise posts and reels for Marketing users.</p></header>
     {error && <div role="alert" className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
@@ -205,7 +219,9 @@ export default function MarketingContentPage() {
         <span className="text-xs text-slate-500">{filteredContent.length} of {content.length} items</span>
       </div>
       {filtersLocked&&<div className="flex items-center gap-2 border-b border-slate-100 bg-blue-50/60 px-5 py-2 text-xs text-blue-800"><Lock size={13}/> Filters saved until reset<button type="button" onClick={resetContentFilters} className="ml-auto font-semibold underline">Reset filters</button></div>}
-      <div className="overflow-x-auto"><table className="w-full min-w-[900px] text-left text-xs"><thead className="bg-slate-50 text-[10px] uppercase tracking-wide text-slate-500"><tr>{['Content','User','Platform','Type','Release','Publish time','Status','Actions'].map(heading=><th key={heading} className="px-4 py-3 font-semibold">{heading}</th>)}</tr></thead><tbody>{visibleContent.map(item=><tr key={item._id} className="border-t border-slate-100"><td className="px-4 py-3 font-semibold text-slate-800">{item.title}<span className="mt-1 block max-w-52 truncate font-normal text-slate-400">{item.caption}</span></td><td className="px-4 py-3">{item.assignedUserName || users.find(user=>String(user.id)===String(item.assignedUserId))?.name || '—'}</td><td className="px-4 py-3">{(item.platforms?.length ? item.platforms : [item.platform]).join(', ')}</td><td className="px-4 py-3">{item.contentType}</td><td className="px-4 py-3">{item.releaseDate || 'Immediately'} {item.releaseTime}</td><td className="px-4 py-3">{item.publishDate || '—'} {item.publishTime}</td><td className="px-4 py-3"><span className="rounded-full bg-slate-100 px-2 py-1 text-[10px] font-semibold text-slate-600">{prettyStatus(item.status)}</span></td><td className="px-4 py-3"><div className="flex gap-1"><button type="button" onClick={()=>editContent(item)} aria-label="Edit content" className="rounded-md border border-slate-200 p-1.5 text-slate-600 hover:bg-slate-50"><Pencil size={13}/></button><button type="button" onClick={()=>deleteContent(item)} aria-label="Delete content" className="rounded-md border border-red-100 p-1.5 text-red-600 hover:bg-red-50"><Trash2 size={13}/></button></div></td></tr>)}{!loading&&filteredContent.length===0&&<tr><td colSpan={8} className="px-4 py-10 text-center text-slate-400">No content matches these search filters.</td></tr>}</tbody></table></div>
+      <div className="px-5 pt-3"><BulkSelectionBar total={filteredContent.length} label="content items" allSelected={selection.allSelected}
+        selectedCount={selection.selectedItems.length} onToggleAll={selection.toggleAll} onBulkDelete={deleteSelectedContent} /></div>
+      <div className="overflow-x-auto"><table className="w-full min-w-[940px] text-left text-xs"><thead className="bg-slate-50 text-[10px] uppercase tracking-wide text-slate-500"><tr><th className="px-4 py-3 font-semibold"><input type="checkbox" checked={selection.allSelected} onChange={selection.toggleAll} aria-label={`Select all ${filteredContent.length} filtered content items`} /></th>{['Content','User','Platform','Type','Release','Publish time','Status','Actions'].map(heading=><th key={heading} className="px-4 py-3 font-semibold">{heading}</th>)}</tr></thead><tbody>{visibleContent.map(item=><tr key={item._id} className="border-t border-slate-100"><td className="px-4 py-3"><input type="checkbox" checked={selection.selectedIds.has(String(item._id))} onChange={()=>selection.toggle(item._id)} aria-label={`Select ${item.title}`} /></td><td className="px-4 py-3 font-semibold text-slate-800">{item.title}<span className="mt-1 block max-w-52 truncate font-normal text-slate-400">{item.caption}</span></td><td className="px-4 py-3">{item.assignedUserName || users.find(user=>String(user.id)===String(item.assignedUserId))?.name || '—'}</td><td className="px-4 py-3">{(item.platforms?.length ? item.platforms : [item.platform]).join(', ')}</td><td className="px-4 py-3">{item.contentType}</td><td className="px-4 py-3">{item.releaseDate || 'Immediately'} {item.releaseTime}</td><td className="px-4 py-3">{item.publishDate || '—'} {item.publishTime}</td><td className="px-4 py-3"><span className="rounded-full bg-slate-100 px-2 py-1 text-[10px] font-semibold text-slate-600">{prettyStatus(item.status)}</span></td><td className="px-4 py-3"><div className="flex gap-1"><button type="button" onClick={()=>editContent(item)} aria-label="Edit content" className="rounded-md border border-slate-200 p-1.5 text-slate-600 hover:bg-slate-50"><Pencil size={13}/></button><button type="button" onClick={()=>deleteContent(item)} aria-label="Delete content" className="rounded-md border border-red-100 p-1.5 text-red-600 hover:bg-red-50"><Trash2 size={13}/></button></div></td></tr>)}{!loading&&filteredContent.length===0&&<tr><td colSpan={9} className="px-4 py-10 text-center text-slate-400">No content matches these search filters.</td></tr>}</tbody></table></div>
       <div className="flex items-center justify-between border-t border-slate-100 px-5 py-3 text-xs text-slate-600"><span>Page {page} of {totalPages}</span><div className="flex items-center gap-2"><button type="button" disabled={page<=1} onClick={()=>setPage(value=>Math.max(1,value-1))} className="inline-flex items-center gap-1 rounded-md border border-slate-200 px-3 py-1.5 disabled:opacity-40"><ChevronLeft size={14}/>Previous</button><button type="button" disabled={page>=totalPages} onClick={()=>setPage(value=>Math.min(totalPages,value+1))} className="inline-flex items-center gap-1 rounded-md border border-slate-200 px-3 py-1.5 disabled:opacity-40">Next<ChevronRight size={14}/></button></div></div>
     </article>
     {filterOpen&&<div className="fixed inset-0 z-50 flex justify-end" onClick={event=>event.stopPropagation()}><button type="button" className="absolute inset-0 bg-black/30" onClick={()=>setFilterOpen(false)} aria-label="Close filter"/><aside className="relative flex h-full w-full max-w-sm flex-col bg-white shadow-2xl"><div className="flex items-center justify-between border-b border-slate-100 px-5 py-4"><h2 className="text-base font-bold text-slate-900">Search data</h2><button type="button" onClick={()=>setFilterOpen(false)} className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100" aria-label="Close"><X size={18}/></button></div><div className="flex-1 space-y-5 overflow-y-auto px-5 py-5">

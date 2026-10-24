@@ -5,6 +5,7 @@ import api from '../../api/axios';
 import { numericInputValue } from '../../utils/numericInput';
 import AdminListLayout from '../Qucik commerce/components/AdminListLayout';
 import { useListPagination } from '../../hooks/useListPagination';
+import { useBulkSelection } from '../../hooks/useBulkSelection';
 import { PROMOTION_MODULES, STATUS_STYLES } from './promotionModules';
 import { listBtnNavy, listTheadClass, listTheadStyle, listThClass, listRowClass, listRowStyle, listTdClass } from '../../constants/listTheme';
 import { readVideoAsDataUrl } from '../../utils/mediaUtils';
@@ -79,6 +80,7 @@ export default function PromotionModulePage() {
     Object.values(i).some(v => String(v).toLowerCase().includes(search.toLowerCase()))
   );
   const { page, setPage, perPage, setPerPage, totalPages, paginated, total } = useListPagination(filtered, { resetDeps: [search] });
+  const selection = useBulkSelection(filtered);
 
   const openAdd = () => {
     const init = {};
@@ -153,9 +155,20 @@ export default function PromotionModulePage() {
   };
 
   const handleDelete = async (id) => {
-    if (!confirm('Delete karna hai?')) return;
+    const item = items.find(entry => entry._id === id);
+    if (!confirm(`Delete "${item?.title || item?.name || 'this promotion'}"?`)) return;
     await api.delete(`/promotions/${config.type}/${id}`);
     setItems(prev => prev.filter(i => i._id !== id));
+  };
+
+  const handleBulkDelete = async () => {
+    const selectedItems = selection.selectedItems;
+    if (!selectedItems.length || !confirm(`Delete ${selectedItems.length} selected ${config.title.toLowerCase()}? This cannot be undone.`)) return;
+    const results = await Promise.allSettled(selectedItems.map(item => api.delete(`/promotions/${config.type}/${item._id}`)));
+    const deletedIds = new Set(selectedItems.filter((_, index) => results[index].status === 'fulfilled').map(item => item._id));
+    setItems(prev => prev.filter(item => !deletedIds.has(item._id)));
+    const failedCount = results.length - deletedIds.size;
+    if (failedCount) alert(`${failedCount} item(s) could not be deleted.`);
   };
 
   const toggleStatus = async (item) => {
@@ -212,6 +225,12 @@ export default function PromotionModulePage() {
         perPage={perPage}
         onPageChange={setPage}
         onPerPageChange={setPerPage}
+        selection={{
+          allSelected: selection.allSelected,
+          selectedCount: selection.selectedItems.length,
+          onToggleAll: selection.toggleAll,
+          onBulkDelete: handleBulkDelete,
+        }}
         isEmpty={paginated.length === 0}
         emptyMessage="Koi record nahi"
         footerBar={(
@@ -224,6 +243,10 @@ export default function PromotionModulePage() {
         <table className="w-full text-sm">
           <thead className="sticky top-0 z-10">
             <tr className={listTheadClass} style={listTheadStyle}>
+              <th className={`${listThClass} w-10`}>
+                <input type="checkbox" checked={selection.allSelected} onChange={selection.toggleAll}
+                  aria-label={`Select all ${filtered.length} filtered ${config.title.toLowerCase()}`} />
+              </th>
               <th className={`${listThClass} w-14`}>#</th>
               {columns.map(c => <th key={c.key} className={listThClass}>{c.label}</th>)}
               <th className={listThClass}>Action</th>
@@ -232,6 +255,10 @@ export default function PromotionModulePage() {
           <tbody>
             {paginated.map((item, i) => (
               <tr key={item._id} className={listRowClass} style={listRowStyle}>
+                <td className={listTdClass}>
+                  <input type="checkbox" checked={selection.selectedIds.has(String(item._id))}
+                    onChange={() => selection.toggle(item._id)} aria-label={`Select ${item.title || item.name || config.title}`} />
+                </td>
                 <td className={`${listTdClass} text-gray-500 tabular-nums`}>{(page - 1) * perPage + i + 1}</td>
                 {columns.map(col => (
                   <td key={col.key} className={`${listTdClass} ${col.className || ''}`}>

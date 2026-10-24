@@ -257,7 +257,8 @@ export default function SettingsDeliveryPage() {
   };
 
   const remove = async (rule) => {
-    if (!confirm('Delivery rule delete karna hai?')) return;
+    const label = rule.categoryName || rule.category || rule.moduleName || rule.name || 'this delivery rule';
+    if (!confirm(`Delete delivery rule "${label}"?`)) return;
     const targetZoneId = rule._zoneId || zoneId;
     await api.delete(`/zones/${targetZoneId}/delivery-rules/${rule._id}`);
     loadRules(zoneId, selectedCity);

@@ -26,6 +26,7 @@ export default function AdminListLayout({
   perPage = 25,
   onPageChange,
   onPerPageChange,
+  selection,
   showPagination = true,
   emptyColSpan = 8,
   emptyMessage = 'Koi record nahi mila',
@@ -136,6 +137,7 @@ export default function AdminListLayout({
           perPage={perPage}
           onPageChange={onPageChange}
           onPerPageChange={onPerPageChange}
+          selection={selection}
         />}
       </div>
     </div>

@@ -7,7 +7,9 @@ import ProductStockUpdateModal from './components/ProductStockUpdateModal';
 import SearchDataFilterDrawer from './components/SearchDataFilterDrawer';
 import ViewableImage from './components/ViewableImage';
 import ConfirmModal from './components/ConfirmModal';
+import BulkSelectionBar from './components/BulkSelectionBar';
 import { useDeliveryZones } from '../../hooks/useDeliveryZones';
+import { useBulkSelection } from '../../hooks/useBulkSelection';
 import NavyToggle from './components/NavyToggle';
 import { LIST_NAVY as NAVY, LIST_TEAL as TEAL, LIST_PAGE_BG as PAGE_BG, LIST_CARD_BORDER as CARD_BORDER, LIST_PER_PAGE as perPage, listBtnNavy, listBtnOutline, listTheadClass, listTheadStyle, listThClass, listRowClass, listRowStyle, listTdClass } from '../../constants/listTheme';
 const EMPTY_FILTERS = { storeId: '', zone: '', category: '', subCategory: '' };
@@ -87,6 +89,7 @@ export default function ProductListPage() {
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [deleteError, setDeleteError] = useState('');
   const [deleting, setDeleting] = useState(false);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
   const { names: zoneNames } = useDeliveryZones();
 
   const stopRow = (e) => e.stopPropagation();
@@ -129,12 +132,25 @@ export default function ProductListPage() {
   );
   const totalPages = Math.ceil(filtered.length / perPage) || 1;
   const paginated = filtered.slice((page - 1) * perPage, page * perPage);
+  const selection = useBulkSelection(filtered);
 
   useEffect(() => { setPage(1); }, [appliedFilters, search]);
 
   const openFilterDrawer = () => {
     setDraftFilters(appliedFilters);
     setShowFilterDrawer(true);
+  };
+
+  const handleBulkDelete = async () => {
+    const selectedItems = selection.selectedItems;
+    if (!selectedItems.length || !window.confirm(`Delete ${selectedItems.length} selected product(s)? This cannot be undone.`)) return;
+    setBulkDeleting(true);
+    const results = await Promise.allSettled(selectedItems.map(item => api.delete(`/product-items/${item._id}`)));
+    const deletedIds = new Set(selectedItems.filter((_, index) => results[index].status === 'fulfilled').map(item => item._id));
+    setItems(prev => prev.filter(item => !deletedIds.has(item._id)));
+    setBulkDeleting(false);
+    const failedCount = results.length - deletedIds.size;
+    if (failedCount) alert(`${failedCount} product(s) could not be deleted.`);
   };
 
   const updateDraft = (key, value) => {
@@ -304,6 +320,10 @@ export default function ProductListPage() {
           <table className="w-full text-sm">
             <thead className="sticky top-0 z-10">
               <tr className={listTheadClass} style={listTheadStyle}>
+                <th className={`${listThClass} w-10`} onClick={stopRow}>
+                  <input type="checkbox" checked={selection.allSelected} onChange={selection.toggleAll}
+                    aria-label={`Select all ${filtered.length} filtered products`} />
+                </th>
                 <th className={`${listThClass} w-14`}>SI</th>
                 <th className={`${listThClass} min-w-[220px]`}>Name</th>
                 <th className={listThClass}>Category</th>
@@ -319,7 +339,7 @@ export default function ProductListPage() {
             <tbody>
               {paginated.length === 0 ? (
                 <tr>
-                  <td colSpan={topSelling ? 10 : 8} className="px-5 py-20 text-center text-gray-400">
+                  <td colSpan={topSelling ? 11 : 9} className="px-5 py-20 text-center text-gray-400">
                     Koi item nahi mila — filters reset karein
                   </td>
                 </tr>
@@ -330,6 +350,10 @@ export default function ProductListPage() {
                   className={listRowClass}
                   style={listRowStyle}
                 >
+                  <td className={listTdClass} onClick={stopRow}>
+                    <input type="checkbox" checked={selection.selectedIds.has(String(item._id))}
+                      onChange={() => selection.toggle(item._id)} aria-label={`Select ${item.name}`} />
+                  </td>
                   <td className={`${listTdClass} text-gray-500 tabular-nums`}>{(page - 1) * perPage + i + 1}</td>
                   <td className={listTdClass}>
                     <div className="flex items-center gap-3 min-w-0">
@@ -407,6 +431,11 @@ export default function ProductListPage() {
             className="shrink-0 flex flex-wrap items-center justify-between gap-3 px-6 py-4 border-t bg-white"
             style={{ borderColor: CARD_BORDER }}
           >
+          <div className="w-full">
+            <BulkSelectionBar total={filtered.length} label="products"
+              allSelected={selection.allSelected} selectedCount={selection.selectedItems.length}
+              onToggleAll={selection.toggleAll} onBulkDelete={handleBulkDelete} busy={bulkDeleting} />
+          </div>
           <p className="text-sm text-gray-500">
             Showing {filtered.length ? (page - 1) * perPage + 1 : 0} to {Math.min(page * perPage, filtered.length)} of {filtered.length} entries
           </p>

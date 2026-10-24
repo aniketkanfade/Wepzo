@@ -1367,13 +1367,15 @@ router.get('/dashboard', auth, (req, res) => {
 router.get('/categories', auth, (req, res) => res.json(store.categories.filter(item => isInAdminWebsiteModule(req, item))));
 
 router.post('/categories', auth, (req, res) => {
+  const name = String(req.body?.name || '').trim();
+  if (!name) return res.status(400).json({ message: 'Category name is required.' });
   const module = (store.systemModules || []).find(item => String(item._id) === String(req.body.moduleId || '') && isInAdminWebsiteModule(req, item) && item.status !== false && item.status !== 'inactive');
   if (!module) return res.status(400).json({ message: 'Select a valid active Main Module ID' });
   const maxId = store.categories.reduce((m, c) => Math.max(m, c.categoryId || 0), 0);
   const cat = {
     _id: uuidv4(),
     categoryId: maxId + 1,
-    name: req.body.name,
+    name,
     priority: req.body.priority || 'Normal',
     status: req.body.status !== false,
     featured: req.body.featured || false,
@@ -1389,6 +1391,9 @@ router.post('/categories', auth, (req, res) => {
 router.put('/categories/:id', auth, (req, res) => {
   const idx = store.categories.findIndex(c => c._id === req.params.id && isInAdminWebsiteModule(req, c) && canEditAdminWebsiteData(req, c));
   if (idx === -1) return res.status(404).json({ message: 'Not found' });
+  if (Object.hasOwn(req.body || {}, 'name') && !String(req.body.name || '').trim()) {
+    return res.status(400).json({ message: 'Category name is required.' });
+  }
   const moduleId = req.body.moduleId || store.categories[idx].moduleId;
   const module = (store.systemModules || []).find(item => String(item._id) === String(moduleId || '') && isInAdminWebsiteModule(req, item) && item.status !== false && item.status !== 'inactive');
   if (!module) return res.status(400).json({ message: 'Select a valid active Main Module ID' });
@@ -1584,6 +1589,44 @@ function validateProductCategoryIds(product = {}) {
   return '';
 }
 
+function productDuplicateKey(value) {
+  return String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+function productStoreKey(product = {}) {
+  const storeId = product.storeId ?? product.storeRef?.storeId;
+  if (storeId !== undefined && storeId !== null && String(storeId).trim()) {
+    const record = findStoreById(storeId, store.stores);
+    if (record) return `id:${record.storeId}`;
+    return `id:${String(storeId).trim()}`;
+  }
+  const storeName = product.storeRef?.name || product.store || '';
+  const record = storeName ? findStoreByName(storeName, store.stores) : null;
+  return record ? `id:${record.storeId}` : `name:${productDuplicateKey(storeName)}`;
+}
+
+function productCategoryKey(product = {}) {
+  const categoryId = product.mainCategoryId || product.categoryId;
+  const category = categoryId
+    ? store.categories.find(item => String(item._id) === String(categoryId) || String(item.categoryId || '') === String(categoryId))
+    : store.categories.find(item => productDuplicateKey(item.name) === productDuplicateKey(product.mainCategory));
+  return category ? `id:${category._id}` : `name:${productDuplicateKey(product.mainCategory)}`;
+}
+
+function findDuplicateProduct(req, candidate, excludingId = '') {
+  const name = productDuplicateKey(candidate.name);
+  if (!name) return null;
+  const storeKey = productStoreKey(candidate);
+  const categoryKey = productCategoryKey(candidate);
+  return store.productItems.find(item =>
+    item._id !== excludingId &&
+    isInAdminWebsiteModule(req, item) &&
+    productDuplicateKey(item.name) === name &&
+    productStoreKey(item) === storeKey &&
+    productCategoryKey(item) === categoryKey
+  ) || null;
+}
+
 router.get('/product-items', auth, (req, res) => {
   if (req.query.topSelling === 'true') {
     syncData(store);
@@ -1668,6 +1711,7 @@ router.get('/product-items/template', auth, async (req, res) => {
 });
 
 router.post('/product-items', auth, (req, res) => {
+  if (!String(req.body?.name || '').trim()) return res.status(400).json({ message: 'Product name is required.' });
   const hierarchyError = validateProductCategoryIds(req.body);
   if (hierarchyError) return res.status(400).json({ message: hierarchyError });
   const maxId = store.productItems.reduce((m, p) => Math.max(m, p.productId || 0), 0);
@@ -1686,6 +1730,13 @@ router.post('/product-items', auth, (req, res) => {
     }, store.stores),
     { isCreate: true }
   );
+  const duplicate = findDuplicateProduct(req, item);
+  if (duplicate) {
+    return res.status(409).json({
+      message: `“${duplicate.name}” already exists in this store and category.`,
+      duplicate: { _id: duplicate._id, name: duplicate.name },
+    });
+  }
   store.productItems.unshift(item);
   syncData(store);
   res.status(201).json(item);
@@ -1708,6 +1759,9 @@ router.put('/product-items/:id', auth, (req, res) => {
   const idx = store.productItems.findIndex(p => p._id === req.params.id && isInAdminWebsiteModule(req, p) && canEditAdminWebsiteData(req, p));
   if (idx === -1) return res.status(404).json({ message: 'Not found' });
   const currentProduct = store.productItems[idx];
+  if (Object.hasOwn(req.body || {}, 'name') && !String(req.body.name || '').trim()) {
+    return res.status(400).json({ message: 'Product name is required.' });
+  }
   const hierarchyError = validateProductCategoryIds({ ...currentProduct, ...req.body });
   if (hierarchyError) return res.status(400).json({ message: hierarchyError });
   const updatedProduct = normalizeProductReferences({
@@ -1718,6 +1772,13 @@ router.put('/product-items/:id', auth, (req, res) => {
     websiteId: currentProduct.websiteId || adminWebsiteIdForRecord(req),
     createdAt: currentProduct.createdAt || req.body?.createdAt || new Date().toISOString(),
   });
+  const duplicate = findDuplicateProduct(req, updatedProduct, req.params.id);
+  if (duplicate) {
+    return res.status(409).json({
+      message: `“${duplicate.name}” already exists in this store and category.`,
+      duplicate: { _id: duplicate._id, name: duplicate.name },
+    });
+  }
   store.productItems[idx] = tagAdminProductCommerce(req,
     attachStoreRef(updatedProduct, store.stores)
   );
@@ -1736,6 +1797,15 @@ router.patch('/product-items/:id/stock', auth, (req, res) => {
   if (idx === -1) return res.status(404).json({ message: 'Not found' });
   const item = store.productItems[idx];
   const body = req.body || {};
+  if (body.name !== undefined) {
+    const duplicate = findDuplicateProduct(req, { ...item, name: body.name }, item._id);
+    if (duplicate) {
+      return res.status(409).json({
+        message: `“${duplicate.name}” already exists in this store and category.`,
+        duplicate: { _id: duplicate._id, name: duplicate.name },
+      });
+    }
+  }
 
   if (body.add !== undefined && body.name === undefined && body.stock === undefined && !body.variants) {
     item.stock = Math.max(0, (item.stock || 0) + (body.add || 0));
@@ -1855,6 +1925,16 @@ function approveProductRequest(id, req) {
     createdAt: new Date().toISOString(),
     websiteModuleSlug: request.websiteModuleSlug || adminWebsiteModuleSlug(req),
   }, store.stores), { isCreate: true });
+  const duplicate = findDuplicateProduct(req, product);
+  if (duplicate) {
+    return {
+      error: {
+        status: 409,
+        message: `“${duplicate.name}” already exists in this store and category.`,
+        duplicate: { _id: duplicate._id, name: duplicate.name },
+      },
+    };
+  }
   store.productItems.unshift(product);
   store.productRequests.splice(idx, 1);
   syncData(store);
@@ -1869,7 +1949,7 @@ router.get('/product-requests', auth, (req, res) => {
 
 router.post('/product-requests/:id/approve', auth, (req, res) => {
   const result = approveProductRequest(req.params.id, req);
-  if (result.error) return res.status(result.error.status).json({ message: result.error.message });
+  if (result.error) return res.status(result.error.status).json(result.error);
   res.json({ message: 'Approved and added to catalog', product: result.product });
 });
 
@@ -1891,9 +1971,8 @@ router.put('/product-requests/:id', auth, (req, res) => {
   const merged = { ...current, ...req.body, _id: req.params.id, websiteModuleSlug: adminWebsiteModuleSlug(req) };
 
   if (req.body.status === 'Approved' && current.status !== 'Approved') {
-    store.productRequests[idx] = merged;
     const result = approveProductRequest(req.params.id, req);
-    if (result.error) return res.status(result.error.status).json({ message: result.error.message });
+    if (result.error) return res.status(result.error.status).json(result.error);
     return res.json({ moved: 'product', product: result.product });
   }
 
@@ -4627,6 +4706,22 @@ function validateStoreZonePin(body, req, current = {}) {
 router.post('/stores', auth, (req, res) => {
   const body = req.body || {};
   const isEcommerceModule = isEcommerceStoreRequest(req, body);
+  const requiredFields = [
+    ['name', 'Business name'],
+    ['address', 'Business address'],
+    ['firstName', 'Owner first name'],
+    ['phone', 'Phone number'],
+    ['email', 'Email'],
+    ['pan', 'PAN number'],
+  ];
+  const missingField = requiredFields.find(([key]) => !String(body[key] || '').trim());
+  if (missingField) return res.status(400).json({ message: `${missingField[1]} is required.` });
+  if (!isEcommerceModule && !String(body.zone || body.area || '').trim()) {
+    return res.status(400).json({ message: 'Business zone is required.' });
+  }
+  if (isEcommerceModule && !['1', '2', '3'].includes(String(body.packagingTime || ''))) {
+    return res.status(400).json({ message: 'Packaging time is required.' });
+  }
   const zonePin = validateStoreZonePin(body, req);
   if (zonePin.error) return res.status(400).json({ message: zonePin.error });
   const packagingTime = String(body.packagingTime || '');
@@ -7672,7 +7767,9 @@ router.get('/employees/:id', auth, (req, res) => {
 
 router.post('/employees', auth, async (req, res) => {
   const body = req.body || {};
+  if (!String(body.name || '').trim()) return res.status(400).json({ message: 'Employee name is required.' });
   const role = store.roles.find(r => isInAdminWebsiteModule(req, r) && (r._id === body.roleId || r.slug === body.roleSlug));
+  if (!role) return res.status(400).json({ message: 'Select a valid employee role.' });
   const password = (body.password || 'emp123').trim() || 'emp123';
   const storeAccess = employeeStoreAccess(req, body.storeId);
   if (!storeAccess) return res.status(400).json({ message: 'Select a store from this website.' });

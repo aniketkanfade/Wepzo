@@ -6,16 +6,18 @@ import {
 } from '../../../constants/listTheme';
 import PaginationControls from './PaginationControls';
 import { useAuthStore } from '../../../store/useStore';
+import { useBulkSelection } from '../../../hooks/useBulkSelection';
 
 export default function SimpleListTable({
-  title, count, search, setSearch, setPage, searchPlaceholder, onExport,
+  title, count, search, setSearch, setPage, searchPlaceholder, onExport, onBulkDelete,
   paginated, page, perPage, setPerPage, filtered, totalPages, idKey, onEdit, onDelete, extraColumns = [],
   embedded = false,
 }) {
   const user = useAuthStore(state => state.user);
   const storageKey = `wepzo-list-filter:${title}:${user?._id || user?.id || user?.email || 'admin'}`;
   const [filtersLocked, setFiltersLocked] = useState(false);
-  const colCount = 4 + extraColumns.length;
+  const selection = useBulkSelection(filtered || []);
+  const colCount = 5 + extraColumns.length;
   const outerClass = embedded
     ? 'flex flex-col min-h-0'
     : 'flex flex-col max-h-[calc(100vh-7rem)] rounded-xl border shadow-sm overflow-hidden bg-white';
@@ -81,6 +83,10 @@ export default function SimpleListTable({
         <table className="w-full text-sm">
           <thead className="sticky top-0 z-10">
             <tr className={listTheadClass} style={listTheadStyle}>
+              <th className={`${listThClass} w-10`}>
+                <input type="checkbox" checked={selection.allSelected} onChange={selection.toggleAll}
+                  aria-label={`Select all ${filtered?.length || 0} filtered ${title.toLowerCase()}`} />
+              </th>
               <th className={`${listThClass} w-12`}>#</th>
               <th className={listThClass}>ID</th>
               {extraColumns.map(col => (
@@ -93,6 +99,10 @@ export default function SimpleListTable({
           <tbody>
             {paginated.map((item, i) => (
               <tr key={item._id} className={listRowClass} style={listRowStyle}>
+                <td className={listTdClass}>
+                  <input type="checkbox" checked={selection.selectedIds.has(String(item._id))}
+                    onChange={() => selection.toggle(item._id)} aria-label={`Select ${item.name}`} />
+                </td>
                 <td className={`${listTdClass} text-gray-500 tabular-nums`}>{(page - 1) * perPage + i + 1}</td>
                 <td className={`${listTdClass} text-gray-600`}>{item[idKey]}</td>
                 {extraColumns.map(col => (
@@ -128,6 +138,12 @@ export default function SimpleListTable({
         perPage={perPage}
         onPageChange={setPage}
         onPerPageChange={setPerPage}
+        selection={onBulkDelete ? {
+          allSelected: selection.allSelected,
+          selectedCount: selection.selectedItems.length,
+          onToggleAll: selection.toggleAll,
+          onBulkDelete: () => onBulkDelete(selection.selectedItems),
+        } : undefined}
       />
     </div>
   );

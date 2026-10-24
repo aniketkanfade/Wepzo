@@ -4,6 +4,7 @@ import { Users, Plus, Trash2, Eye } from 'lucide-react';
 import api from '../../api/axios';
 import AdminListLayout from '../../WebAdmin/Qucik commerce/components/AdminListLayout';
 import { useListPagination } from '../../hooks/useListPagination';
+import { useBulkSelection } from '../../hooks/useBulkSelection';
 import {
   listBtnNavy, listTheadClass, listTheadStyle, listThClass, listRowClass, listRowStyle, listTdClass,
 } from '../../constants/listTheme';
@@ -25,11 +26,23 @@ export default function SettingsEmployeesPage() {
     return e.name.toLowerCase().includes(q) || (e.email || '').toLowerCase().includes(q) || (e.roleName || '').toLowerCase().includes(q);
   });
   const { page, setPage, perPage, setPerPage, totalPages, paginated, total } = useListPagination(filtered, { resetDeps: [search] });
+  const selection = useBulkSelection(filtered);
 
   const handleDelete = async (id) => {
-    if (!confirm('Employee delete karna hai?')) return;
+    const employee = employees.find(item => item._id === id);
+    if (!confirm(`Delete employee "${employee?.name || employee?.email || 'this employee'}"?`)) return;
     await api.delete(`/employees/${id}`);
     load();
+  };
+
+  const handleBulkDelete = async () => {
+    const selectedItems = selection.selectedItems;
+    if (!selectedItems.length || !confirm(`Delete ${selectedItems.length} selected employee(s)? This cannot be undone.`)) return;
+    const results = await Promise.allSettled(selectedItems.map(item => api.delete(`/employees/${item._id}`)));
+    const deletedIds = new Set(selectedItems.filter((_, index) => results[index].status === 'fulfilled').map(item => item._id));
+    setEmployees(prev => prev.filter(item => !deletedIds.has(item._id)));
+    const failedCount = results.length - deletedIds.size;
+    if (failedCount) alert(`${failedCount} employee(s) could not be deleted.`);
   };
 
   return (
@@ -48,6 +61,12 @@ export default function SettingsEmployeesPage() {
       perPage={perPage}
       onPageChange={setPage}
       onPerPageChange={setPerPage}
+      selection={{
+        allSelected: selection.allSelected,
+        selectedCount: selection.selectedItems.length,
+        onToggleAll: selection.toggleAll,
+        onBulkDelete: handleBulkDelete,
+      }}
       isEmpty={paginated.length === 0}
       emptyMessage="Koi employee nahi"
       headerActions={(
@@ -60,6 +79,10 @@ export default function SettingsEmployeesPage() {
       <table className="w-full text-sm">
         <thead className="sticky top-0 z-10">
           <tr className={listTheadClass} style={listTheadStyle}>
+            <th className={`${listThClass} w-10`}>
+              <input type="checkbox" checked={selection.allSelected} onChange={selection.toggleAll}
+                aria-label={`Select all ${filtered.length} filtered employees`} />
+            </th>
             <th className={`${listThClass} w-12`}>#</th>
             <th className={listThClass}>Name</th>
             <th className={listThClass}>Email</th>
@@ -72,6 +95,10 @@ export default function SettingsEmployeesPage() {
         <tbody>
           {paginated.map((e, i) => (
             <tr key={e._id} className={listRowClass} style={listRowStyle}>
+              <td className={listTdClass}>
+                <input type="checkbox" checked={selection.selectedIds.has(String(e._id))}
+                  onChange={() => selection.toggle(e._id)} aria-label={`Select ${e.name}`} />
+              </td>
               <td className={`${listTdClass} text-gray-500`}>{(page - 1) * perPage + i + 1}</td>
               <td className={`${listTdClass} font-medium`}>{e.name}</td>
               <td className={listTdClass}>{e.email}</td>

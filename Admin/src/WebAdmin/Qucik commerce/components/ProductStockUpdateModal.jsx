@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { X, Loader2 } from 'lucide-react';
 import api from '../../../api/axios';
 import { numericInputValue } from '../../../utils/numericInput';
@@ -21,6 +21,7 @@ export default function ProductStockUpdateModal({ product, onClose, onSaved }) {
     }))
   );
   const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
 
   if (!product) return null;
 
@@ -29,10 +30,12 @@ export default function ProductStockUpdateModal({ product, onClose, onSaved }) {
   };
 
   const handleSave = async () => {
+    if (savingRef.current) return;
     if (!name.trim()) {
       alert('Product name zaroori hai');
       return;
     }
+    savingRef.current = true;
     setSaving(true);
     try {
       const payload = { name: name.trim() };
@@ -55,6 +58,7 @@ export default function ProductStockUpdateModal({ product, onClose, onSaved }) {
     } catch {
       alert('Update failed — dubara try karein');
     } finally {
+      savingRef.current = false;
       setSaving(false);
     }
   };

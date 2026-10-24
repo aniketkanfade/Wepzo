@@ -235,11 +235,20 @@ export default function Header({ onMenuToggle, showMenuToggle = true, websiteAcc
             )}
           </div>
 
+          {adminDeliveryItems.length > 0 && <button type="button"
+            onClick={() => navigate(adminDeliveryItems.find(item => item.path === '/delivery/riders')?.path || adminDeliveryItems[0].path)}
+            aria-label="Delivery" title="Delivery"
+            className="hidden items-center justify-center rounded-lg text-slate-600 hover:bg-blue-50 hover:text-[#1a3a8a] md:hidden lg:hidden">
+            <Bike size={21} />
+          </button>}
         </nav>
       </div>
 
       <div className="flex shrink-0 items-center gap-1 sm:gap-2 lg:gap-3">
-        {adminDeliveryItems.length > 0 && <button type="button" onClick={() => navigate('/delivery/riders')} aria-label="Delivery" title="Delivery" className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 text-slate-700 transition hover:border-blue-200 hover:bg-blue-50 hover:text-[#1a3a8a] lg:hidden">
+        {adminDeliveryItems.length > 0 && <button type="button"
+          onClick={() => navigate(adminDeliveryItems.find(item => item.path === '/delivery/riders')?.path || adminDeliveryItems[0].path)}
+          aria-label="Delivery" title="Delivery"
+          className="hidden h-8 w-8 items-center justify-center rounded-lg border border-slate-200 text-slate-700 transition hover:border-blue-200 hover:bg-blue-50 hover:text-[#1a3a8a] md:inline-flex lg:hidden">
           <Bike size={16} />
         </button>}
         {adminDeliveryItems.length > 0 && <button type="button" onClick={() => navigate('/delivery/riders')} className="hidden h-9 items-center gap-1 rounded-lg border border-slate-200 px-2 text-xs font-semibold text-slate-700 transition hover:border-blue-200 hover:bg-blue-50 hover:text-[#1a3a8a] lg:inline-flex xl:gap-1.5 xl:px-3 xl:text-sm">

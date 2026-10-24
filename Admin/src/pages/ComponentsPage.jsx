@@ -5,6 +5,8 @@ import { numericInputValue } from '../utils/numericInput';
 import { useModuleStore } from '../store/useStore';
 import { getAdminModuleLabel } from '../constants/adminModules';
 import PaginationControls from '../WebAdmin/Qucik commerce/components/PaginationControls';
+import BulkSelectionBar from '../WebAdmin/Qucik commerce/components/BulkSelectionBar';
+import { useBulkSelection } from '../hooks/useBulkSelection';
 
 const getDefaultModuleType = (module) => {
   const value = String(module?.slug || module?.type || 'ecommerce').toLowerCase();
@@ -46,6 +48,7 @@ export default function ComponentsPage() {
   const filteredPages = Math.max(1, Math.ceil(filteredComponents.length / pageSize));
   const safePage = Math.min(currentPage, filteredPages);
   const paginatedComponents = filteredComponents.slice((safePage - 1) * pageSize, safePage * pageSize);
+  const selection = useBulkSelection(filteredComponents);
 
   useEffect(() => {
     if (page !== safePage) setPage(safePage);
@@ -141,7 +144,8 @@ export default function ComponentsPage() {
   };
 
   const handleDelete = async (id) => {
-    if (!confirm('Delete this component?')) return;
+    const component = components.find(item => item._id === id);
+    if (!confirm(`Delete component "${component?.name || 'this component'}"?`)) return;
     try {
       await api.delete(`/components/${id}`);
       setComponents(prev => prev.filter(c => c._id !== id));
@@ -149,6 +153,16 @@ export default function ComponentsPage() {
       console.error(err);
       alert(err?.response?.data?.message || 'Unable to delete this component.');
     }
+  };
+
+  const handleBulkDelete = async () => {
+    const selectedItems = selection.selectedItems;
+    if (!selectedItems.length || !confirm(`Delete ${selectedItems.length} selected component(s)? This cannot be undone.`)) return;
+    const results = await Promise.allSettled(selectedItems.map(item => api.delete(`/components/${item._id}`)));
+    const deletedIds = new Set(selectedItems.filter((_, index) => results[index].status === 'fulfilled').map(item => item._id));
+    setComponents(prev => prev.filter(item => !deletedIds.has(item._id)));
+    const failedCount = results.length - deletedIds.size;
+    if (failedCount) alert(`${failedCount} component(s) could not be deleted.`);
   };
 
   return (
@@ -260,6 +274,8 @@ export default function ComponentsPage() {
         <table className="w-full min-w-[760px] text-sm">
           <thead className="sticky top-0 z-10 bg-gray-50 text-gray-500">
             <tr>
+              <th className="text-left px-6 py-3"><input type="checkbox" checked={selection.allSelected}
+                onChange={selection.toggleAll} aria-label={`Select all ${filteredComponents.length} filtered components`} /></th>
               <th className="text-left px-6 py-3">#</th>
               <th className="text-left px-6 py-3">Name</th>
               <th className="text-left px-6 py-3">Type</th>
@@ -272,6 +288,8 @@ export default function ComponentsPage() {
           <tbody>
             {paginatedComponents.length ? paginatedComponents.map((c, i) => (
               <tr key={c._id} className="border-t border-gray-50 hover:bg-gray-50">
+                <td className="px-6 py-3"><input type="checkbox" checked={selection.selectedIds.has(String(c._id))}
+                  onChange={() => selection.toggle(c._id)} aria-label={`Select ${c.name}`} /></td>
                 <td className="px-6 py-3">{(safePage - 1) * pageSize + i + 1}</td>
                 <td className="px-6 py-3 font-medium">{c.name}</td>
                 <td className="px-6 py-3 capitalize">{String(c.type || '').replace('_', ' ')}</td>
@@ -282,20 +300,22 @@ export default function ComponentsPage() {
                     {c.status || 'active'}
                   </span>
                 </td>
-                <td className="px-6 py-3 flex gap-2">
-                  <button onClick={() => openEditForm(c)} className="p-1.5 text-primary-600 hover:bg-primary-50 rounded" aria-label={`Edit ${c.name}`}>
+                <td className="px-6 py-3"><div className="flex gap-2">
+                  <button type="button" onClick={() => openEditForm(c)} className="p-1.5 text-primary-600 hover:bg-primary-50 rounded" aria-label={`Edit ${c.name}`}>
                     <Edit size={16} />
                   </button>
-                  <button onClick={() => handleDelete(c._id)} className="p-1.5 text-red-500 hover:bg-red-50 rounded" aria-label={`Delete ${c.name}`}>
+                  <button type="button" onClick={() => handleDelete(c._id)} className="p-1.5 text-red-500 hover:bg-red-50 rounded" aria-label={`Delete ${c.name}`}>
                     <Trash2 size={16} />
                   </button>
-                </td>
+                </div></td>
               </tr>
-            )) : <tr><td colSpan={7} className="px-6 py-10 text-center text-sm text-gray-500">No components found.</td></tr>}
-            {paginatedComponents.length === 0 && <tr><td colSpan={7} className="px-6 py-10 text-center text-sm text-gray-500">No components match these filters.</td></tr>}
+            )) : <tr><td colSpan={8} className="px-6 py-10 text-center text-sm text-gray-500">No components found.</td></tr>}
+            {paginatedComponents.length === 0 && <tr><td colSpan={8} className="px-6 py-10 text-center text-sm text-gray-500">No components match these filters.</td></tr>}
           </tbody>
         </table>
         </div>
+        <BulkSelectionBar total={filteredComponents.length} label="components" allSelected={selection.allSelected}
+          selectedCount={selection.selectedItems.length} onToggleAll={selection.toggleAll} onBulkDelete={handleBulkDelete}/>
         <PaginationControls page={safePage} totalPages={filteredPages} total={filteredComponents.length} perPage={pageSize}
           onPageChange={setPage} onPerPageChange={value => { setPageSize(value); setPage(1); }} label="components"/>
       </div>

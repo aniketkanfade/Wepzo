@@ -58,9 +58,20 @@ export default function SimpleNamePage({
   };
 
   const handleDelete = async (id) => {
-    if (!confirm(`Delete this ${title.toLowerCase()}?`)) return;
+    const item = items.find(entry => entry._id === id);
+    const itemName = item?.name || `this ${title.toLowerCase()}`;
+    if (!confirm(`Delete ${title.toLowerCase()} "${itemName}"?`)) return;
     await api.delete(`${apiPath}/${id}`);
     setItems(prev => prev.filter(i => i._id !== id));
+  };
+
+  const handleBulkDelete = async selectedItems => {
+    if (!selectedItems.length || !confirm(`Delete ${selectedItems.length} selected ${title.toLowerCase()} entries? This cannot be undone.`)) return;
+    const results = await Promise.allSettled(selectedItems.map(item => api.delete(`${apiPath}/${item._id}`)));
+    const deletedIds = new Set(selectedItems.filter((_, index) => results[index].status === 'fulfilled').map(item => item._id));
+    setItems(prev => prev.filter(item => !deletedIds.has(item._id)));
+    const failedCount = results.length - deletedIds.size;
+    if (failedCount) alert(`${failedCount} ${title.toLowerCase()} entr${failedCount === 1 ? 'y' : 'ies'} could not be deleted.`);
   };
 
   const handleExport = () => {
@@ -130,6 +141,7 @@ export default function SimpleNamePage({
           idKey={idKey}
           onEdit={handleEdit}
           onDelete={handleDelete}
+          onBulkDelete={handleBulkDelete}
         />
     </div>
   );

@@ -23,6 +23,7 @@ export default function SettingsEmployeeAddPage() {
   const handleSave = async (e) => {
     e.preventDefault();
     if (!form.name.trim()) return alert('Name zaroori hai');
+    if (!form.roleId) return alert('Role select karein');
     setSaving(true);
     try {
       await api.post('/employees', employeePayload(form, roles, stores));

@@ -10,6 +10,7 @@ import NavyToggle from '../NavyToggle';
 import ProductStockUpdateModal from '../ProductStockUpdateModal';
 import PaginationControls from '../PaginationControls';
 import { useListPagination } from '../../../../hooks/useListPagination';
+import { useBulkSelection } from '../../../../hooks/useBulkSelection';
 import {
   LIST_NAVY as NAVY, LIST_CARD_BORDER as CARD_BORDER,
   listBtnNavy, listBtnOutline, listTheadClass, listTheadStyle, listThClass,
@@ -83,6 +84,7 @@ export default function StoreItemsTab({ store, products, setProducts, loading })
   }, [products, search]);
 
   const { page, setPage, perPage, setPerPage, totalPages, paginated } = useListPagination(filtered, { resetDeps: [search] });
+  const selection = useBulkSelection(filtered);
 
   const toggleStatus = async (id, val) => {
     await api.put(`/product-items/${id}`, { status: val });
@@ -90,9 +92,20 @@ export default function StoreItemsTab({ store, products, setProducts, loading })
   };
 
   const handleDelete = async (id) => {
-    if (!confirm('Is product delete karna hai?')) return;
+    const product = products.find(item => item._id === id);
+    if (!confirm(`Delete product "${product?.name || 'this product'}" from this store?`)) return;
     await api.delete(`/product-items/${id}`);
     setProducts(prev => prev.filter(i => i._id !== id));
+  };
+
+  const handleBulkDelete = async () => {
+    const selectedItems = selection.selectedItems;
+    if (!selectedItems.length || !confirm(`Delete ${selectedItems.length} selected product(s) from ${store.name}? This cannot be undone.`)) return;
+    const results = await Promise.allSettled(selectedItems.map(item => api.delete(`/product-items/${item._id}`)));
+    const deletedIds = new Set(selectedItems.filter((_, index) => results[index].status === 'fulfilled').map(item => String(item._id)));
+    setProducts(prev => prev.filter(item => !deletedIds.has(String(item._id))));
+    const failedCount = results.length - deletedIds.size;
+    if (failedCount) alert(`${failedCount} product(s) could not be deleted.`);
   };
 
   const handleStockSaved = (updated) => {
@@ -169,6 +182,10 @@ export default function StoreItemsTab({ store, products, setProducts, loading })
           <table className="w-full text-sm">
             <thead className="sticky top-0 z-10">
               <tr className={listTheadClass} style={listTheadStyle}>
+                <th className={listThClass + ' w-10'}>
+                  <input type="checkbox" checked={selection.allSelected} onChange={selection.toggleAll}
+                    aria-label={`Select all ${filtered.length} filtered store products`} />
+                </th>
                 <th className={`${listThClass} w-14`}>SI</th>
                 <th className={`${listThClass} min-w-[220px]`}>Name</th>
                 <th className={listThClass}>Category</th>
@@ -181,7 +198,7 @@ export default function StoreItemsTab({ store, products, setProducts, loading })
             <tbody>
               {paginated.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="px-5 py-16 text-center text-gray-400">
+                  <td colSpan={8} className="px-5 py-16 text-center text-gray-400">
                     {products.length === 0 ? 'Koi item nahi — Add New Item karein' : 'Search mein koi item nahi mila'}
                   </td>
                 </tr>
@@ -192,6 +209,10 @@ export default function StoreItemsTab({ store, products, setProducts, loading })
                   className={listRowClass}
                   style={listRowStyle}
                 >
+                  <td className={listTdClass} onClick={stopRow}>
+                    <input type="checkbox" checked={selection.selectedIds.has(String(item._id))}
+                      onChange={() => selection.toggle(item._id)} aria-label={`Select product ${item.name}`} />
+                  </td>
                   <td className={`${listTdClass} text-gray-500 tabular-nums`}>{(page - 1) * perPage + i + 1}</td>
                   <td className={listTdClass}>
                     <div className="flex items-center gap-3 min-w-0">
@@ -256,7 +277,13 @@ export default function StoreItemsTab({ store, products, setProducts, loading })
         </div>
 
         <PaginationControls page={page} totalPages={totalPages} total={filtered.length} perPage={perPage}
-          onPageChange={setPage} onPerPageChange={setPerPage} label="items"/>
+          onPageChange={setPage} onPerPageChange={setPerPage} label="items"
+          selection={{
+            allSelected: selection.allSelected,
+            selectedCount: selection.selectedItems.length,
+            onToggleAll: selection.toggleAll,
+            onBulkDelete: handleBulkDelete,
+          }} />
       </div>
 
       {stockProduct && (

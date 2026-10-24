@@ -1,5 +1,6 @@
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { listBtnNavy, listBtnOutline } from '../../../constants/listTheme';
+import BulkSelectionBar from './BulkSelectionBar';
 
 export default function PaginationControls({
   page,
@@ -9,6 +10,7 @@ export default function PaginationControls({
   onPageChange,
   onPerPageChange,
   label = 'entries',
+  selection,
 }) {
   const pages = Array.from({ length: totalPages }, (_, index) => index + 1)
     .filter(value => value === 1 || value === totalPages || Math.abs(value - page) <= 1)
@@ -20,7 +22,11 @@ export default function PaginationControls({
   const start = total ? (page - 1) * perPage + 1 : 0;
   const end = Math.min(page * perPage, total);
 
-  return <footer className="shrink-0 flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 bg-white px-4 py-3">
+  return <footer className="shrink-0 border-t border-slate-200 bg-white px-4 py-3">
+    {selection?.onBulkDelete && <div className="mb-3">
+      <BulkSelectionBar total={total} label={label} {...selection} />
+    </div>}
+    <div className="flex flex-wrap items-center justify-between gap-3">
     <p className="text-sm text-gray-500">Showing {start} to {end} of {total} {label}</p>
     <div className="flex flex-wrap items-center justify-end gap-2">
       {onPerPageChange && <label className="flex items-center gap-2 text-sm text-gray-500">
@@ -46,6 +52,7 @@ export default function PaginationControls({
           <ChevronRight size={16} />
         </button>
       </div>
+    </div>
     </div>
   </footer>;
 }

@@ -9,6 +9,7 @@ import Toggle from './components/Toggle';
 import { ListTable } from './SubCategoriesPage';
 import { PageCard, PageCardHeader } from './components/PageCard';
 import ViewableImage from './components/ViewableImage';
+import { useBulkSelection } from '../../hooks/useBulkSelection';
 
 const priorities = ['Normal', 'High', 'Low'];
 
@@ -43,6 +44,7 @@ export default function ChildCategoriesPage() {
   );
   const totalPages = Math.ceil(filtered.length / perPage) || 1;
   const paginated = filtered.slice((page - 1) * perPage, page * perPage);
+  const selection = useBulkSelection(filtered);
 
   const resetForm = () => {
     setForm({ name: '', categoryId: '', subCategoryId: '', priority: 'Normal', status: true, featured: false, image: '' });
@@ -92,9 +94,19 @@ export default function ChildCategoriesPage() {
   };
 
   const handleDelete = async (id) => {
-    if (!confirm('Delete this child category?')) return;
+    const item = items.find(child => child._id === id);
+    if (!confirm(`Delete child category "${item?.name || 'this child category'}"?`)) return;
     await api.delete(`/child-categories/${id}`);
     setItems(prev => prev.filter(i => i._id !== id));
+  };
+
+  const handleBulkDelete = async selectedItems => {
+    if (!selectedItems.length || !confirm(`Delete ${selectedItems.length} selected child categories? This cannot be undone.`)) return;
+    const results = await Promise.allSettled(selectedItems.map(item => api.delete(`/child-categories/${item._id}`)));
+    const deletedIds = new Set(selectedItems.filter((_, index) => results[index].status === 'fulfilled').map(item => item._id));
+    setItems(prev => prev.filter(item => !deletedIds.has(item._id)));
+    const failedCount = results.length - deletedIds.size;
+    if (failedCount) alert(`${failedCount} child categories could not be deleted.`);
   };
 
   const toggleField = async (id, field, value) => {
@@ -206,6 +218,8 @@ export default function ChildCategoriesPage() {
         columns={['mainCategory', 'subCategory', 'childCategory']}
         idKey="childCategoryId"
         onEdit={handleEdit} onDelete={handleDelete} onToggle={toggleField}
+        onBulkDelete={handleBulkDelete}
+        selection={selection}
         onExport={() => downloadFile('/bulk/child-categories/export', `child-categories_${new Date().toISOString().slice(0, 10)}.csv`)}
         searchPlaceholder="Search child categories..."
       />

@@ -4,6 +4,8 @@ import api from '../../api/axios';
 import SearchableSelect from './components/SearchableSelect';
 import { PageCard, PageCardHeader } from './components/PageCard';
 import { capitalizeWords } from '../../utils/mediaUtils';
+import { useBulkSelection } from '../../hooks/useBulkSelection';
+import BulkSelectionBar from './components/BulkSelectionBar';
 
 const perPage = 25;
 
@@ -39,6 +41,20 @@ export default function CategorySpecificationsPage() {
     setNewField({ label: '', options: '' });
   };
 
+  const handleBulkDelete = async () => {
+    const selectedItems = selection.selectedItems;
+    if (!selectedItems.length || !confirm(`Delete all specifications for ${selectedItems.length} selected category(s)? This cannot be undone.`)) return;
+    const results = await Promise.allSettled(selectedItems.map(cfg => api.delete(`/category-specifications/${cfg._id}`)));
+    const deletedIds = new Set(selectedItems.filter((_, index) => results[index].status === 'fulfilled').map(cfg => cfg._id));
+    if (selectedItems.some(cfg => cfg.mainCategory === mainCategory && deletedIds.has(cfg._id))) {
+      setMainCategory('');
+      setFields([]);
+    }
+    setAllConfigs(current => current.filter(cfg => !deletedIds.has(cfg._id)));
+    const failedCount = results.length - deletedIds.size;
+    if (failedCount) alert(`${failedCount} specification group(s) could not be deleted.`);
+  };
+
   const removeField = (key) => setFields(prev => prev.filter(f => f.key !== key));
 
   const updateOptions = (key, opts) => {
@@ -46,7 +62,7 @@ export default function CategorySpecificationsPage() {
   };
 
   const handleSave = async () => {
-    if (!mainCategory) return;
+    if (!mainCategory) return alert('Select a main category first.');
     setSaving(true);
     try {
       await api.put('/category-specifications', { mainCategory, fields });
@@ -72,6 +88,7 @@ export default function CategorySpecificationsPage() {
   const filtered = allConfigs.filter(c => c.mainCategory.toLowerCase().includes(search.toLowerCase()));
   const totalPages = Math.ceil(filtered.length / perPage) || 1;
   const paginated = filtered.slice((page - 1) * perPage, page * perPage);
+  const selection = useBulkSelection(filtered);
 
   const inputCls = 'w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-primary-500/30';
 
@@ -172,9 +189,17 @@ export default function CategorySpecificationsPage() {
           </div>
 
           <div className="overflow-x-auto max-h-[520px] overflow-y-auto scroll-smooth">
+            <div className="px-6 pt-3">
+              <BulkSelectionBar total={filtered.length} label="categories" allSelected={selection.allSelected}
+                selectedCount={selection.selectedItems.length} onToggleAll={selection.toggleAll} onBulkDelete={handleBulkDelete} />
+            </div>
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-gray-500 border-b border-gray-50 bg-gray-50 sticky top-0 z-10">
+                  <th className="text-left px-3 py-3 font-medium w-10">
+                    <input type="checkbox" checked={selection.allSelected} onChange={selection.toggleAll}
+                      aria-label={`Select all ${filtered.length} filtered specification groups`} />
+                  </th>
                   <th className="text-left px-6 py-3 font-medium w-12">#</th>
                   <th className="text-left px-4 py-3 font-medium">Category</th>
                   <th className="text-left px-4 py-3 font-medium">Fields</th>
@@ -184,9 +209,13 @@ export default function CategorySpecificationsPage() {
               </thead>
               <tbody>
                 {paginated.length === 0 ? (
-                  <tr><td colSpan={5} className="text-center py-12 text-gray-400">No specifications configured yet. Select a category above and add fields.</td></tr>
+                  <tr><td colSpan={6} className="text-center py-12 text-gray-400">No specifications configured yet. Select a category above and add fields.</td></tr>
                 ) : paginated.map((cfg, i) => (
                   <tr key={cfg._id} className="border-b border-gray-50 hover:bg-amber-50/30 transition">
+                    <td className="px-3 py-3.5">
+                      <input type="checkbox" checked={selection.selectedIds.has(String(cfg._id))}
+                        onChange={() => selection.toggle(cfg._id)} aria-label={`Select specifications for ${cfg.mainCategory}`} />
+                    </td>
                     <td className="px-6 py-3.5 text-gray-400">{(page - 1) * perPage + i + 1}</td>
                     <td className="px-4 py-3.5 font-medium text-gray-800">{cfg.mainCategory}</td>
                     <td className="px-4 py-3.5">

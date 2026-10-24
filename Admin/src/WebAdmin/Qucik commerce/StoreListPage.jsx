@@ -5,6 +5,7 @@ import api from '../../api/axios';
 import AdminListLayout from './components/AdminListLayout';
 import NavyToggle from './components/NavyToggle';
 import { useListPagination } from '../../hooks/useListPagination';
+import { useBulkSelection } from '../../hooks/useBulkSelection';
 import { useDeliveryZones } from '../../hooks/useDeliveryZones';
 import { useModuleStore } from '../../store/useStore';
 import { getAdminModuleLabel } from '../../constants/adminModules';
@@ -36,6 +37,7 @@ export default function StoreListPage() {
   );
 
   const { page, setPage, perPage, setPerPage, totalPages, paginated, total } = useListPagination(filtered, { resetDeps: [search, zone] });
+  const selection = useBulkSelection(filtered);
 
   const patchStore = async (storeId, data) => {
     try {
@@ -59,6 +61,20 @@ export default function StoreListPage() {
     } catch {
       alert('Delete failed — page refresh karein');
     }
+  };
+
+  const handleBulkDelete = async () => {
+    const selectedStores = selection.selectedItems;
+    if (!selectedStores.length || !confirm(`Delete ${selectedStores.length} selected store(s)? All products and orders belonging to these stores will also be deleted.`)) return;
+    const results = await Promise.allSettled(selectedStores.map(item => api.delete(`/stores/${item.storeId}`)));
+    const successful = results.flatMap((result, index) => result.status === 'fulfilled' ? [selectedStores[index]] : []);
+    const removedProducts = results.reduce((totalRemoved, result) => totalRemoved + (result.status === 'fulfilled' ? Number(result.value.data?.removed?.products) || 0 : 0), 0);
+    const removedOrders = results.reduce((totalRemoved, result) => totalRemoved + (result.status === 'fulfilled' ? Number(result.value.data?.removed?.orders) || 0 : 0), 0);
+    const deletedIds = new Set(successful.map(item => String(item._id)));
+    setStores(prev => prev.filter(item => !deletedIds.has(String(item._id))));
+    const failedCount = results.length - successful.length;
+    if (successful.length) alert(`${successful.length} store(s) deleted, along with ${removedProducts} products and ${removedOrders} orders.`);
+    if (failedCount) alert(`${failedCount} store(s) could not be deleted.`);
   };
 
   const handleExport = () => {
@@ -98,7 +114,13 @@ export default function StoreListPage() {
       onPerPageChange={setPerPage}
       isEmpty={paginated.length === 0}
       emptyMessage="Koi store nahi mila"
-      emptyColSpan={9}
+      emptyColSpan={12}
+      selection={{
+        allSelected: selection.allSelected,
+        selectedCount: selection.selectedItems.length,
+        onToggleAll: selection.toggleAll,
+        onBulkDelete: handleBulkDelete,
+      }}
       beforeCard={(
         <>
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 px-1">
@@ -138,6 +160,10 @@ export default function StoreListPage() {
       <table className="w-full text-sm">
         <thead className="sticky top-0 z-10">
           <tr className={listTheadClass} style={listTheadStyle}>
+            <th className={`${listThClass} w-10`}>
+              <input type="checkbox" checked={selection.allSelected} onChange={selection.toggleAll}
+                aria-label={`Select all ${filtered.length} filtered stores`} />
+            </th>
             <th className={`${listThClass} w-14`}>SI</th>
             <th className={`${listThClass} min-w-[200px]`}>Store Information</th>
             <th className={`${listThClass} min-w-[150px]`}>Owner Information</th>
@@ -154,6 +180,10 @@ export default function StoreListPage() {
         <tbody>
           {paginated.map((s, i) => (
             <tr key={s._id} onClick={() => navigate(`/stores/view/${s.storeId}`)} className={listRowClass} style={listRowStyle}>
+              <td className={listTdClass} onClick={stopRow}>
+                <input type="checkbox" checked={selection.selectedIds.has(String(s._id))}
+                  onChange={() => selection.toggle(s._id)} aria-label={`Select store ${s.name}`} />
+              </td>
               <td className={`${listTdClass} text-gray-500 tabular-nums`}>{(page - 1) * perPage + i + 1}</td>
               <td className={listTdClass}>
                 <div className="flex items-center gap-3">

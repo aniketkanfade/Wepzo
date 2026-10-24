@@ -98,7 +98,8 @@ export default function SettingsZoneSearchChargePage() {
   };
 
   const handleDelete = async (charge) => {
-    if (!confirm('Is search charge ko delete karna hai?')) return;
+    const label = charge.name || charge.note || `${charge.chargeFor || 'store'} search charge`;
+    if (!confirm(`Delete search charge "${label}"?`)) return;
     await api.delete(`/zones/${id}/search-charges/${charge._id}`);
     await loadCharges();
   };

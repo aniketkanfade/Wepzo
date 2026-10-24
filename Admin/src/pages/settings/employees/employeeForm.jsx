@@ -43,8 +43,10 @@ export function EmployeeFormFields({ form, set, roles, stores, riders = [], pass
         ['phone', 'Phone', 'text'],
       ].map(([k, label, type]) => (
         <div key={k}>
-          <label className="block text-xs font-semibold text-gray-600 mb-1.5">{label}</label>
-          <input type={type} value={form[k]} onChange={e => set(k, e.target.value)} className={inputCls} />
+          <label className="block text-xs font-semibold text-gray-600 mb-1.5">
+            {label}{k === 'name' && <span className="ml-1 text-red-500">*</span>}
+          </label>
+          <input type={type} value={form[k]} onChange={e => set(k, e.target.value)} className={inputCls} required={k === 'name'} />
         </div>
       ))}
       <div>
@@ -55,8 +57,8 @@ export function EmployeeFormFields({ form, set, roles, stores, riders = [], pass
           placeholder={passwordOptional ? 'Leave blank to keep current' : 'emp123'} className={inputCls} />
       </div>
       <div>
-        <label className="block text-xs font-semibold text-gray-600 mb-1.5">Role</label>
-        <select value={form.roleId} onChange={e => set('roleId', e.target.value)} className={inputCls}>
+        <label className="block text-xs font-semibold text-gray-600 mb-1.5">Role <span className="ml-1 text-red-500">*</span></label>
+        <select value={form.roleId} onChange={e => set('roleId', e.target.value)} className={inputCls} required>
           <option value="">Select role</option>
           {roles.filter(r => r.slug !== 'main_admin').map(r => (
             <option key={r._id} value={r._id}>{r.name}</option>
