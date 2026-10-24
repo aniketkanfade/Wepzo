@@ -4296,7 +4296,7 @@ router.get('/transactions-reports', auth, (req, res) => {
       storeRemaining: storeRows.reduce((total, item) => total + item.remaining, 0),
       customerWalletBalance: customerRows.reduce((total, item) => total + item.walletBalance, 0),
     },
-    orders: activeOrders.slice().sort((a, b) => orderCreatedMs(b) - orderCreatedMs(a)).slice(0, 100).map(order => ({
+    orders: activeOrders.slice().sort((a, b) => orderCreatedMs(b) - orderCreatedMs(a)).map(order => ({
       id: String(order._id),
       orderNo: order.orderNo || order.orderId || String(order._id),
       date: order.createdAt || order.orderDate || order.date || '',
