@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { ArrowRight, Check, ChevronDown, Globe2, Headphones, LoaderCircle, LogOut, Maximize2, Monitor, ShieldCheck, UserCircle2, X } from 'lucide-react';
 import api from '../api/axios';
 import { useAuthStore, useBuilderStore } from '../store/useStore';
-import { getAdminModuleKey } from '../constants/adminModules';
+import { getAdminModuleKey, getAdminModulePath } from '../constants/adminModules';
 import { clearPaymentReturnDetails, launchPaymentCheckout, paymentReturnDetails, paymentReturnUrl } from '../utils/paymentCheckout';
 import { ecommercePreviewBase } from '../utils/ecommercePreviewUrl';
 
@@ -42,6 +42,19 @@ export default function OnDomainPage() {
   const [desktopPreviewScale, setDesktopPreviewScale] = useState(1);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+
+  const adminPanelPath = website => getAdminModulePath({
+    slug: website?.websiteModuleSlug || user?.selectedModuleSlug || user?.websiteModuleSlug,
+    type: website?.moduleType || user?.selectedModuleType,
+    name: website?.moduleName || user?.selectedModuleName,
+  });
+
+  const continueToAdminPanel = website => {
+    if (website?.status !== 'published' || website?.domain?.status !== 'active'
+      || website?.hosting?.status !== 'active' || website?.hosting?.sslStatus !== 'active') return false;
+    navigate(adminPanelPath(website), { replace: true });
+    return true;
+  };
 
   useEffect(() => {
     if (!previewExpanded) return undefined;
@@ -106,6 +119,7 @@ export default function OnDomainPage() {
       const tenant = packageDetails.tenantWebsite;
       if (tenant?.status === 'published' && !packageDetails.websiteServiceEnded) {
         if (active) { setTenantWebsite(tenant); setPreviewLoading(false); }
+        if (tenant.hosting?.status === 'active') continueToAdminPanel(tenant);
         return;
       }
       try {
@@ -139,6 +153,7 @@ export default function OnDomainPage() {
         setPackageInfo(refreshed);
         setTenantWebsite(refreshed.tenantWebsite || null);
         if (data.domainName) setDomainName(data.domainName);
+        if (data.hosting?.status === 'active' && continueToAdminPanel(refreshed.tenantWebsite)) return;
         if (data.hosting?.status === 'active') setNotice(`Payment verified. ${data.domainName || 'Your domain'} is hosted successfully.`);
         else if (data.purchased) setNotice('Payment verified successfully.');
         else setError(data.hosting?.message || 'Payment was verified, but hosting setup needs attention.');
@@ -234,9 +249,10 @@ export default function OnDomainPage() {
         onFailure: paymentError => { setError(paymentError.message || 'Payment failed. You can retry.'); setHostingPaying(false); },
         onVerified: async response => {
           const { data: result } = await api.post('/on-domain/hosting-checkout/verify', response);
-          await refreshTenantWebsite();
+          const refreshed = await refreshTenantWebsite();
           setDomainName(result.domainName || order.domainName || domainName.trim());
           setDomainAvailability(null);
+          if (result.hosting?.status === 'active' && continueToAdminPanel(refreshed.tenantWebsite)) return result;
           if (result.hosting?.status === 'active') setNotice(`Payment verified. ${result.domainName} is now hosted for tenant ${result.websiteId}.`);
           else setError(`Payment verified, but hosting setup needs attention: ${result.hosting?.message || 'Please check DNS settings and retry hosting.'}`);
           setHostingPaying(false);
@@ -256,9 +272,10 @@ export default function OnDomainPage() {
     setNotice('');
     try {
       const { data } = await api.post('/on-domain/free-hosting', { domainName: domainName.trim() });
-      await refreshTenantWebsite();
+      const refreshed = await refreshTenantWebsite();
       setDomainName(data.domainName || domainName.trim());
       setDomainAvailability(null);
+      if (data.hosting?.status === 'active' && continueToAdminPanel(refreshed.tenantWebsite)) return;
       if (data.hosting?.status === 'active') setNotice(`Free hosting is active at ${data.domainName} for tenant ${data.websiteId}.`);
       else setError(data.hosting?.message || 'Free hosting setup needs attention. Check DNS and retry.');
     } catch (requestError) {
@@ -285,10 +302,11 @@ export default function OnDomainPage() {
         onFailure: paymentError => { setError(paymentError.message || 'Payment failed. You can retry.'); setHostingPaying(false); },
         onVerified: async response => {
           const { data: result } = await api.post('/on-domain/subscription-checkout/verify', response);
-          await refreshTenantWebsite();
+          const refreshed = await refreshTenantWebsite();
           setDomainName(result.domainName || order.domainName || domainName.trim());
           setDomainAvailability(null);
           if (result.hosting?.status === 'active') {
+            if (continueToAdminPanel(refreshed.tenantWebsite)) return result;
             const expiryText = result.hosting.subscriptionExpiresAt ? new Date(result.hosting.subscriptionExpiresAt).toLocaleDateString() : '';
             setNotice(`${order.planName} subscription activated for ${result.domainName}${expiryText ? ` through ${expiryText}` : ''}.`);
           } else setError(`Payment verified, but hosting setup needs attention: ${result.hosting?.message || 'Check DNS settings and retry hosting.'}`);
@@ -310,7 +328,8 @@ export default function OnDomainPage() {
     try {
       const { data } = await api.post(`/websites/${encodeURIComponent(tenantWebsite.id)}/deploy`);
       setTenantWebsite(current => current ? { ...current, hosting: data.hosting, domain: data.domain } : current);
-      await refreshTenantWebsite();
+      const refreshed = await refreshTenantWebsite();
+      if (continueToAdminPanel(refreshed.tenantWebsite)) return;
       setNotice(`Hosting is active at https://${data.domain?.fullDomain || tenantWebsite.domain?.fullDomain}.`);
     } catch (requestError) {
       try { await refreshTenantWebsite(); } catch { /* Keep the deployment error visible if refresh also fails. */ }

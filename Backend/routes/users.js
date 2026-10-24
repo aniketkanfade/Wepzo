@@ -25,6 +25,7 @@ router.put('/:id', auth, requireRole('main_admin'), async (req, res) => {
 
     res.json({ id: user._id, name: user.name, email: user.email, role: user.role });
   } catch (err) {
+    if (err.code === 11000) return res.status(409).json({ message: 'Email already registered' });
     res.status(500).json({ message: err.message });
   }
 });

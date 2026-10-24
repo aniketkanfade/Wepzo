@@ -3,6 +3,8 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { ArrowLeft, ArrowRight, Check, Globe2, Headphones, LogOut, UserCircle2 } from 'lucide-react';
 import api from '../api/axios';
 import { useAuthStore, useBuilderStore } from '../store/useStore';
+import { getAdminModulePath } from '../constants/adminModules';
+import { isWebsiteServiceActive } from '../utils/websiteService';
 import { clearPaymentReturnDetails, launchPaymentCheckout, paymentReturnDetails, paymentReturnUrl } from '../utils/paymentCheckout';
 
 export default function SubdomainPage() {
@@ -22,6 +24,12 @@ export default function SubdomainPage() {
   const [notice, setNotice] = useState('');
   const returnHandled = useRef(false);
 
+  const adminPanelPath = website => getAdminModulePath({
+    slug: website?.websiteModuleSlug || user?.selectedModuleSlug || user?.websiteModuleSlug,
+    type: website?.moduleType || user?.selectedModuleType,
+    name: website?.moduleName || user?.selectedModuleName,
+  });
+
   useEffect(() => {
     let active = true;
     api.get('/websites').then(({ data }) => {
@@ -34,16 +42,23 @@ export default function SubdomainPage() {
       if (!active) return;
       setWebsite(tenantWebsite);
       setDomainName(current => current || (tenantWebsite.domain?.type === 'subdomain' ? tenantWebsite.domain.name : ''));
+      if (tenantWebsite.status === 'published'
+        && tenantWebsite.domain?.status === 'active'
+        && tenantWebsite.domain?.fullDomain
+        && isWebsiteServiceActive(tenantWebsite)) {
+        navigate(adminPanelPath(tenantWebsite), { replace: true });
+      }
     }).catch(requestError => {
       if (active) setError(requestError.response?.data?.message || requestError.message || 'Website could not be loaded.');
     }).finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
-  }, [user?.id, user?._id, user?.websiteId]);
+  }, [user?.id, user?._id, user?.websiteId, user?.selectedModuleSlug, user?.selectedModuleType]);
 
   const publishWebsite = async websiteId => {
     const { data } = await api.post(`/websites/${encodeURIComponent(websiteId)}/publish`);
     setWebsite(data);
     setNotice(`Your website is live at ${data.domain?.fullDomain || `${domainName}.${baseDomain}`}.`);
+    navigate(adminPanelPath(data), { replace: true });
     return data;
   };
 
@@ -88,6 +103,13 @@ export default function SubdomainPage() {
       const { data: order } = await api.post(`/websites/${encodeURIComponent(savedWebsite._id)}/checkout`, { purchaseType: 'full', returnUrl: paymentReturnUrl() });
       if (order.free) {
         setWebsite(order.website);
+        if (order.website?.status === 'published'
+          && order.website.domain?.status === 'active'
+          && order.website.domain?.fullDomain
+          && isWebsiteServiceActive(order.website)) {
+          navigate(adminPanelPath(order.website), { replace: true });
+          return;
+        }
         setNotice(`Your website is live at ${order.website.domain?.fullDomain || `${domainName}.${baseDomain}`}.`);
         return;
       }

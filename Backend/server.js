@@ -60,6 +60,8 @@ async function bootstrap() {
     throw new Error(`MongoDB connection failed: ${error.message}`);
   }
   console.log('MongoDB connected');
+  await require('./models/User').createIndexes();
+  await require('./models/Website').createIndexes();
   await require('./models/PlatformData').createIndexes();
   await require('./models/OrderPushSubscription').createIndexes();
   await require('./models/OrderNotificationConfig').createIndexes();

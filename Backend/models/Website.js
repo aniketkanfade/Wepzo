@@ -34,4 +34,14 @@ const websiteSchema = new mongoose.Schema({
   zipExportedAt: Date
 }, { timestamps: true });
 
+websiteSchema.index(
+  { 'domain.fullDomain': 1 },
+  {
+    unique: true,
+    collation: { locale: 'en', strength: 2 },
+    partialFilterExpression: { 'domain.fullDomain': { $type: 'string', $gt: '' } },
+    name: 'unique_website_domain'
+  }
+);
+
 module.exports = mongoose.model('Website', websiteSchema);

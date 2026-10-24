@@ -10,17 +10,22 @@ const generateToken = (id) =>
 
 router.post('/register', async (req, res) => {
   try {
-    const { name, email, password, role } = req.body;
-    const exists = await User.findOne({ email });
-    if (exists) return res.status(400).json({ message: 'Email already registered' });
+    const { name, password, role } = req.body;
+    const email = String(req.body?.email || '').trim().toLowerCase();
+    if (role && role !== 'store_admin') {
+      return res.status(403).json({ message: 'This account role cannot be registered publicly.' });
+    }
+    const exists = await User.findOne({ email }).collation({ locale: 'en', strength: 2 });
+    if (exists) return res.status(409).json({ message: 'Email already registered' });
 
-    const user = await User.create({ name, email, password, role: role || 'store_admin' });
+    const user = await User.create({ name, email, password, role: 'store_admin' });
     const token = generateToken(user._id);
     res.status(201).json({
       token,
       user: { id: user._id, name: user.name, email: user.email, role: user.role }
     });
   } catch (err) {
+    if (err.code === 11000) return res.status(409).json({ message: 'Email already registered' });
     res.status(500).json({ message: err.message });
   }
 });
