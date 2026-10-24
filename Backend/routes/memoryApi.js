@@ -6451,7 +6451,7 @@ router.delete('/system-modules/:id', auth, (req, res) => {
   res.json({ message: 'Deleted' });
 });
 const publicWelcomePageFields = [
-  'brandName', 'heroEyebrow', 'heroTitle', 'heroDescription', 'heroImage',
+  'brandName', 'brandLogo', 'heroEyebrow', 'heroTitle', 'heroDescription', 'heroImage',
   'primaryButton', 'secondaryButton', 'trustPoints',
   'stepsTitle', 'stepsSubtitle', 'steps',
   'featuresTitle', 'featuresSubtitle', 'features',
@@ -6473,7 +6473,7 @@ router.put('/public/welcome-page', auth, (req, res) => {
     if (body[key] === undefined) continue;
     if (typeof body[key] !== 'string') return res.status(400).json({ message: `${key} must be text` });
     const value = body[key].trim();
-    if (value.length > (key === 'heroImage' ? 2000 : 5000)) {
+    if (value.length > (key === 'brandLogo' ? 1500000 : key === 'heroImage' ? 2000 : 5000)) {
       return res.status(400).json({ message: `${key} is too long` });
     }
     if (publicWelcomePageColors.has(key) && !/^#[0-9a-f]{6}$/i.test(value)) {
@@ -6484,6 +6484,16 @@ router.put('/public/welcome-page', auth, (req, res) => {
       try { imageUrl = new URL(value); } catch { return res.status(400).json({ message: 'Hero image must be a valid HTTP or HTTPS URL' }); }
       if (!['http:', 'https:'].includes(imageUrl.protocol)) {
         return res.status(400).json({ message: 'Hero image must be a valid HTTP or HTTPS URL' });
+      }
+    }
+    if (key === 'brandLogo' && value) {
+      const dataImage = /^data:image\/(?:png|jpeg|webp);base64,[A-Za-z0-9+/]+={0,2}$/.test(value);
+      if (!dataImage) {
+        let imageUrl;
+        try { imageUrl = new URL(value); } catch { return res.status(400).json({ message: 'Brand logo must be an uploaded PNG, JPG, or WebP image, or a valid HTTP(S) URL' }); }
+        if (!['http:', 'https:'].includes(imageUrl.protocol)) {
+          return res.status(400).json({ message: 'Brand logo must be an uploaded PNG, JPG, or WebP image, or a valid HTTP(S) URL' });
+        }
       }
     }
     next[key] = value;

@@ -1,5 +1,6 @@
 export const PUBLIC_WELCOME_DEFAULTS = {
   brandName: 'WEPZO',
+  brandLogo: '',
   heroEyebrow: 'Your Business  ·  Your Brand  ·  Your Customers',
   heroTitle: 'Create Your Own Online Store with WEPZO',
   heroDescription: 'Launch a branded eCommerce store in minutes, manage products, receive orders and grow your business — all from one powerful platform.',
@@ -24,3 +25,14 @@ export const PUBLIC_WELCOME_DEFAULTS = {
   pageBackground: '#fffaf6',
   textColor: '#172033',
 };
+
+export function safeBrandLogo(value) {
+  const logo = String(value || '').trim();
+  if (/^data:image\/(?:png|jpeg|webp);base64,[A-Za-z0-9+/]+={0,2}$/.test(logo)) return logo;
+  try {
+    const url = new URL(logo);
+    return ['https:', 'http:'].includes(url.protocol) ? url.href : '';
+  } catch {
+    return '';
+  }
+}

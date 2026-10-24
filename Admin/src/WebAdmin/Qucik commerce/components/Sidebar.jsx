@@ -13,6 +13,7 @@ import {
 import { useAuthStore } from '../../../store/useStore';
 import { useModuleStore } from '../../../store/useStore';
 import { getAdminModuleKey, getAdminModulePath } from '../../../constants/adminModules';
+import usePublicWelcomeLogo from '../../../hooks/usePublicWelcomeLogo';
 
 function publishedWebsiteUrl(website) {
   if (!website || website.status !== 'published' || !website._id) return '';
@@ -283,6 +284,7 @@ function MenuItem({ item, depth = 0, openKey, openDepth, onOpenChange, badgeCoun
 }
 
 export default function Sidebar({ mobileOpen, onClose, websiteAccess, showOwnDomainOption = true }) {
+  const publicWelcomeLogo = usePublicWelcomeLogo();
   const { user } = useAuthStore();
   const { activeModule } = useModuleStore();
   const location = useLocation();
@@ -428,8 +430,10 @@ export default function Sidebar({ mobileOpen, onClose, websiteAccess, showOwnDom
     <>
       {mobileOpen && <div className="fixed inset-0 bg-black/30 z-40 lg:hidden" onClick={onClose} />}
       <aside className={`${mobileOpen ? 'translate-x-0' : '-translate-x-full'} lg:translate-x-0 fixed inset-y-0 left-0 lg:relative lg:inset-auto z-50 lg:z-auto w-[min(78vw,285px)] max-w-[100vw] bg-white border-r border-gray-200 flex flex-col h-full overflow-x-hidden overflow-y-hidden transition-transform duration-200 shrink-0 lg:w-64`}>
-        <div className="p-4 border-b border-gray-200">
-          <h1 className="text-2xl font-bold text-primary-600">WEPZO</h1>
+        <div className="flex h-[65px] items-center border-b border-gray-200 px-4">
+          {publicWelcomeLogo
+            ? <img src={publicWelcomeLogo} alt="WEPZO" className="max-h-10 max-w-full object-contain object-left"/>
+            : <h1 className="text-2xl font-bold text-primary-600">WEPZO</h1>}
         </div>
 
         <div className="p-3">

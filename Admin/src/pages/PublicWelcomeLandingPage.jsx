@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { ArrowRight, Check, ChevronRight, LogIn, Menu, Play, Store, X } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import api from '../api/axios';
-import { PUBLIC_WELCOME_DEFAULTS } from '../lib/publicWelcomePage';
+import { PUBLIC_WELCOME_DEFAULTS, safeBrandLogo } from '../lib/publicWelcomePage';
 
 function rows(value, minimum = 0) {
   const parsed = String(value || '').split('\n').map(line => line.split('|').map(part => part.trim())).filter(line => line.some(Boolean));
@@ -52,6 +52,7 @@ export default function PublicWelcomeLandingPage({ content: suppliedContent }) {
   const features = rows(content.features, 6);
   const footerLinks = rows(content.footerLinks);
   const heroImage = safeImage(content.heroImage);
+  const brandLogo = safeBrandLogo(content.brandLogo);
   const palette = {
     '--welcome-primary': content.primaryColor,
     '--welcome-secondary': content.secondaryColor,
@@ -62,7 +63,11 @@ export default function PublicWelcomeLandingPage({ content: suppliedContent }) {
   return <main id="top" style={palette} className="min-h-screen bg-[var(--welcome-background)] text-[var(--welcome-text)]">
     <header className="sticky top-0 z-40 border-b border-slate-100 bg-white/95 shadow-sm backdrop-blur">
       <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
-        <Link to="/" className="text-2xl font-black tracking-tight text-[var(--welcome-secondary)]">{content.brandName || 'WEPZO'}</Link>
+        <Link to="/" aria-label={content.brandName || 'WEPZO'} className="inline-flex min-w-0 items-center">
+          {brandLogo
+            ? <img src={brandLogo} alt={content.brandName || 'WEPZO'} className="max-h-10 max-w-48 object-contain object-left"/>
+            : <span className="text-2xl font-black tracking-tight text-[var(--welcome-secondary)]">{content.brandName || 'WEPZO'}</span>}
+        </Link>
         <nav className="hidden items-center gap-7 md:flex">
           <a href="#top" className="text-sm font-semibold text-[var(--welcome-primary)]">Home</a>
           <a href="#steps" className="text-sm font-medium text-slate-600 hover:text-[var(--welcome-secondary)]">How It Works</a>

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { BookOpen, Eye, Save } from 'lucide-react';
+import { BookOpen, Eye, ImagePlus, Save, Trash2, Upload } from 'lucide-react';
 import api from '../../api/axios';
 import { PUBLIC_WELCOME_DEFAULTS } from '../../lib/publicWelcomePage';
 import { listBtnNavy } from '../../constants/listTheme';
@@ -54,6 +54,7 @@ export default function PublicWelcomePageEditor({ onShowOnboarding }) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  const [uploadingLogo, setUploadingLogo] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -66,6 +67,40 @@ export default function PublicWelcomePageEditor({ onShowOnboarding }) {
   }, []);
 
   const update = (key, value) => setContent(current => ({ ...current, [key]: value }));
+  const uploadLogo = async file => {
+    if (!file) return;
+    if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) {
+      setError('Choose a PNG, JPG, or WebP logo image.');
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      setError('Logo image must be 5 MB or smaller.');
+      return;
+    }
+    setUploadingLogo(true);
+    setError('');
+    setNotice('');
+    let bitmap;
+    try {
+      bitmap = await createImageBitmap(file);
+      const scale = Math.min(1, 512 / bitmap.width, 192 / bitmap.height);
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+      canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+      const context = canvas.getContext('2d');
+      if (!context) throw new Error('Logo image could not be processed.');
+      context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+      const logo = canvas.toDataURL('image/webp', 0.9);
+      if (logo.length > 1_500_000) throw new Error('Processed logo is too large. Choose a simpler or smaller image.');
+      update('brandLogo', logo);
+      setNotice('Logo ready. Save the page to apply it to Admin and the public welcome page.');
+    } catch (uploadError) {
+      setError(uploadError.message || 'Logo image could not be processed.');
+    } finally {
+      bitmap?.close();
+      setUploadingLogo(false);
+    }
+  };
   const save = async event => {
     event.preventDefault();
     setSaving(true);
@@ -74,6 +109,7 @@ export default function PublicWelcomePageEditor({ onShowOnboarding }) {
     try {
       const { data } = await api.put('/public/welcome-page', content);
       setContent({ ...PUBLIC_WELCOME_DEFAULTS, ...(data || {}) });
+      window.dispatchEvent(new CustomEvent('wepzo:public-welcome-logo-updated', { detail: data?.brandLogo || '' }));
       setNotice('Public welcome page saved.');
     } catch (requestError) {
       setError(requestError.response?.data?.message || 'Welcome page could not be saved.');
@@ -98,6 +134,26 @@ export default function PublicWelcomePageEditor({ onShowOnboarding }) {
     {notice && <p role="status" className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{notice}</p>}
     {loading ? <div className="rounded-xl border border-slate-200 bg-white p-5 text-sm text-slate-500">Loading welcome page settings…</div> : <form onSubmit={save} className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_300px]">
       <div className="space-y-5">
+        <section className="space-y-4 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+          <h2 className="border-b border-slate-100 pb-3 text-sm font-bold text-slate-900">Shared Admin and Welcome Page Logo</h2>
+          <p className="text-sm text-slate-500">This logo appears in the Admin sidebar, mobile header and public welcome page. Storefront branding is not changed.</p>
+          <div className="flex flex-wrap items-center gap-4">
+            <div className="flex h-20 w-44 items-center justify-center rounded-lg border border-dashed border-slate-300 bg-slate-50 p-3">
+              {content.brandLogo
+                ? <img src={content.brandLogo} alt="Selected brand logo preview" className="max-h-full max-w-full object-contain"/>
+                : <span className="text-lg font-bold text-primary-600">{content.brandName || 'WEPZO'}</span>}
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <label className={`inline-flex cursor-pointer items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold text-white ${listBtnNavy} ${uploadingLogo ? 'pointer-events-none opacity-50' : ''}`}>
+                {uploadingLogo ? <ImagePlus size={16} className="animate-pulse"/> : <Upload size={16}/>}
+                {uploadingLogo ? 'Processing…' : 'Upload logo'}
+                <input type="file" accept="image/png,image/jpeg,image/webp" className="sr-only" disabled={uploadingLogo} onChange={event => { uploadLogo(event.target.files?.[0]); event.target.value = ''; }}/>
+              </label>
+              {content.brandLogo && <button type="button" onClick={() => update('brandLogo', '')} className="inline-flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"><Trash2 size={15}/>Remove</button>}
+            </div>
+          </div>
+          <p className="text-xs text-slate-400">PNG, JPG or WebP, up to 5 MB. The image is resized for display before saving.</p>
+        </section>
         {groups.map(group => <section key={group.title} className="space-y-4 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
           <h2 className="border-b border-slate-100 pb-3 text-sm font-bold text-slate-900">{group.title}</h2>
           <div className="grid gap-4 sm:grid-cols-2">
