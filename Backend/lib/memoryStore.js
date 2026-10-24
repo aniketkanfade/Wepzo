@@ -40,6 +40,9 @@ const store = {
   exportHistory: [],
   orders: [],
   deliveryMen: [],
+  deliveryManRequests: [],
+  deliveryVehicleCategories: [],
+  deliveryReviews: [],
   flashSales: [],
   campaigns: [],
   marketingContent: [],
@@ -92,7 +95,7 @@ const PERSIST_KEYS = [
   'marketingIntegrations',
   'marketingOAuth',
   'socialTokenEncryptionKey',
-  'advertisements', 'deliveryMen', 'systemModules', 'websiteModules', 'websiteModuleCatalogSeeded', 'websiteModuleContentSeeded', 'websites', 'mainAdminStorefrontSeededFor',
+  'advertisements', 'deliveryMen', 'deliveryManRequests', 'deliveryVehicleCategories', 'deliveryReviews', 'systemModules', 'websiteModules', 'websiteModuleCatalogSeeded', 'websiteModuleContentSeeded', 'websites', 'mainAdminStorefrontSeededFor',
   'importHistory', 'exportHistory', 'storeImportHistory', 'storeExportHistory', 'categorySpecifications', 'categoryVariants',
   'salesOverview', 'orderStatus', 'stats',
 ];
@@ -906,6 +909,9 @@ async function seedMemory() {
   store.storeDiscounts = [];
   store.orders = [];
   store.deliveryMen = seedDeliveryMen();
+  store.deliveryManRequests = [];
+  store.deliveryVehicleCategories = [];
+  store.deliveryReviews = [];
   store.flashSales = [];
   store.productRequests = [];
   store.productReviews = [];

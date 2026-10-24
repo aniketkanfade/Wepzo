@@ -42,7 +42,7 @@ export default function ProductCard({ product, compact, showWishlistRemove = fal
           {product.discount > 0 && <span className="qc-product-discount-badge absolute z-10">{product.discount}% <span className="qc-product-discount-off">OFF</span></span>}
           {Number.isFinite(Number(product.visualSimilarity)) && <span className="absolute bottom-2 left-2 z-10 rounded-md bg-emerald-700/90 px-1.5 py-1 text-[9px] font-bold text-white">{Math.round(product.visualSimilarity * 100)}% image match</span>}
           {product.image
-            ? <img src={product.image} alt={name} className="w-full h-full object-contain" />
+            ? <img src={product.image} alt={name} loading="lazy" decoding="async" className="w-full h-full object-contain" />
             : <div role="img" aria-label={`${name} image unavailable`} className="grid h-full w-full place-items-center rounded-xl bg-slate-100 text-4xl font-semibold text-slate-400">{name.slice(0, 1)}</div>}
         </Link>
         {showWishlistRemove && <button type="button" onClick={() => toggleWishlist(product)} aria-label={`Remove ${name} from favorites`} title="Remove from favorites" className="qc-wishlist-remove absolute left-2 top-2 z-20 grid h-7 w-7 place-items-center rounded-full bg-white/95 text-rose-600 shadow-sm hover:bg-rose-50">

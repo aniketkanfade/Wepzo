@@ -77,6 +77,7 @@ export const shop = {
   initiatePayment: (body) => api.post('/shop/payments/initiate', body, { headers: authHeaders() }).then(r => r.data),
   verifyPayment: (body) => api.post('/shop/payments/verify', body, { headers: authHeaders() }).then(r => r.data),
   order: (id) => api.get(`/shop/orders/${id}`).then(r => r.data),
+  reviewDelivery: (id, body) => api.post(`/shop/orders/${encodeURIComponent(id)}/delivery-review`, body, { headers: authHeaders() }).then(r => r.data),
   login: (body) => api.post('/shop/auth/login', body).then(r => r.data),
   register: (body) => api.post('/shop/auth/register', body).then(r => r.data),
   me: () => api.get('/shop/auth/me', { headers: authHeaders() }).then(r => r.data),

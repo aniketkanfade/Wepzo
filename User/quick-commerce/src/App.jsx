@@ -1,15 +1,8 @@
-import { useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import { ClipboardList, Home, ShoppingCart, UserRound, X } from 'lucide-react';
 import { Link, Routes, Route, useLocation, useNavigate } from 'react-router-dom';
 import Header from './components/Header';
 import Footer from './components/Footer';
-import HomePage from './pages/HomePage';
-import CategoryPage from './pages/CategoryPage';
-import ProductPage from './pages/ProductPage';
-import CheckoutPage from './pages/CheckoutPage';
-import TrackPage from './pages/TrackPage';
-import LoginPage from './pages/LoginPage';
-import AccountPage from './pages/AccountPage';
 import { useSiteSettings } from './store/siteSettings';
 import { useCart } from './store/cart';
 import { useWishlist } from './store/wishlist';
@@ -20,8 +13,29 @@ import { shop } from './api';
 import { getWebsiteContext, setWebsiteContext } from './websiteContext';
 import { playOrderAlert, showCustomerOrderNotification, unlockOrderAlertSound } from './lib/orderNotifications';
 
+const HomePage = lazy(() => import('./pages/HomePage'));
+const CategoryPage = lazy(() => import('./pages/CategoryPage'));
+const ProductPage = lazy(() => import('./pages/ProductPage'));
+const CheckoutPage = lazy(() => import('./pages/CheckoutPage'));
+const TrackPage = lazy(() => import('./pages/TrackPage'));
+const LoginPage = lazy(() => import('./pages/LoginPage'));
+const AccountPage = lazy(() => import('./pages/AccountPage'));
+
 function UnavailableFeature() {
   return <div className="mx-auto max-w-3xl px-4 py-20 text-center text-slate-500">This feature is not included in this website.</div>;
+}
+
+function RouteLoading() {
+  return <div className="mx-auto w-full max-w-[1280px] space-y-4 px-4 py-5" role="status" aria-label="Loading page">
+    <span className="sr-only">Loading page</span>
+    <div className="h-10 w-2/3 animate-pulse rounded-lg bg-slate-100" />
+    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+      {[0, 1, 2, 3].map(item => <div key={item} className="space-y-2 rounded-xl border border-slate-100 p-2">
+        <div className="aspect-square animate-pulse rounded-lg bg-slate-100" />
+        <div className="h-3 animate-pulse rounded bg-slate-100" />
+      </div>)}
+    </div>
+  </div>;
 }
 
 function MobileAppNavigation({ componentEnabled, pathname, onOpenCart }) {
@@ -66,6 +80,10 @@ export default function App() {
   const hasSelectedComponents = selectedComponents.size > 0;
   const componentEnabled = slug => (adminPreview || !websiteContextActive || !hasSelectedComponents || selectedComponents.has(slug))
     && !(templatePreview && ['quick-commerce-profile', 'quick-commerce-account'].includes(slug));
+
+  useEffect(() => {
+    if (location.pathname !== '/cart' && location.pathname !== '/checkout') window.scrollTo(0, 0);
+  }, [location.pathname]);
 
   useEffect(() => {
     const unlock = () => unlockOrderAlertSound();
@@ -252,18 +270,20 @@ export default function App() {
       {shopDataError && <p role="alert" className="bg-rose-50 px-4 py-2 text-center text-sm text-rose-700">{shopDataError}</p>}
       <Header componentEnabled={componentEnabled} />
       <main className="flex-1">
-        <Routes location={backgroundLocation || location}>
-          <Route path="/" element={<HomePage componentEnabled={componentEnabled} builderPreview={builderPreview} templatePreview={templatePreview} />} />
-          <Route path="/c" element={searchParams.get('wishlist') === '1'
-            ? featureRoute('quick-commerce-wishlist', <CategoryPage />)
-            : featureRoute('quick-commerce-product-listing', <CategoryPage />)} />
-          <Route path="/p/:id" element={featureRoute('quick-commerce-product-details', <ProductPage />)} />
-          <Route path="/login" element={featureRoute('quick-commerce-account', <LoginPage />)} />
-          <Route path="/account" element={featureRoute('quick-commerce-account', <AccountPage />)} />
-          <Route path="/account/:section" element={featureRoute('quick-commerce-account', <AccountPage />)} />
-          <Route path="/track/:orderNo" element={featureRoute('quick-commerce-order-tracking', <TrackPage />)} />
-          <Route path="/track" element={featureRoute('quick-commerce-order-tracking', <TrackPage />)} />
-        </Routes>
+        <Suspense fallback={<RouteLoading />}>
+          <Routes location={backgroundLocation || location}>
+            <Route path="/" element={<HomePage componentEnabled={componentEnabled} builderPreview={builderPreview} templatePreview={templatePreview} />} />
+            <Route path="/c" element={searchParams.get('wishlist') === '1'
+              ? featureRoute('quick-commerce-wishlist', <CategoryPage />)
+              : featureRoute('quick-commerce-product-listing', <CategoryPage />)} />
+            <Route path="/p/:id" element={featureRoute('quick-commerce-product-details', <ProductPage />)} />
+            <Route path="/login" element={featureRoute('quick-commerce-account', <LoginPage />)} />
+            <Route path="/account" element={featureRoute('quick-commerce-account', <AccountPage />)} />
+            <Route path="/account/:section" element={featureRoute('quick-commerce-account', <AccountPage />)} />
+            <Route path="/track/:orderNo" element={featureRoute('quick-commerce-order-tracking', <TrackPage />)} />
+            <Route path="/track" element={featureRoute('quick-commerce-order-tracking', <TrackPage />)} />
+          </Routes>
+        </Suspense>
       </main>
       {componentEnabled('quick-commerce-footer') && <Footer componentEnabled={componentEnabled} />}
       <MobileAppNavigation componentEnabled={componentEnabled} pathname={location.pathname} onOpenCart={() => window.dispatchEvent(new Event('wepzo:open-cart'))} />

@@ -17,36 +17,52 @@ export function unlockOrderAlertSound() {
   } catch { /* The browser can keep audio disabled by user settings. */ }
 }
 
-export function playOrderAlert() {
-  try {
-    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
-    if (!AudioContextClass) return;
-    audioContext ||= new AudioContextClass();
-    const ctx = audioContext;
-    const play = () => {
-      const start = ctx.currentTime + 0.02;
-      [880, 660, 880, 990].forEach((frequency, index) => {
-        const at = start + index * 0.19;
-        const oscillator = ctx.createOscillator();
-        const gain = ctx.createGain();
-        oscillator.type = 'sine';
-        oscillator.frequency.setValueAtTime(frequency, at);
-        gain.gain.setValueAtTime(0.001, at);
-        gain.gain.exponentialRampToValueAtTime(0.16, at + 0.025);
-        gain.gain.exponentialRampToValueAtTime(0.001, at + 0.16);
-        oscillator.connect(gain);
-        gain.connect(ctx.destination);
-        oscillator.start(at);
-        oscillator.stop(at + 0.17);
-        oscillator.onended = () => { oscillator.disconnect(); gain.disconnect(); };
-      });
-    };
-    if (ctx.state === 'suspended') ctx.resume().then(play).catch(() => {});
-    else play();
-    if (navigator.vibrate) navigator.vibrate([180, 90, 180]);
-  } catch {
-    // The browser may block sound until the user enables order alerts.
+const TONE_SEQUENCES = {
+  classic: [880, 660, 880, 990],
+  chime: [1046, 1318, 1568],
+  urgent: [880, 880, 660, 880, 880],
+  soft: [660, 880],
+};
+
+export async function playAdminAlertSound(config = {}) {
+  const tone = config.tone || 'classic';
+  if (tone === 'silent') return;
+  if (tone === 'custom') {
+    if (!config.customAudio) throw new Error('Upload a ringtone before previewing it.');
+    const audio = new Audio(config.customAudio);
+    await audio.play();
+    return;
   }
+  const sequence = TONE_SEQUENCES[tone] || TONE_SEQUENCES.classic;
+  const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+  if (!AudioContextClass) throw new Error('This browser does not support ringtone playback.');
+  audioContext ||= new AudioContextClass();
+  if (audioContext.state === 'suspended') await audioContext.resume();
+  const ctx = audioContext;
+  const start = ctx.currentTime + 0.02;
+  const volume = tone === 'soft' ? 0.09 : 0.16;
+  sequence.forEach((frequency, index) => {
+    const at = start + index * 0.19;
+    const oscillator = ctx.createOscillator();
+    const gain = ctx.createGain();
+    oscillator.type = 'sine';
+    oscillator.frequency.setValueAtTime(frequency, at);
+    gain.gain.setValueAtTime(0.001, at);
+    gain.gain.exponentialRampToValueAtTime(volume, at + 0.025);
+    gain.gain.exponentialRampToValueAtTime(0.001, at + 0.16);
+    oscillator.connect(gain);
+    gain.connect(ctx.destination);
+    oscillator.start(at);
+    oscillator.stop(at + 0.17);
+    oscillator.onended = () => { oscillator.disconnect(); gain.disconnect(); };
+  });
+  if (navigator.vibrate) navigator.vibrate([180, 90, 180]);
+}
+
+export function playOrderAlert() {
+  playAdminAlertSound({ tone: 'classic' }).catch(error => {
+    console.warn('Order alert sound could not be played:', error.message || 'Audio playback is unavailable.');
+  });
 }
 
 export async function enableAdminOrderNotifications() {

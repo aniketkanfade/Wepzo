@@ -2136,6 +2136,44 @@ router.get('/orders', auth, (req, res) => {
       && normalizeWebsiteModuleSlug(item.websiteModuleSlug || item.moduleType || '') === adminWebsiteModuleSlug(req));
     list = website ? list.filter(order => String(order.websiteId || '') === websiteId) : [];
   }
+  if (req.query.zoneId) {
+    const zoneKey = String(req.query.zoneId);
+    const zone = (store.deliveryZones || []).find(item =>
+      isInAdminWebsiteModule(req, item)
+      && (String(item._id) === zoneKey || String(item.zoneId) === zoneKey)
+    );
+    if (!zone) {
+      list = [];
+    } else {
+      const zoneValues = new Set([zone._id, zone.zoneId, zone.name, zone.displayName]
+        .filter(value => value !== null && value !== undefined && value !== '')
+        .map(String));
+      const scopedStores = (store.stores || []).filter(item => isInAdminWebsiteModule(req, item)
+        && (!zone.websiteId || String(item.websiteId || '') === String(zone.websiteId)));
+      const { isInsideDeliveryZone } = require('../lib/geoUtils');
+      list = list.filter(order => {
+        if (zone.websiteId && String(order.websiteId || '') !== String(zone.websiteId)) return false;
+        const orderZone = typeof order.zone === 'object' ? order.zone : null;
+        const orderZoneValues = [
+          order.zoneId, orderZone?._id, orderZone?.zoneId, orderZone?.name,
+          typeof order.zone === 'string' ? order.zone : '',
+          order.area, order.storeZone, order.bill?.zoneId, order.bill?.zone,
+        ];
+        if (orderZoneValues.some(value => value !== null && value !== undefined && zoneValues.has(String(value)))) return true;
+        const orderStore = scopedStores.find(item =>
+          String(item._id || '') === String(order.storeId || '')
+          || String(item.storeId || '') === String(order.storeId || '')
+          || (order.store && item.name === order.store));
+        if (orderStore && [
+          orderStore.zoneId, orderStore.zone, orderStore.area,
+        ].some(value => value !== null && value !== undefined && zoneValues.has(String(value)))) return true;
+        const lat = Number(order.lat);
+        const lng = Number(order.lng);
+        return Number.isFinite(lat) && Number.isFinite(lng)
+          && isInsideDeliveryZone(zone, lat, lng);
+      });
+    }
+  }
   const slug = req.query.status;
   if (slug && STATUS_SLUGS[slug]) {
     list = list.filter(o => o.status === STATUS_SLUGS[slug]);
@@ -2205,6 +2243,9 @@ router.get('/orders/new-count', auth, (req, res) => {
       customer: o.customer,
       amount: o.amount || o.total,
       createdAt: o.createdAt || o.etaStartedAt || null,
+      status: o.status || '',
+      rider: o.rider?.name || '',
+      riderId: o.rider?._id || o.riderId || '',
     })),
   });
 });
@@ -2696,12 +2737,26 @@ router.get('/delivery-men', auth, (req, res) => {
   const search = (req.query.search || '').toLowerCase().trim();
 
   let list = store.deliveryMen.filter(d => (req.query.includeOffline === '1' || d.online) && isInAdminWebsiteModule(req, d));
+  if (req.query.liveMap === '1' && req.user?.role === 'main_admin' && req.query.websiteId) {
+    const websiteId = String(req.query.websiteId);
+    const website = (store.websites || []).find(item => String(item._id) === websiteId
+      && normalizeWebsiteModuleSlug(item.websiteModuleSlug || item.moduleType || '') === adminWebsiteModuleSlug(req));
+    list = website ? list.filter(item => String(item.websiteId || '') === websiteId) : [];
+  }
   if (req.user?.role === 'website_user') {
     list = list.filter(d => String(d.websiteId || '') === String(req.user.websiteId || ''));
   }
-  let zone = area
-    ? (store.deliveryZones || []).find(z => isInAdminWebsiteModule(req, z) && (z.name === area || z.displayName === area))
-    : null;
+  const requestedZoneId = String(req.query.zoneId || '');
+  let zone = requestedZoneId
+    ? (store.deliveryZones || []).find(item =>
+      isInAdminWebsiteModule(req, item)
+      && (String(item._id) === requestedZoneId || String(item.zoneId) === requestedZoneId)
+      && (req.user?.role !== 'website_user' || String(item.websiteId || '') === String(req.user.websiteId || ''))
+      && (req.user?.role !== 'main_admin' || !req.query.websiteId || !item.websiteId || String(item.websiteId) === String(req.query.websiteId)))
+    : (area
+      ? (store.deliveryZones || []).find(z => isInAdminWebsiteModule(req, z) && (z.name === area || z.displayName === area))
+      : null);
+  if (requestedZoneId && !zone) list = [];
   if (!zone && !Number.isNaN(refLat) && !Number.isNaN(refLng)) {
     zone = (store.deliveryZones || []).find(z => isInAdminWebsiteModule(req, z) && z.status !== false && isInsideDeliveryZone(z, refLat, refLng));
   }
@@ -2723,16 +2778,40 @@ router.get('/delivery-men', auth, (req, res) => {
   }
 
   list = list.map(d => {
+    const { documents, ...rider } = d;
     const freshGps = hasFreshRiderGps(d);
+    const riderOrders = req.query.liveMap === '1'
+      ? (store.orders || []).filter(item => item.rider?._id === d._id
+        && activeRiderStatuses.has(item.status)
+        && isInAdminWebsiteModule(req, item)
+        && String(item.websiteId || '') === String(d.websiteId || ''))
+        .sort((a, b) => Number(b.status === 'Out for Delivery') - Number(a.status === 'Out for Delivery'))
+      : [];
+    const activeOrder = riderOrders[0];
     let distanceM = null;
     if (!Number.isNaN(refLat) && !Number.isNaN(refLng) && freshGps) {
       distanceM = distanceMeters(refLat, refLng, d.lat, d.lng);
     }
     return {
-      ...d,
-      lat: freshGps ? d.lat : null,
-      lng: freshGps ? d.lng : null,
+      ...rider,
+      lat: freshGps || (req.query.liveMap === '1' && d.locationSource === 'rider-app') ? d.lat : null,
+      lng: freshGps || (req.query.liveMap === '1' && d.locationSource === 'rider-app') ? d.lng : null,
+      ...(req.query.liveMap === '1' ? { gpsFresh: freshGps } : {}),
       locationUpdatedAt: d.locationUpdatedAt || null,
+      ...(req.query.liveMap === '1' ? {
+        activeOrdersCount: riderOrders.length,
+        activeOrder: activeOrder ? {
+          _id: activeOrder._id,
+          orderNo: activeOrder.orderNo || activeOrder.orderId || activeOrder._id,
+          status: activeOrder.status,
+          store: activeOrder.store || '',
+          storeLat: activeOrder.storeLat ?? null,
+          storeLng: activeOrder.storeLng ?? null,
+          destinationLat: activeOrder.lat ?? null,
+          destinationLng: activeOrder.lng ?? null,
+          area: activeOrder.area || '',
+        } : null,
+      } : {}),
       distanceM,
       distanceLabel: formatDistance(distanceM),
       nearStore: distanceM != null && distanceM <= 500,
@@ -2751,6 +2830,313 @@ router.get('/delivery-men', auth, (req, res) => {
   }
 
   res.json(list);
+});
+
+function deliveryRecordScope(req) {
+  const websiteId = req.user?.websiteId || (req.user?.role === 'main_admin' ? adminWebsiteIdForRecord(req) : '');
+  return {
+    websiteModuleSlug: adminWebsiteModuleSlug(req),
+    ...(websiteId ? { websiteId: String(websiteId) } : {}),
+  };
+}
+
+function existingDeliveryRecordScope(item, req) {
+  return {
+    websiteModuleSlug: item.websiteModuleSlug || adminWebsiteModuleSlug(req),
+    ...(item.websiteId ? { websiteId: String(item.websiteId) } : {}),
+  };
+}
+
+function deliveryPhoneExists(req, phone, exceptId = '') {
+  const normalized = String(phone || '').replace(/\D/g, '');
+  return (store.deliveryMen || []).some(item => item._id !== exceptId
+    && isInAdminWebsiteModule(req, item)
+    && String(item.phone || '').replace(/\D/g, '') === normalized);
+}
+
+function validDeliveryPerson(body) {
+  const name = String(body.name || '').trim();
+  const phone = String(body.phone || '').trim();
+  if (name.length < 2 || name.length > 100) return 'Name must be between 2 and 100 characters.';
+  if (!/^[+()\d .-]{7,24}$/.test(phone)) return 'Enter a valid phone number.';
+  if (body.email && (String(body.email).length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(body.email).trim()))) {
+    return 'Enter a valid email address.';
+  }
+  return '';
+}
+
+function deliveryRiderFromBody(req, body, current = {}) {
+  const categoryId = String(body.vehicleCategoryId || current.vehicleCategoryId || '');
+  const category = categoryId
+    ? (store.deliveryVehicleCategories || []).find(item => item._id === categoryId && isInAdminWebsiteModule(req, item))
+    : null;
+  if (categoryId && !category) return { error: 'Select a vehicle category from this module.' };
+  return {
+    value: {
+      ...current,
+      ...(current._id ? existingDeliveryRecordScope(current, req) : deliveryRecordScope(req)),
+      name: String(body.name ?? current.name ?? '').trim(),
+      phone: String(body.phone ?? current.phone ?? '').trim(),
+      email: String(body.email ?? current.email ?? '').trim().toLowerCase(),
+      area: String(body.area ?? current.area ?? '').trim(),
+      location: String(body.location ?? current.location ?? '').trim(),
+      vehicleCategoryId: category?._id || '',
+      vehicle: category?.name || String(body.vehicle ?? current.vehicle ?? '').trim(),
+      vehicleNumber: String(body.vehicleNumber ?? current.vehicleNumber ?? '').trim(),
+      documents: normalizeDeliveryDocuments(body.documents ?? current.documents ?? {}),
+      photo: String(body.photo ?? current.photo ?? '').trim(),
+      online: current._id ? (typeof body.online === 'boolean' ? body.online : current.online) : false,
+      status: current._id ? (['active', 'inactive'].includes(body.status) ? body.status : current.status || 'active') : 'active',
+    },
+  };
+}
+
+const DELIVERY_DOCUMENT_KEYS = ['license', 'rc', 'pan', 'aadhaar'];
+const DELIVERY_DOCUMENT_DATA_URL = /^data:image\/(?:jpeg|png|webp);base64,[A-Za-z0-9+/]+={0,2}$/;
+const DELIVERY_DOCUMENT_MAX_LENGTH = 1_400_000;
+
+function validateDeliveryDocuments(documents) {
+  if (documents == null) return '';
+  if (!documents || typeof documents !== 'object' || Array.isArray(documents)) return 'Invalid delivery registration documents.';
+  for (const key of DELIVERY_DOCUMENT_KEYS) {
+    const document = documents[key];
+    if (document == null || document === '') continue;
+    if (typeof document !== 'object' || typeof document.data !== 'string'
+      || document.data.length > DELIVERY_DOCUMENT_MAX_LENGTH
+      || !DELIVERY_DOCUMENT_DATA_URL.test(document.data)
+      || (document.name != null && String(document.name).length > 160)) {
+      return `Upload a valid image under 1 MB for ${key}.`;
+    }
+  }
+  return '';
+}
+
+function normalizeDeliveryDocuments(documents) {
+  return Object.fromEntries(DELIVERY_DOCUMENT_KEYS.flatMap(key => {
+    const document = documents?.[key];
+    return document?.data
+      ? [[key, { data: document.data, name: String(document.name || '').slice(0, 160) }]]
+      : [];
+  }));
+}
+
+function canViewDeliveryDocuments(req) {
+  if (req.user?.role === 'main_admin' || req.user?.role === 'website_user') return true;
+  if (!req.user?.employeeId || req.user.deliveryManId) return false;
+  const access = req.user.accessSections || [];
+  return access.includes('all') || access.includes('delivery_management') || access.includes('delivery');
+}
+
+router.get('/delivery-men/:id/documents', auth, (req, res) => {
+  if (!canViewDeliveryDocuments(req)) return res.status(403).json({ message: 'You do not have permission to view delivery registration documents.' });
+  const rider = (store.deliveryMen || []).find(item => item._id === req.params.id && isInAdminWebsiteModule(req, item));
+  if (!rider) return res.status(404).json({ message: 'Delivery rider not found.' });
+  res.json({ documents: normalizeDeliveryDocuments(rider.documents || {}) });
+});
+
+router.get('/delivery-vehicle-categories', auth, (req, res) => {
+  res.json((store.deliveryVehicleCategories || []).filter(item => isInAdminWebsiteModule(req, item)));
+});
+
+router.post('/delivery-vehicle-categories', auth, (req, res) => {
+  const name = String(req.body?.name || '').trim();
+  if (name.length < 2 || name.length > 60) return res.status(400).json({ message: 'Vehicle category name must be between 2 and 60 characters.' });
+  const duplicate = (store.deliveryVehicleCategories || []).some(item => isInAdminWebsiteModule(req, item)
+    && item.name.toLowerCase() === name.toLowerCase());
+  if (duplicate) return res.status(409).json({ message: 'This vehicle category already exists.' });
+  const item = { _id: uuidv4(), name, status: 'active', createdAt: new Date().toISOString(), ...deliveryRecordScope(req) };
+  store.deliveryVehicleCategories.unshift(item);
+  res.status(201).json(item);
+});
+
+router.put('/delivery-vehicle-categories/:id', auth, (req, res) => {
+  const item = (store.deliveryVehicleCategories || []).find(row => row._id === req.params.id && isInAdminWebsiteModule(req, row));
+  if (!item) return res.status(404).json({ message: 'Vehicle category not found.' });
+  const name = String(req.body?.name || '').trim();
+  if (name.length < 2 || name.length > 60) return res.status(400).json({ message: 'Vehicle category name must be between 2 and 60 characters.' });
+  const duplicate = store.deliveryVehicleCategories.some(row => row._id !== item._id
+    && isInAdminWebsiteModule(req, row) && row.name.toLowerCase() === name.toLowerCase());
+  if (duplicate) return res.status(409).json({ message: 'This vehicle category already exists.' });
+  item.name = name;
+  res.json(item);
+});
+
+router.delete('/delivery-vehicle-categories/:id', auth, (req, res) => {
+  const item = (store.deliveryVehicleCategories || []).find(row => row._id === req.params.id && isInAdminWebsiteModule(req, row));
+  if (!item) return res.status(404).json({ message: 'Vehicle category not found.' });
+  const inUse = [...(store.deliveryMen || []), ...(store.deliveryManRequests || [])]
+    .some(row => row.vehicleCategoryId === item._id && isInAdminWebsiteModule(req, row));
+  if (inUse) return res.status(409).json({ message: 'This category is in use by a delivery rider or request.' });
+  store.deliveryVehicleCategories = store.deliveryVehicleCategories.filter(row => row._id !== item._id);
+  res.json({ message: 'Vehicle category deleted.' });
+});
+
+router.get('/delivery-man-requests', auth, (req, res) => {
+  let list = (store.deliveryManRequests || []).filter(item => isInAdminWebsiteModule(req, item));
+  if (req.query.status) list = list.filter(item => item.status === req.query.status);
+  const search = String(req.query.search || '').trim().toLowerCase();
+  if (search) list = list.filter(item => [item.name, item.phone, item.email, item.area].some(value => String(value || '').toLowerCase().includes(search)));
+  res.json(list.map(({ documents, ...item }) => item));
+});
+
+router.get('/delivery-man-requests/:id/documents', auth, (req, res) => {
+  if (!canViewDeliveryDocuments(req)) return res.status(403).json({ message: 'You do not have permission to view delivery registration documents.' });
+  const request = (store.deliveryManRequests || []).find(item => item._id === req.params.id && isInAdminWebsiteModule(req, item));
+  if (!request) return res.status(404).json({ message: 'Delivery man request not found.' });
+  res.json({ documents: normalizeDeliveryDocuments(request.documents || {}) });
+});
+
+router.post('/delivery-man-requests', auth, (req, res) => {
+  const body = req.body || {};
+  const validationError = validDeliveryPerson(body);
+  if (validationError) return res.status(400).json({ message: validationError });
+  const documentsError = validateDeliveryDocuments(body.documents);
+  if (documentsError) return res.status(400).json({ message: documentsError });
+  if (deliveryPhoneExists(req, body.phone)) return res.status(409).json({ message: 'A delivery rider with this phone number already exists.' });
+  const vehicleCategory = (store.deliveryVehicleCategories || []).find(item =>
+    item._id === body.vehicleCategoryId && isInAdminWebsiteModule(req, item));
+  if (!vehicleCategory) return res.status(400).json({ message: 'Select a valid vehicle category.' });
+  const duplicateRequest = (store.deliveryManRequests || []).some(item => item.status === 'Pending'
+    && isInAdminWebsiteModule(req, item)
+    && String(item.phone || '').replace(/\D/g, '') === String(body.phone).replace(/\D/g, ''));
+  if (duplicateRequest) return res.status(409).json({ message: 'A pending delivery man request already uses this phone number.' });
+  const item = {
+    _id: uuidv4(),
+    name: String(body.name).trim(),
+    phone: String(body.phone).trim(),
+    email: String(body.email || '').trim().toLowerCase(),
+    area: String(body.area || '').trim(),
+    location: String(body.location || '').trim(),
+    vehicleCategoryId: vehicleCategory._id,
+    vehicle: vehicleCategory.name,
+    vehicleNumber: String(body.vehicleNumber || '').trim(),
+    documents: normalizeDeliveryDocuments(body.documents || {}),
+    status: 'Pending',
+    createdAt: new Date().toISOString(),
+    ...deliveryRecordScope(req),
+  };
+  store.deliveryManRequests.unshift(item);
+  res.status(201).json(item);
+});
+
+router.put('/delivery-man-requests/:id', auth, (req, res) => {
+  const request = (store.deliveryManRequests || []).find(item => item._id === req.params.id && isInAdminWebsiteModule(req, item));
+  if (!request) return res.status(404).json({ message: 'Delivery man request not found.' });
+  if (request.status !== 'Pending') return res.status(409).json({ message: 'This request has already been reviewed.' });
+  const status = String(req.body?.status || '');
+  if (!['Approved', 'Rejected'].includes(status)) return res.status(400).json({ message: 'Choose Approved or Rejected.' });
+  if (status === 'Approved') {
+    if (deliveryPhoneExists(req, request.phone)) return res.status(409).json({ message: 'A delivery rider with this phone number already exists.' });
+    const rider = {
+      _id: uuidv4(),
+      ...existingDeliveryRecordScope(request, req),
+      name: request.name,
+      phone: request.phone,
+      email: request.email || '',
+      area: request.area || '',
+      location: request.location || '',
+      vehicleCategoryId: request.vehicleCategoryId || '',
+      vehicle: request.vehicle || '',
+      vehicleNumber: request.vehicleNumber || '',
+      documents: normalizeDeliveryDocuments(request.documents || {}),
+      online: false,
+      status: 'active',
+      activeOrders: 0,
+      rating: null,
+      createdAt: new Date().toISOString(),
+    };
+    store.deliveryMen.unshift(rider);
+    request.riderId = rider._id;
+  }
+  request.status = status;
+  request.reviewedAt = new Date().toISOString();
+  const { documents, ...safeRequest } = request;
+  res.json(safeRequest);
+});
+
+router.get('/delivery-reviews', auth, (req, res) => {
+  let list = (store.deliveryReviews || []).filter(item => isInAdminWebsiteModule(req, item));
+  if (req.query.status) list = list.filter(item => item.status === req.query.status);
+  const search = String(req.query.search || '').trim().toLowerCase();
+  if (search) list = list.filter(item => [item.riderName, item.customerName, item.orderNo, item.comment].some(value => String(value || '').toLowerCase().includes(search)));
+  res.json(list);
+});
+
+function refreshDeliveryRiderRating(riderId, scope) {
+  const rider = (store.deliveryMen || []).find(item => item._id === riderId);
+  if (!rider) return;
+  const moduleSlug = normalizeWebsiteModuleSlug(scope.websiteModuleSlug || '');
+  const websiteId = String(scope.websiteId || '');
+  const reviews = (store.deliveryReviews || []).filter(item => item.riderId === riderId
+    && item.status === 'Approved'
+    && normalizeWebsiteModuleSlug(item.websiteModuleSlug || '') === moduleSlug
+    && String(item.websiteId || '') === websiteId);
+  if (!rider.websiteId && websiteId) return;
+  rider.rating = reviews.length
+    ? Number((reviews.reduce((sum, item) => sum + Number(item.rating || 0), 0) / reviews.length).toFixed(1))
+    : null;
+}
+
+router.put('/delivery-reviews/:id', auth, (req, res) => {
+  const review = (store.deliveryReviews || []).find(item => item._id === req.params.id && isInAdminWebsiteModule(req, item));
+  if (!review) return res.status(404).json({ message: 'Delivery review not found.' });
+  const status = String(req.body?.status || '');
+  if (!['Approved', 'Rejected'].includes(status)) return res.status(400).json({ message: 'Choose Approved or Rejected.' });
+  review.status = status;
+  review.reviewedAt = new Date().toISOString();
+  refreshDeliveryRiderRating(review.riderId, review);
+  res.json(review);
+});
+
+router.delete('/delivery-reviews/:id', auth, (req, res) => {
+  const review = (store.deliveryReviews || []).find(item => item._id === req.params.id && isInAdminWebsiteModule(req, item));
+  if (!review) return res.status(404).json({ message: 'Delivery review not found.' });
+  store.deliveryReviews = store.deliveryReviews.filter(item => item._id !== review._id);
+  refreshDeliveryRiderRating(review.riderId, review);
+  res.json({ message: 'Delivery review deleted.' });
+});
+
+router.post('/delivery-men', auth, (req, res) => {
+  const body = req.body || {};
+  const validationError = validDeliveryPerson(body);
+  if (validationError) return res.status(400).json({ message: validationError });
+  const documentsError = validateDeliveryDocuments(body.documents);
+  if (documentsError) return res.status(400).json({ message: documentsError });
+  if (deliveryPhoneExists(req, body.phone)) return res.status(409).json({ message: 'A delivery rider with this phone number already exists.' });
+  const result = deliveryRiderFromBody(req, body);
+  if (result.error) return res.status(400).json({ message: result.error });
+  if (!result.value.vehicle) return res.status(400).json({ message: 'Select a vehicle category.' });
+  const item = { _id: uuidv4(), ...result.value, activeOrders: 0, rating: null, createdAt: new Date().toISOString() };
+  store.deliveryMen.unshift(item);
+  const { documents, ...safeItem } = item;
+  res.status(201).json(safeItem);
+});
+
+router.put('/delivery-men/:id', auth, (req, res) => {
+  const index = (store.deliveryMen || []).findIndex(item => item._id === req.params.id && isInAdminWebsiteModule(req, item));
+  if (index < 0) return res.status(404).json({ message: 'Delivery rider not found.' });
+  const current = store.deliveryMen[index];
+  const body = req.body || {};
+  const validationError = validDeliveryPerson({ ...current, ...body });
+  if (validationError) return res.status(400).json({ message: validationError });
+  const documentsError = validateDeliveryDocuments(body.documents);
+  if (documentsError) return res.status(400).json({ message: documentsError });
+  if (deliveryPhoneExists(req, body.phone ?? current.phone, current._id)) return res.status(409).json({ message: 'A delivery rider with this phone number already exists.' });
+  const result = deliveryRiderFromBody(req, body, current);
+  if (result.error) return res.status(400).json({ message: result.error });
+  store.deliveryMen[index] = { ...result.value, _id: current._id, activeOrders: current.activeOrders || 0, rating: current.rating ?? null };
+  const { documents, ...safeItem } = store.deliveryMen[index];
+  res.json(safeItem);
+});
+
+router.delete('/delivery-men/:id', auth, (req, res) => {
+  const rider = (store.deliveryMen || []).find(item => item._id === req.params.id && isInAdminWebsiteModule(req, item));
+  if (!rider) return res.status(404).json({ message: 'Delivery rider not found.' });
+  const hasActiveOrders = (store.orders || []).some(order => order.rider?._id === rider._id
+    && activeRiderStatuses.has(order.status) && isInAdminWebsiteModule(req, order));
+  if (hasActiveOrders) return res.status(409).json({ message: 'Reassign this rider’s active orders before deleting the rider.' });
+  store.deliveryMen = store.deliveryMen.filter(item => item._id !== rider._id);
+  res.json({ message: 'Delivery rider deleted.' });
 });
 
 const riderLocationLastWrite = new Map();
@@ -5160,6 +5546,31 @@ function businessSettingsResponse(settings = {}) {
   return response;
 }
 
+function validateOrderAlertSounds(value) {
+  const tones = new Set(['classic', 'chime', 'urgent', 'soft', 'silent', 'custom']);
+  const events = ['newOrder', 'riderUpdate'];
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return 'Order alert ringtone settings are invalid.';
+  }
+  for (const event of events) {
+    const sound = value[event];
+    if (!sound || typeof sound !== 'object' || Array.isArray(sound) || !tones.has(sound.tone)) {
+      return `Choose a valid ringtone for ${event === 'newOrder' ? 'new orders' : 'rider updates'}.`;
+    }
+    const audio = String(sound.customAudio || '');
+    if (audio) {
+      const match = audio.match(/^data:audio\/[a-z0-9.+-]+;base64,([A-Za-z0-9+/]+={0,2})$/i);
+      if (!match || Buffer.from(match[1], 'base64').length > 2 * 1024 * 1024) {
+        return 'Custom ringtone files must be valid audio files smaller than 2 MB.';
+      }
+    }
+    if (sound.tone === 'custom' && !audio) {
+      return `Upload a custom ringtone for ${event === 'newOrder' ? 'new orders' : 'rider updates'}.`;
+    }
+  }
+  return '';
+}
+
 async function ensureBusinessSettingsDatabase() {
   if (mongoose.connection.readyState === 1) return;
   try {
@@ -5253,6 +5664,10 @@ router.get('/settings/business', auth, async (req, res) => {
 router.put('/settings/business', auth, async (req, res) => {
   const scope = businessSettingsScope(req);
   const info = businessSettingsModule(req);
+  if (Object.prototype.hasOwnProperty.call(req.body || {}, 'orderAlertSounds')) {
+    const validationError = validateOrderAlertSounds(req.body.orderAlertSounds);
+    if (validationError) return res.status(400).json({ message: validationError });
+  }
   const protectedIntegrationSecretsProvided = BUSINESS_PAYMENT_SECRETS
     .filter(key => !SHOP_PAYMENT_GATEWAY_SECRETS.includes(key))
     .some(key =>
@@ -5531,8 +5946,10 @@ router.post('/zone-location-options', auth, (req, res) => {
 
 router.get('/zones', auth, (req, res) => {
   const websiteId = String(req.user?.websiteId || '');
+  const selectedWebsiteId = req.user?.role === 'main_admin' ? String(req.query.websiteId || '') : '';
   const zones = (store.deliveryZones || []).filter(zone => {
     if (req.user?.role === 'website_user' && (!websiteId || String(zone.websiteId || '') !== websiteId)) return false;
+    if (selectedWebsiteId && zone.websiteId && String(zone.websiteId) !== selectedWebsiteId) return false;
     return isInAdminWebsiteModule(req, zone);
   });
   res.json(zones.map(zone => enrichZone(zone, req)));
@@ -10048,6 +10465,12 @@ router.get('/shop/orders/:id', shopAuth, (req, res) => {
   customerOrder.itemAdjustments = (order.itemAdjustments || [])
     .filter(adjustment => adjustment.type === 'refund' && adjustment.status !== 'failed')
     .map(adjustment => ({ type: 'refund', amount: adjustment.amount, status: adjustment.status, createdAt: adjustment.createdAt }));
+  const deliveryReview = (store.deliveryReviews || []).find(review =>
+    String(review.orderId) === String(order._id) && String(review.customerId) === customerId
+  );
+  customerOrder.deliveryReview = deliveryReview
+    ? { rating: deliveryReview.rating, comment: deliveryReview.comment, status: deliveryReview.status, createdAt: deliveryReview.createdAt }
+    : null;
   const completedDeliveries = riderRecord
     ? riderCompletedCount(riderRecord._id, websiteId, riderRecord.websiteModuleSlug || order.websiteModuleSlug)
     : 0;
@@ -10078,6 +10501,53 @@ router.get('/shop/orders/:id', shopAuth, (req, res) => {
       pickedUpAt: order.rider.pickedUpAt || null,
     } : null,
   });
+});
+
+router.post('/shop/orders/:id/delivery-review', shopAuth, (req, res) => {
+  const customerId = String(req.customer._id || '');
+  const customerEmail = String(req.customer.email || '').trim().toLowerCase();
+  const websiteId = String(req.customer.websiteId || '');
+  const order = (store.orders || []).find(item =>
+    isShopWebsiteRecord(item, req.websiteContext)
+    && String(item.websiteId || '') === websiteId
+    && (String(item.customerId || '') === customerId
+      || (customerEmail && String(item.customerEmail || '').trim().toLowerCase() === customerEmail))
+    && (item._id === req.params.id || String(item.orderNo) === req.params.id || String(item.orderId) === req.params.id)
+  );
+  if (!order) return res.status(404).json({ message: 'Order not found.' });
+  if (order.status !== 'Delivered' || !order.rider?._id) {
+    return res.status(409).json({ message: 'A delivery review is available after an order is delivered and has an assigned rider.' });
+  }
+  const duplicate = (store.deliveryReviews || []).find(review =>
+    String(review.orderId) === String(order._id) && String(review.customerId) === customerId
+  );
+  if (duplicate) return res.status(409).json({ message: 'A review has already been submitted for this delivery.' });
+  const rating = Number(req.body?.rating);
+  const comment = String(req.body?.comment || '').trim();
+  if (!Number.isInteger(rating) || rating < 1 || rating > 5) return res.status(400).json({ message: 'Choose a rating from 1 to 5 stars.' });
+  if (comment.length > 1000) return res.status(400).json({ message: 'Review must be 1000 characters or fewer.' });
+  const rider = (store.deliveryMen || []).find(item => item._id === order.rider._id
+    && (!item.websiteId || String(item.websiteId) === websiteId)
+    && isShopWebsiteRecord(item, req.websiteContext));
+  if (!rider) return res.status(409).json({ message: 'The delivery rider for this order is no longer available.' });
+  const review = {
+    _id: uuidv4(),
+    orderId: order._id,
+    orderNo: String(order.orderNo || order.orderId || order._id),
+    customerId,
+    customerName: String(req.customer.name || ''),
+    riderId: rider._id,
+    riderName: rider.name || order.rider.name || 'Delivery rider',
+    rating,
+    comment,
+    status: 'Pending',
+    createdAt: new Date().toISOString(),
+    websiteId,
+    websiteModuleId: req.customer.websiteModuleId || order.websiteModuleId || '',
+    websiteModuleSlug: normalizeWebsiteModuleSlug(req.customer.websiteModuleSlug || req.websiteContext?.moduleSlug || order.websiteModuleSlug || 'quick-commerce'),
+  };
+  store.deliveryReviews.unshift(review);
+  res.status(201).json(review);
 });
 
 module.exports = router;

@@ -43,6 +43,7 @@ const StoreSingleOrdersPage = lazy(() => import('./WebAdmin/Qucik commerce/Store
 const QuickCommerceOrders = lazy(() => import('./WebAdmin/Qucik commerce/QuickCommerceOrdersPage'));
 const ECommerceDashboardPage = lazy(() => import('./WebAdmin/E-Commerce/ECommerceDashboardPage'));
 const MarketingDashboardPage = lazy(() => import('./WebAdmin/Marketing/MarketingDashboardPage'));
+const OrderAlertSoundsPage = lazy(() => import('./pages/settings/OrderAlertSoundsPage'));
 const MarketingContentPage = lazy(() => import('./WebAdmin/Marketing/MarketingContentPage'));
 const MarketingWebsiteContentPage = lazy(() => import('./WebAdmin/Marketing/MarketingWebsiteContentPage'));
 const MarketingInquiriesPage = lazy(() => import('./WebAdmin/Marketing/MarketingInquiriesPage'));
@@ -54,6 +55,8 @@ const InformationWebDashboardPage = lazy(() => import('./WebAdmin/informastion w
 const WebPageContentPage = lazy(() => import('./WebAdmin/informastion web/WebPageContentPage'));
 const OrderDetailPage = lazy(() => import('./WebAdmin/Qucik commerce/OrderDetailPage'));
 const LiveOrdersTrackingPage = lazy(() => import('./WebAdmin/Qucik commerce/LiveOrdersTrackingPage'));
+const DeliveryManagementPage = lazy(() => import('./WebAdmin/Qucik commerce/DeliveryManagementPage'));
+const DeliveryManagementLayout = lazy(() => import('./WebAdmin/Qucik commerce/components/DeliveryManagementLayout'));
 const RefundsPage = lazy(() => import('./WebAdmin/Qucik commerce/RefundsPage'));
 const RefundDetailPage = lazy(() => import('./WebAdmin/Qucik commerce/RefundDetailPage'));
 const FlashSalesPage = lazy(() => import('./WebAdmin/Qucik commerce/FlashSalesPage'));
@@ -149,6 +152,15 @@ export default function App() {
       <Route path="/website-dashboard" element={<PrivateRoute><PaidWebsiteRoute><WebsiteDashboardPage /></PaidWebsiteRoute></PrivateRoute>} />
       <Route path="/website-renewal" element={<PrivateRoute><PaidWebsiteRoute><WebsiteRenewalPage /></PaidWebsiteRoute></PrivateRoute>} />
       <Route path="/welcome" element={<PrivateRoute><WelcomePage /></PrivateRoute>} />
+      <Route path="/delivery" element={<PrivateRoute><DeliveryManagementLayout /></PrivateRoute>}>
+        <Route index element={<Navigate to="/delivery/riders" replace />} />
+        <Route path="vehicles" element={<DeliveryManagementPage section="vehicles" />} />
+        <Route path="add" element={<DeliveryManagementPage section="add" />} />
+        <Route path="requests" element={<DeliveryManagementPage section="requests" />} />
+        <Route path="riders" element={<DeliveryManagementPage section="riders" />} />
+        <Route path="tracking" element={<LiveOrdersTrackingPage />} />
+        <Route path="reviews" element={<DeliveryManagementPage section="reviews" />} />
+      </Route>
       <Route path="/" element={<PrivateRoute><Layout /></PrivateRoute>}>
         <Route index element={<Navigate to="/quick-commerce" replace />} />
         <Route path="quick-commerce" element={<QuickCommerceAdminHome />} />
@@ -246,6 +258,7 @@ export default function App() {
         <Route path="settings/business" element={<Navigate to="/settings/business/info" replace />} />
         <Route path="settings/business/info" element={<BusinessSettingsLayout><SettingsBusinessPage /></BusinessSettingsLayout>} />
         <Route path="settings/business/colors" element={<BusinessSettingsLayout><SettingsBusinessPage colorsOnly /></BusinessSettingsLayout>} />
+        <Route path="settings/business/order-alerts" element={<BusinessSettingsLayout><OrderAlertSoundsPage /></BusinessSettingsLayout>} />
         <Route path="settings/business/payment" element={<BusinessSettingsLayout><SettingsGenericPage pageKey="payment" /></BusinessSettingsLayout>} />
         <Route path="settings/vendor" element={<BusinessSettingsLayout><SettingsGenericPage pageKey="vendor" /></BusinessSettingsLayout>} />
         <Route path="settings/order" element={<BusinessSettingsLayout><SettingsGenericPage pageKey="orders" /></BusinessSettingsLayout>} />

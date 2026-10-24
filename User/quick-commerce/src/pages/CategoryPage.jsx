@@ -48,6 +48,8 @@ export default function CategoryPage() {
   const [items, setItems] = useState([]);
   const [visualLoading, setVisualLoading] = useState(false);
   const [visualError, setVisualError] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
   const [visualImage, setVisualImage] = useState(() => visualSearch ? readVisualSearchImage() : '');
 
   useEffect(() => {
@@ -73,14 +75,17 @@ export default function CategoryPage() {
   }
 
   useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setLoadError('');
     if (visualSearch) {
-      let cancelled = false;
       const image = readVisualSearchImage();
       setVisualImage(image);
       setVisualError('');
       if (!image) {
         setItems([]);
         setVisualError('Choose an image with the Lens button to start visual search.');
+        setLoading(false);
         return () => { cancelled = true; };
       }
       setVisualLoading(true);
@@ -92,7 +97,7 @@ export default function CategoryPage() {
           if (!ranked.length) setVisualError('No catalog images could be compared. Try another image.');
         })
         .catch(() => { if (!cancelled) { setItems([]); setVisualError('Could not compare this image with the product catalog.'); } })
-        .finally(() => { if (!cancelled) setVisualLoading(false); });
+        .finally(() => { if (!cancelled) { setVisualLoading(false); setLoading(false); } });
       return () => { cancelled = true; };
     }
     setVisualLoading(false);
@@ -100,15 +105,26 @@ export default function CategoryPage() {
     if (wishlistOnly) {
       shop.products({ lat: location?.lat, lng: location?.lng })
         .then(available => {
+          if (cancelled) return;
           const allowedIds = new Set(available.flatMap(item => [item.id, item.productId].filter(Boolean).map(String)));
           setItems(wished.filter(item => allowedIds.has(String(item.id)) || allowedIds.has(String(item.productId))));
         })
-        .catch(() => setItems([]));
-      return;
+        .catch(error => {
+          if (!cancelled) setLoadError(error.response?.data?.message || 'Wishlist products could not be loaded. Please try again.');
+        })
+        .finally(() => { if (!cancelled) setLoading(false); });
+      return () => { cancelled = true; };
     }
     shop.products({ category: productCategory || undefined, brand: brandId || undefined, module: moduleSlug || undefined, q: q || undefined, storeId: storeId || undefined, store: storeName || undefined, sort, lat: location?.lat, lng: location?.lng })
-      .then(setItems)
-      .catch(() => setItems([]));
+      .then(products => { if (!cancelled) setItems(products); })
+      .catch(error => {
+        if (!cancelled) {
+          setItems([]);
+          setLoadError(error.response?.data?.message || 'Products could not be loaded. Please try again.');
+        }
+      })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
   }, [productCategory, brandId, moduleSlug, q, storeId, storeName, sort, wishlistOnly, wished, visualSearch, location?.lat, location?.lng]);
 
   const select = (updates, clearKeys = []) => {
@@ -178,16 +194,24 @@ export default function CategoryPage() {
       title={`${category.name} Categories`} items={subCategories} activeId={subCategory?._id} onChoose={chooseSubCategory} emptyText="No subcategories available."/>}
     {subCategory && <CategoryChoiceSection
       title={`${subCategory.name} Categories`} items={childCategories} activeId={childCategory?._id} onChoose={chooseChildCategory} emptyText="No child categories available."/>}
-    <div className="qc-category-products-grid grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+    {loading && <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4" role="status" aria-label="Loading products">
+      {[0, 1, 2, 3, 4, 5].map(item => <div key={item} aria-hidden="true" className="space-y-2 rounded-xl border border-slate-100 p-2">
+        <div className="aspect-square animate-pulse rounded-lg bg-slate-100" />
+        <div className="h-3 animate-pulse rounded bg-slate-100" />
+        <div className="h-3 w-2/3 animate-pulse rounded bg-slate-100" />
+      </div>)}
+    </div>}
+    {!loading && loadError && <p role="alert" className="py-12 text-center text-sm text-rose-600">{loadError}</p>}
+    {!loading && !loadError && <div className="qc-category-products-grid grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
       {items.map(product => <ProductCard key={product.id || product._id || product.productId} product={product} showWishlistRemove={wishlistOnly}/>) }
-    </div>
-    <div className="qc-product-mobile-carousel">
+    </div>}
+    {!loading && !loadError && <div className="qc-product-mobile-carousel">
       <div className="qc-product-carousel-track no-scrollbar">
         {productPages.map((page, pageIndex) => <div className="qc-product-carousel-page" key={pageIndex}>
           {page.map(product => <ProductCard key={product.id || product._id || product.productId} product={product} showWishlistRemove={wishlistOnly}/>) }
         </div>)}
       </div>
-    </div>
-    {items.length === 0 && !visualLoading && !visualError && <p className="py-16 text-center text-slate-400">No products found in this selection.</p>}
+    </div>}
+    {!loading && !loadError && items.length === 0 && !visualLoading && !visualError && <p className="py-16 text-center text-slate-400">No products found in this selection.</p>}
   </div>;
 }

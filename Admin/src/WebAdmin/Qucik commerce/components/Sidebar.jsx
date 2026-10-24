@@ -5,9 +5,10 @@ import { isWebsiteServiceActive } from '../../../utils/websiteService';
 import {
   LayoutDashboard, Package, ShoppingCart, Megaphone, Store, CalendarDays, Clock3, CircleCheck, LoaderCircle, PackageOpen, PackageCheck, Ban, CircleAlert, Banknote, ListOrdered, ExternalLink,
   ChevronDown, ChevronRight, Search, Settings, Users, Shield, Layers, CreditCard,
-  ShoppingBasket, ReceiptText, Grid3X3, Image, Gift, Bell, Tag, List, PackagePlus,
+  ShoppingBasket, ReceiptText, Grid3X3, Gift, Bell, Tag, List, PackagePlus,
   PackageSearch, Barcode, Upload, Download, RotateCcw, Zap, Smartphone, Truck, Mail, FileText,
-  UserCircle, UserRoundCheck, UserRoundX, MapPin, Star, MessageSquareText, Globe2, Link2
+  UserCircle, UserRoundCheck, UserRoundX, MapPin, Star, MessageSquareText, Globe2, Link2,
+  Bike, UserPlus, UserCheck, ClipboardList
 } from 'lucide-react';
 import { useAuthStore } from '../../../store/useStore';
 import { useModuleStore } from '../../../store/useStore';
@@ -69,7 +70,16 @@ const menuItems = [
       ]},
     ]},
   ] },
-  { label: 'Design Website', icon: Image, path: '/website-builder' },
+  {
+    label: 'Delivery Management', icon: Truck, collapsible: true, children: [
+      { label: 'Vehicles Category', path: '/delivery/vehicles', icon: Bike },
+      { label: 'Add Delivery Man', path: '/delivery/add', icon: UserPlus },
+      { label: 'New Delivery Man', path: '/delivery/requests', icon: ClipboardList, badgeKey: 'delivery-requests', badgeTone: 'orange' },
+      { label: 'Deliveryman List', path: '/delivery/riders', icon: UserCheck },
+      { label: 'Delivery Tracking', path: '/delivery/tracking', icon: MapPin },
+      { label: 'Reviews', path: '/delivery/reviews', icon: Star },
+    ],
+  },
   {
     label: 'Promotion Management', children: [
       { label: 'Campaigns', path: '/promotions/campaigns', icon: Layers },
@@ -139,15 +149,14 @@ const MARKETING_MENU_ITEMS = [
   { label: 'Social APIs', path: '/marketing/social-apis', icon: Link2 },
   ...menuItems.filter(item => item.label === 'Promotion Management'),
 ];
-const QUICK_COMMERCE_MENU_ITEMS = [getDashboardItem({ slug: 'quick-commerce' }), ...menuItems.filter(item => ['Quick Commerce', 'Promotion Management', 'Store Management', 'Customer Management'].includes(item.label))];
+const QUICK_COMMERCE_MENU_ITEMS = [getDashboardItem({ slug: 'quick-commerce' }), ...menuItems.filter(item => ['Quick Commerce', 'Delivery Management', 'Promotion Management', 'Store Management', 'Customer Management'].includes(item.label))];
 const INFORMATION_WEB_MENU_ITEMS = [
   getDashboardItem({ slug: 'information-web' }),
   { label: 'Website Content', path: '/information-web/content', icon: Globe2 },
-  ...menuItems.filter(item => item.label === 'Design Website'),
 ];
 const E_COMMERCE_MENU_ITEMS = [
   getDashboardItem({ slug: 'e-commerce' }),
-  ...menuItems.filter(item => ['Quick Commerce', 'Promotion Management', 'Store Management', 'Customer Management'].includes(item.label))
+  ...menuItems.filter(item => ['Quick Commerce', 'Delivery Management', 'Promotion Management', 'Store Management', 'Customer Management'].includes(item.label))
     .map(item => item.label === 'Quick Commerce' ? { ...item, label: 'E-Commerce Storefront' } : item),
 ];
 const STORE_SINGLE_MENU_ITEMS = [{ label: 'Store single page', icon: Store, children: [
@@ -187,7 +196,7 @@ function MenuItem({ item, depth = 0, openKey, openDepth, onOpenChange, badgeCoun
   const hasChildren = item.children?.length > 0;
   const isNestedLeaf = depth > 1 && !hasChildren && !item.icon;
   const isTopLevelGroup = depth === 0 && hasChildren;
-  const expanded = item.staticGroup || isTopLevelGroup || (openDepth === depth && openKey === item.label);
+  const expanded = item.staticGroup || (isTopLevelGroup && !item.collapsible) || (openDepth === depth && openKey === item.label);
   const pathActive = item.path && item.path !== '#' && (
     item.path === '/orders' ? pathname === '/orders' :
     item.path === '/customers' ? pathname === '/customers' : item.path === '/quick-commerce' ? pathname === '/quick-commerce' : pathname === item.path || pathname.startsWith(`${item.path}/`)
@@ -195,7 +204,7 @@ function MenuItem({ item, depth = 0, openKey, openDepth, onOpenChange, badgeCoun
 
   if (hasChildren) {
     const handleToggle = () => {
-      if (isTopLevelGroup) return;
+      if (isTopLevelGroup && !item.collapsible) return;
       const next = !expanded;
       onOpenChange?.(depth, next ? item.label : null);
     };
@@ -215,7 +224,7 @@ function MenuItem({ item, depth = 0, openKey, openDepth, onOpenChange, badgeCoun
           >
             {item.icon && item.label !== 'E-Commerce Storefront' && <item.icon size={16} className="shrink-0" />}
             {item.label !== 'E-Commerce Storefront' && <span className={isTopLevelGroup ? 'min-w-0 break-words text-xs font-semibold text-gray-400 uppercase tracking-wider' : 'min-w-0 flex-1 break-words text-left font-medium'}>{item.label}</span>}
-            {!isTopLevelGroup && (expanded ? <ChevronDown size={14} className="shrink-0" /> : <ChevronRight size={14} className="shrink-0" />)}
+            {(!isTopLevelGroup || item.collapsible) && (expanded ? <ChevronDown size={14} className="shrink-0" /> : <ChevronRight size={14} className="shrink-0" />)}
           </button>
         )}
 
@@ -283,6 +292,7 @@ export default function Sidebar({ mobileOpen, onClose, websiteAccess, showOwnDom
   const visibleMenuItems = isWebsiteUser
     ? removeWebsiteBuilderLinks(filterMenuByAccess(getAdminSidebarMenu(activeModule), allowedSidebarPaths))
     : getAdminSidebarMenu(activeModule);
+  const sidebarItems = visibleMenuItems.filter(item => item.label !== 'Delivery Management');
   const [activeOpenKey, setActiveOpenKey] = useState(null);
   const [activeOpenDepth, setActiveOpenDepth] = useState(null);
   const [badgeCounts, setBadgeCounts] = useState({ requests: 0 });
@@ -326,12 +336,21 @@ export default function Sidebar({ mobileOpen, onClose, websiteAccess, showOwnDom
   }, [isWebsiteUser, user?.id, user?.websiteId, user?.selectedModuleSlug]);
 
   useEffect(() => {
-    if (isWebsiteUser) return;
+    if (isWebsiteUser) {
+      api.get('/delivery-man-requests', { params: { status: 'Pending' } })
+        .then(({ data }) => setBadgeCounts(current => ({
+          ...current,
+          'delivery-requests': Array.isArray(data) ? data.length : 0,
+        })))
+        .catch(() => {});
+      return;
+    }
     Promise.all([
       api.get('/product-requests').catch(() => ({ data: [] })),
       api.get('/orders/stats').catch(() => ({ data: {} })),
       api.get('/stores/stats').catch(() => ({ data: {} })),
-    ]).then(([reqRes, statsRes, storeRes]) => {
+      api.get('/delivery-man-requests', { params: { status: 'Pending' } }).catch(() => ({ data: [] })),
+    ]).then(([reqRes, statsRes, storeRes, deliveryReqRes]) => {
       const pending = (reqRes.data || []).filter(i => i.status === 'Pending').length;
       const byStatus = statsRes.data?.byStatus || {};
       const refunds = statsRes.data?.refunds || {};
@@ -351,7 +370,7 @@ export default function Sidebar({ mobileOpen, onClose, websiteAccess, showOwnDom
         'refunds-requests': refunds.requests || 0,
         'refunds-refunded': refunds.refunded || 0,
         'stores-pending': storeRes.data?.pending || 0,
-
+        'delivery-requests': Array.isArray(deliveryReqRes.data) ? deliveryReqRes.data.length : 0,
       });
     });
   }, [location.pathname, isWebsiteUser]);
@@ -431,7 +450,7 @@ export default function Sidebar({ mobileOpen, onClose, websiteAccess, showOwnDom
             {onDomainStatusReady && !onDomainPurchased && showOwnDomainOption && <NavLink to="/on-domain" className={({ isActive }) => `flex items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm font-medium ${isActive ? 'bg-[#f0f4ff] text-[#1a3a8a]' : 'text-gray-700 hover:bg-gray-50'}`}><Globe2 size={16}/>On Domain</NavLink>}
             <NavLink to="/website-subscription" className={({ isActive }) => `flex items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm font-medium ${isActive ? 'bg-[#f0f4ff] text-[#1a3a8a]' : 'text-gray-700 hover:bg-gray-50'}`}><CreditCard size={16}/>Plan & Subscription</NavLink>
           </div>}
-          {renderMenu(visibleMenuItems)}
+          {renderMenu(sidebarItems)}
         </nav>
       </aside>
     </>

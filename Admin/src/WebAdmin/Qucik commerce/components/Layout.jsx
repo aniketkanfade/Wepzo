@@ -47,7 +47,7 @@ export default function Layout() {
   const isSubdomainPage = location.pathname === '/sub-domain';
   const isDomainSetupPage = isOnDomainPage || isSubdomainPage;
   const isWebsiteUser = user?.role === 'website_user';
-  const isSettings = location.pathname.startsWith('/settings') || ['/components', '/plans', '/users', '/roles'].includes(location.pathname);
+  const isSettings = location.pathname.startsWith('/settings') || ['/components', '/plans', '/users', '/roles', '/website-builder'].includes(location.pathname);
   useEffect(() => {
     if (!isWebsiteUser || !user?.selectedModuleSlug) return;
     const module = { _id: user.selectedModuleSlug, id: user.selectedModuleSlug, slug: user.selectedModuleSlug, name: user.selectedModuleName || user.selectedModuleSlug, type: user.selectedModuleType || user.selectedModuleSlug };
@@ -94,9 +94,9 @@ export default function Layout() {
   }, [isWebsiteUser, user?.selectedModuleSlug, user?.selectedModuleId]);
 
   const effectiveWebsiteAccess = isWebsiteUser
-    ? { ...websiteAccess, sidebar: [...new Set([...websiteAccess.sidebar, '/website-builder', '/settings/third-party', ...(websiteDomainOptions.showOwnDomainOption ? ['/on-domain'] : [])])] }
+    ? { ...websiteAccess, sidebar: [...new Set([...websiteAccess.sidebar, '/settings/third-party', ...(websiteDomainOptions.showOwnDomainOption ? ['/on-domain'] : [])])] }
     : websiteAccess;
-  const websiteBuilderAccess = isWebsiteUser || websiteAccess.header.includes('/website-builder') || websiteAccess.sidebar.includes('/website-builder');
+  const websiteBuilderAccess = websiteAccess.header.includes('/website-builder') || websiteAccess.sidebar.includes('/website-builder');
   const allKnownPaths = [...new Set([...getWebsiteHeaderAccessPaths(), ...flattenMenuPaths(ADMIN_SIDEBAR_MENU), '/website-subscription', '/settings/welcome-page', '/settings/on-domain', '/on-domain'])];
   const allowedPaths = [...new Set([...effectiveWebsiteAccess.header, ...effectiveWebsiteAccess.sidebar, ...(isWebsiteUser && websiteBuilderAccess ? ['/website-subscription'] : [])])];
   const settingsAllowedPaths = allowedPaths.includes('/settings/business')
@@ -105,13 +105,13 @@ export default function Layout() {
   const hasBuilderAccess = websiteBuilderAccess;
   const currentRouteAllowed = matchesAllowedRoute(location.pathname, allowedPaths, allKnownPaths);
   if (isWebsiteUser && (!websiteAccessReady || !websitePaymentReady || !websiteDomainOptionsReady)) return <div className="flex h-screen items-center justify-center bg-slate-50 text-sm text-slate-500">Loading website access...</div>;
+  if (isWebsiteUser && websiteAccessReady && isWebsiteBuilder && !hasBuilderAccess) {
+    return <WebsiteAccessDenied onSignOut={() => { resetBuilder(); logout(); }} />;
+  }
   if (isWebsiteUser && websiteServiceEnded && isWebsiteBuilder) return <Navigate to="/website-dashboard" replace />;
   if (isWebsiteUser && isWebsiteBuilder) return <Navigate to="/sub-domain" replace />;
   if (isWebsiteUser && isSubdomainPage && !websiteDomainOptions.showSubdomainOption) return <Navigate to="/welcome" replace />;
   if (isWebsiteUser && isOnDomainPage && !websiteDomainOptions.showOwnDomainOption) return <Navigate to="/welcome" replace />;
-  if (isWebsiteUser && websiteAccessReady && isWebsiteBuilder && !hasBuilderAccess) {
-    return <WebsiteAccessDenied onSignOut={() => { resetBuilder(); logout(); }} />;
-  }
   if (isWebsiteUser && websiteAccessReady && websitePaymentReady && !hasPaidWebsite && !isWebsiteBuilder && !isDomainSetupPage && !['/website-dashboard', '/website-subscription'].includes(location.pathname)) {
     if (websiteServiceEnded) return <Navigate to="/website-dashboard" replace />;
     if (hasBuilderAccess) return <Navigate to="/sub-domain" replace />;
@@ -133,7 +133,7 @@ export default function Layout() {
             ? <SettingsSidebar mobileOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
             : <Sidebar mobileOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />)}
         <div className={`flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden ${isThemeColorsPage ? 'theme-colors-route-content' : ''}`}>
-          {!isDomainSetupPage && (!isWebsiteUser || hasPaidWebsite) && (!isWebsiteUser || effectiveWebsiteAccess.header.length > 0) && <Header onMenuToggle={() => setSidebarOpen(!sidebarOpen)} showMenuToggle={!isWebsiteBuilder} websiteAccess={effectiveWebsiteAccess}/>}
+          {!isDomainSetupPage && (!isWebsiteUser || hasPaidWebsite) && (!isWebsiteUser || effectiveWebsiteAccess.header.length > 0 || effectiveWebsiteAccess.sidebar.some(path => path.startsWith('/delivery/'))) && <Header onMenuToggle={() => setSidebarOpen(!sidebarOpen)} showMenuToggle={!isWebsiteBuilder || isSettings} websiteAccess={effectiveWebsiteAccess}/>}
           <main className={`min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto bg-[#f3f4f6] ${isDomainSetupPage ? 'p-0' : 'p-4 lg:p-6'}`}>
             <PageErrorBoundary key={`${location.pathname}:${activeModule?.slug || 'ecommerce'}`}><Outlet /></PageErrorBoundary>
           </main>

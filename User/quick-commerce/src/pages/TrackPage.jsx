@@ -29,6 +29,10 @@ export default function TrackPage() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
   const [lastUpdated, setLastUpdated] = useState(null);
+  const [reviewRating, setReviewRating] = useState(5);
+  const [reviewComment, setReviewComment] = useState('');
+  const [reviewSubmitting, setReviewSubmitting] = useState(false);
+  const [reviewError, setReviewError] = useState('');
   const business = useSiteSettings(s => s.business);
 
   useEffect(() => {
@@ -73,6 +77,25 @@ export default function TrackPage() {
   const submit = event => {
     event.preventDefault();
     if (query.trim()) navigate(`/track/${encodeURIComponent(query.trim())}`);
+  };
+
+  const submitDeliveryReview = async event => {
+    event.preventDefault();
+    if (!order || !rider) return;
+    setReviewSubmitting(true);
+    setReviewError('');
+    try {
+      const review = await shop.reviewDelivery(order._id || order.orderNo || order.orderId, {
+        rating: reviewRating,
+        comment: reviewComment.trim(),
+      });
+      setOrder(current => current ? { ...current, deliveryReview: review } : current);
+      setReviewComment('');
+    } catch (requestError) {
+      setReviewError(requestError.response?.data?.message || 'Your delivery review could not be submitted. Please try again.');
+    } finally {
+      setReviewSubmitting(false);
+    }
   };
 
   const bill = order?.bill || null;
@@ -135,6 +158,27 @@ export default function TrackPage() {
           </section>
 
           {terminal && order.status === 'Delivered' && <div className="flex items-center gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900"><ShieldCheck size={22} /><div><p className="font-bold">Your order has been delivered</p><p className="mt-0.5 text-emerald-800">Thanks for ordering with WEPZO.</p></div></div>}
+          {terminal && order.status === 'Delivered' && rider && (order.deliveryReview
+            ? <div role="status" className="rounded-2xl border border-emerald-200 bg-white p-4 shadow-sm">
+              <p className="font-bold text-slate-900">Thanks for rating your delivery</p>
+              <p className="mt-1 text-sm text-slate-600">Your {order.deliveryReview.rating}-star review is {order.deliveryReview.status === 'Approved' ? 'published' : order.deliveryReview.status === 'Rejected' ? 'not published' : 'waiting for review'}.</p>
+            </div>
+            : <form onSubmit={submitDeliveryReview} className="space-y-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+              <div><h2 className="font-extrabold text-slate-900">Rate your delivery</h2><p className="mt-1 text-sm text-slate-500">How was your experience with {rider.name || 'your delivery rider'}?</p></div>
+              <div className="flex gap-1" role="group" aria-label="Rate delivery from 1 to 5 stars">
+                {Array.from({ length: 5 }, (_, index) => {
+                  const value = index + 1;
+                  return <button key={value} type="button" onClick={() => setReviewRating(value)} aria-label={`${value} star${value === 1 ? '' : 's'}`} aria-pressed={reviewRating === value} className="rounded-md p-1 text-amber-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-600">
+                    <Star size={25} className={value <= reviewRating ? 'fill-current' : ''} />
+                  </button>;
+                })}
+              </div>
+              <label className="block text-xs font-semibold text-slate-600">Comment (optional)
+                <textarea value={reviewComment} onChange={event => setReviewComment(event.target.value)} maxLength={1000} rows={3} className="mt-1 w-full resize-y rounded-xl border border-slate-300 px-3 py-2.5 text-sm font-normal text-slate-800" placeholder="Share a little feedback about the delivery…" />
+              </label>
+              {reviewError && <p role="alert" className="text-sm text-rose-700">{reviewError}</p>}
+              <button type="submit" disabled={reviewSubmitting} className="rounded-xl bg-brand-600 px-4 py-2.5 text-sm font-bold text-white disabled:opacity-50">{reviewSubmitting ? 'Submitting…' : 'Submit review'}</button>
+            </form>)}
           {error && <p role="status" className="rounded-xl bg-amber-50 px-4 py-2.5 text-xs text-amber-900">{error} {lastUpdated && `Last successful update ${lastUpdated.toLocaleTimeString()}.`}</p>}
 
           <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,1.4fr)_minmax(340px,.85fr)]">

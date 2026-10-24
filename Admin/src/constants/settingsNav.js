@@ -8,6 +8,7 @@ import {
 export const BUSINESS_SETTINGS_SECTIONS = [
   { label: 'Business Info', path: '/settings/business/info', icon: Building2 },
   { label: 'Theme Colors', path: '/settings/business/colors', icon: Settings },
+  { label: 'Order Alerts', path: '/settings/business/order-alerts', icon: Bell },
   { label: 'Email & SMS', path: '/settings/email-sms', icon: Mail },
   { label: 'App Settings', path: '/settings/app', icon: Smartphone },
   { label: 'Payment', path: '/settings/business/payment', icon: CreditCard },
@@ -30,6 +31,7 @@ const businessManagementItems = [
     ],
   },
   { label: 'Business Settings', path: '/settings/business/info', icon: Building2 },
+  { label: 'Design Website', path: '/website-builder', icon: Globe },
   { label: 'System Tax', path: '/settings/zones/tax', icon: Receipt },
 ];
 
@@ -103,6 +105,7 @@ export const SETTINGS_SIDEBARS = {
 };
 
 export function settingsVariantFromPath(pathname) {
+  if (pathname === '/website-builder') return 'settings';
   if (['/components', '/plans', '/users', '/settings/website-access', '/settings/website-subscriptions', '/settings/welcome-page', '/settings/on-domain'].includes(pathname)) return 'mainAdmin';
   if (pathname.startsWith('/settings/modules')) return 'modules';
   if (pathname.startsWith('/settings')) return 'settings';

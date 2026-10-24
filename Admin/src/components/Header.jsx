@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
-import { Search, Bell, ChevronDown, LayoutGrid, Menu, Settings, Globe, X, Layers, UserRound, LogOut, Ban, Trash2, ExternalLink, CreditCard } from 'lucide-react';
+import { Search, Bell, ChevronDown, Menu, Settings, Globe, X, Layers, UserRound, LogOut, Ban, Trash2, ExternalLink, CreditCard, Bike } from 'lucide-react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
-import { useAuthStore, useBuilderStore } from '../store/useStore';
+import { useAuthStore, useBuilderStore, useModuleStore } from '../store/useStore';
 import useAdminOrderAlerts from '../hooks/useAdminOrderAlerts';
 import api from '../api/axios';
 import { WEBSITE_HEADER_ACCESS_OPTIONS } from '../constants/websiteAccess';
@@ -24,9 +24,17 @@ function flattenNavigation(items) {
   ]).filter((item, index, all) => all.findIndex(candidate => candidate.path === item.path) === index);
 }
 
+function flattenDeliveryItems(items) {
+  return items.flatMap(item => [
+    ...(item.path && item.path !== '#' ? [{ path: item.path, label: item.label }] : []),
+    ...flattenDeliveryItems(item.children || []),
+  ]);
+}
+
 export default function Header({ onMenuToggle, showMenuToggle = true, websiteAccess }) {
   const { user, logout } = useAuthStore();
   const resetBuilder = useBuilderStore(state => state.reset);
+  const activeModule = useModuleStore(state => state.activeModule);
   const navigate = useNavigate();
   const location = useLocation();
   const [open, setOpen] = useState(false);
@@ -121,6 +129,9 @@ export default function Header({ onMenuToggle, showMenuToggle = true, websiteAcc
     const allowedPaths = new Set([...(websiteAccess?.header || []), ...(websiteAccess?.sidebar || [])]);
     const module = { slug: user.selectedModuleSlug, name: user.selectedModuleName };
     const moduleAdminPath = getAdminModulePath(module);
+    const deliveryModuleItems = flattenDeliveryItems(
+      getAdminSidebarMenu(module).find(item => item.label === 'Delivery Management')?.children || []
+    ).filter(item => allowedPaths.has(item.path));
     const headerOptions = [
       { path: moduleAdminPath, label: `${user.selectedModuleName || 'Module'} Admin` },
       ...WEBSITE_HEADER_ACCESS_OPTIONS.filter(item => item.path !== '/website-builder'),
@@ -134,16 +145,16 @@ export default function Header({ onMenuToggle, showMenuToggle = true, websiteAcc
     const matchingSearchItems = searchQuery.trim()
       ? searchItems.filter(item => `${item.label} ${item.path}`.toLowerCase().includes(searchQuery.trim().toLowerCase())).slice(0, 8)
       : [];
-    if (!links.length) return null;
-    return <header className="sticky top-0 z-30 flex min-h-14 items-center justify-between border-b border-gray-200 bg-white px-5 py-2">
-      <nav className="flex flex-wrap items-center gap-5 text-sm">{links.map(item => {
+    if (!links.length && !deliveryModuleItems.length) return null;
+    return <header className="sticky top-0 z-30 flex min-h-14 flex-wrap items-center justify-between gap-x-3 gap-y-2 border-b border-gray-200 bg-white px-3 py-2 sm:px-4 lg:px-5">
+      <nav className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2 text-xs sm:gap-x-4 sm:text-sm">{links.map(item => {
         const children = grantedHeaderChildren(item.children || [], granted);
         const destination = item.path === '/settings/business' && !granted.has(item.path)
           ? (children.find(child => child.path === '/settings/business/info')?.path || children[0]?.path || item.path)
           : item.path;
         return <Link key={item.path} to={destination} className={location.pathname.startsWith(item.path) ? 'font-semibold text-blue-700' : 'text-gray-600 hover:text-blue-700'}>{item.label}</Link>;
-      })}</nav>
-      {websiteAccess.header.includes('/website-builder') && <div className="relative hidden min-w-48 flex-1 px-4 md:block">
+      })}{deliveryModuleItems.length > 0 && <button type="button" onClick={() => navigate(deliveryModuleItems.find(item => item.path === '/delivery/riders')?.path || deliveryModuleItems[0].path)} className="inline-flex items-center gap-1.5 font-semibold text-[#1a3a8a] hover:text-blue-700"><Bike size={16} />Delivery</button>}</nav>
+      {(websiteAccess.header.includes('/website-builder') || websiteAccess.sidebar.includes('/website-builder')) && <div className="relative hidden min-w-48 flex-1 px-4 md:block">
         <Search size={15} className="absolute left-7 top-1/2 -translate-y-1/2 text-slate-400"/>
         <input value={searchQuery} onFocus={() => setSearchOpen(true)} onChange={event => { setSearchQuery(event.target.value); setSearchOpen(true); }} onKeyDown={event => { if (event.key === 'Escape') setSearchOpen(false); if (event.key === 'Enter' && matchingSearchItems[0]) { navigate(matchingSearchItems[0].path); setSearchQuery(''); setSearchOpen(false); } }} placeholder="Search granted pages..." aria-label="Search granted admin pages" className="w-full rounded-lg border border-slate-200 bg-slate-50 py-2 pl-9 pr-3 text-sm outline-none focus:border-blue-300 focus:bg-white"/>
         {searchOpen && searchQuery.trim() && <div className="absolute left-4 right-0 top-full z-50 mt-1 max-h-80 overflow-y-auto rounded-lg border border-slate-200 bg-white py-1 shadow-xl">{matchingSearchItems.length ? matchingSearchItems.map(item => <button type="button" key={item.path} onClick={() => { navigate(item.path); setSearchQuery(''); setSearchOpen(false); }} className="block w-full px-3 py-2 text-left text-sm text-slate-700 hover:bg-blue-50"><span className="block font-medium">{item.label}</span><span className="text-xs text-slate-400">{item.path}</span></button>) : <p className="px-3 py-2 text-sm text-slate-500">No granted pages found.</p>}</div>}
@@ -166,22 +177,24 @@ export default function Header({ onMenuToggle, showMenuToggle = true, websiteAcc
       </div>
     </header>;
   }
+  const adminDeliveryItems = flattenDeliveryItems(
+    getAdminSidebarMenu(activeModule).find(item => item.label === 'Delivery Management')?.children || []
+  );
   return (
-    <header className="bg-white border-b border-gray-200 px-4 lg:px-6 py-3 flex items-center justify-between sticky top-0 z-30">
-      <div className="flex items-center gap-4">
+    <header className="sticky top-0 z-30 flex items-center justify-between gap-2 border-b border-gray-200 bg-white px-3 py-2.5 sm:px-4 lg:px-6">
+      <div className="flex min-w-0 flex-1 items-center gap-2 sm:gap-4">
         {showMenuToggle && (
           <button type="button" onClick={onMenuToggle} className="p-2 hover:bg-gray-100 rounded-lg lg:hidden">
             <Menu size={20} className="text-gray-600" />
           </button>
         )}
-        <nav className="hidden md:flex items-center gap-5 text-sm">
-          <Link to="/settings/access/customer" className="text-gray-600 hover:text-primary-600 transition">Customers</Link>
-          <Link to="/orders" className="text-gray-600 hover:text-primary-600 transition">Transactions & Reports</Link>
+        <nav className="hidden min-w-0 items-center gap-2 whitespace-nowrap text-xs lg:flex xl:gap-4 xl:text-sm">
+          <Link to="/orders" className="text-gray-600 transition hover:text-primary-600">Transactions & Reports</Link>
 
           <div className="relative" ref={wrapRef}>
             <button type="button" onClick={() => setOpen(v => !v)}
-              className={`flex items-center gap-1.5 transition ${settingsActive ? 'text-[#1a3a8a] font-semibold' : 'text-gray-600 hover:text-primary-600'}`}>
-              <Settings size={15} /> Settings <ChevronDown size={14} />
+              className={`flex items-center gap-1 transition ${settingsActive ? 'font-semibold text-[#1a3a8a]' : 'text-gray-600 hover:text-primary-600'}`}>
+              <Settings size={14} /> Settings <ChevronDown size={13} />
             </button>
             {open && (
               <div className="absolute left-0 top-full mt-2 w-[320px] bg-white rounded-xl shadow-xl border border-gray-100 overflow-hidden z-50">
@@ -209,23 +222,18 @@ export default function Header({ onMenuToggle, showMenuToggle = true, websiteAcc
             )}
           </div>
 
-          {user?.role !== 'website_user' && <button
-            type="button"
-            onClick={() => navigate('/website-builder')}
-            className="text-primary-600 font-semibold hover:text-primary-700 transition flex items-center gap-1.5"
-          >
-            <LayoutGrid size={16} />
-            Design Website
-          </button>}
         </nav>
       </div>
 
-      <div className="flex items-center gap-3">
-        <div className="relative hidden lg:block">
+      <div className="flex shrink-0 items-center gap-1 sm:gap-2 lg:gap-3">
+        {adminDeliveryItems.length > 0 && <button type="button" onClick={() => navigate('/delivery/riders')} className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2 py-2 text-xs font-semibold text-slate-700 transition hover:border-blue-200 hover:bg-blue-50 hover:text-[#1a3a8a] sm:px-2.5 xl:gap-1.5 xl:px-3 xl:text-sm">
+          <Bike size={16} /><span className="hidden xl:inline">Delivery</span>
+        </button>}
+        <div className="relative hidden xl:block">
           <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
           <input
             type="text" placeholder="Search..."
-            className="pl-9 pr-4 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm w-56 focus:outline-none focus:ring-2 focus:ring-primary-500"
+            className="w-36 rounded-lg border border-gray-200 bg-gray-50 py-2 pl-9 pr-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
           />
         </div>
 
@@ -240,7 +248,7 @@ export default function Header({ onMenuToggle, showMenuToggle = true, websiteAcc
             setOrderNotificationNotice(error.message || 'Could not enable mobile order alerts.');
           }
           navigate('/orders');
-        }} className="relative p-2 hover:bg-gray-100 rounded-lg">
+        }} className="relative rounded-lg p-1.5 hover:bg-gray-100 sm:p-2">
           <Bell size={20} className="text-gray-600" />
           {unread > 0 && (
             <span className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] bg-red-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center px-1">{unread > 9 ? '9+' : unread}</span>
@@ -248,7 +256,7 @@ export default function Header({ onMenuToggle, showMenuToggle = true, websiteAcc
         </button>
 
         <div className="relative group">
-          <button type="button" className="flex items-center gap-2 pl-1 pr-3 py-1 hover:bg-gray-100 rounded-lg">
+          <button type="button" className="flex items-center gap-1 rounded-lg py-1 pl-1 pr-1 hover:bg-gray-100 sm:gap-2 sm:pr-3">
             <img
               src="https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=64&h=64&fit=crop"
               alt="Admin"
@@ -278,30 +286,40 @@ export default function Header({ onMenuToggle, showMenuToggle = true, websiteAcc
       {orderNotificationNotice && <div role="status" className="absolute right-3 top-full z-50 mt-2 max-w-[min(92vw,360px)] rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700 shadow-lg">{orderNotificationNotice}</div>}
 
       {toast && (
-        <div className="absolute left-1/2 -translate-x-1/2 top-full mt-2 z-50 w-[min(92vw,420px)]">
-          <button
-            type="button"
-            onClick={() => { dismissToast(); clearUnread(); navigate('/orders'); }}
-            className="w-full text-left bg-[#1a3a8a] text-white rounded-xl shadow-xl px-4 py-3 flex items-start gap-3"
-          >
-            <span className="mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white/15">
-              <Bell size={16} />
+        <div
+          role="status"
+          aria-live="polite"
+          className="fixed inset-x-0 top-0 z-[100] px-3 sm:left-auto sm:right-5 sm:w-[min(92vw,420px)] sm:px-0"
+          style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 0.75rem)' }}
+        >
+          <div className="mx-auto flex max-w-md items-start gap-3 rounded-2xl border border-blue-200 bg-gradient-to-br from-[#1a3a8a] to-[#2855b8] p-4 text-white shadow-2xl ring-1 ring-black/10 sm:mx-0">
+            <span className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-white/15">
+              <Bell size={21} />
             </span>
-            <span className="min-w-0 flex-1">
-              <span className="block text-sm font-semibold">New order #{toast.orderNo}</span>
-              <span className="block text-xs text-blue-100 mt-0.5">
-                {toast.customer || 'Customer'}{toast.amount != null ? ` · ₹${toast.amount}` : ''}
-              </span>
-            </span>
-            <span
-              role="button"
-              tabIndex={0}
-              onClick={(e) => { e.stopPropagation(); dismissToast(); }}
-              className="p-1 rounded-md hover:bg-white/10"
+            <button
+              type="button"
+              onClick={() => { dismissToast(); clearUnread(); navigate('/orders'); }}
+              className="min-w-0 flex-1 text-left"
+              aria-label={`Open order ${toast.orderNo}`}
             >
-              <X size={14} />
-            </span>
-          </button>
+              <span className="block text-xs font-semibold uppercase tracking-wider text-blue-100">{toast.type === 'rider-update' ? 'Rider / order update' : 'New order received'}</span>
+              <span className="mt-0.5 block truncate text-base font-bold">Order #{toast.orderNo}</span>
+              <span className="mt-1 block truncate text-sm text-blue-100">
+                {toast.type === 'rider-update'
+                  ? `Rider: ${toast.rider || 'Not assigned'} · ${toast.status || 'Order updated'}`
+                  : `${toast.customer || 'Customer'}${toast.amount != null ? ` · ₹${toast.amount}` : ''}`}
+              </span>
+              <span className="mt-2 block text-xs font-semibold text-white/90">Tap to view order</span>
+            </button>
+            <button
+              type="button"
+              onClick={dismissToast}
+              aria-label="Dismiss new order notification"
+              className="rounded-lg p-2 text-white/80 hover:bg-white/15 hover:text-white"
+            >
+              <X size={17} />
+            </button>
+          </div>
         </div>
       )}
     </header>

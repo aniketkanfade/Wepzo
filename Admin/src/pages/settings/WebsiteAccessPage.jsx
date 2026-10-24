@@ -44,11 +44,17 @@ export default function WebsiteAccessPage() {
   const [loadError, setLoadError] = useState('');
   const [saving, setSaving] = useState(false);
   const selectedModule = useMemo(() => modules.find(module => module.slug === selectedSlug), [modules, selectedSlug]);
-  const sidebarMenu = useMemo(() => selectedModule ? getAdminSidebarMenu(selectedModule) : [], [selectedModule]);
+  const sidebarMenu = useMemo(() => selectedModule ? [
+    {
+      label: 'Business Management',
+      children: [{ label: 'Design Website', path: '/website-builder' }],
+    },
+    ...getAdminSidebarMenu(selectedModule).filter(item => item.path !== '/website-builder'),
+  ] : [], [selectedModule]);
   const headerAccessOptions = useMemo(() => selectedModule ? [
     { path: getAdminModulePath(selectedModule), label: `${selectedModule.name} Admin` },
-    ...WEBSITE_HEADER_ACCESS_OPTIONS,
-  ] : WEBSITE_HEADER_ACCESS_OPTIONS, [selectedModule]);
+    ...WEBSITE_HEADER_ACCESS_OPTIONS.filter(item => item.path !== '/website-builder'),
+  ] : WEBSITE_HEADER_ACCESS_OPTIONS.filter(item => item.path !== '/website-builder'), [selectedModule]);
   const activeModuleKey = getAdminModuleKey(activeModule);
 
   useEffect(() => {
@@ -72,8 +78,13 @@ export default function WebsiteAccessPage() {
 
   useEffect(() => {
     const access = selectedModule?.access || {};
-    setHeaderAccess(Array.isArray(access.header) ? access.header : []);
-    setSidebarAccess(Array.isArray(access.sidebar) ? access.sidebar : []);
+    const currentHeader = Array.isArray(access.header) ? access.header : [];
+    const currentSidebar = Array.isArray(access.sidebar) ? access.sidebar : [];
+    setHeaderAccess(currentHeader.filter(path => path !== '/website-builder'));
+    setSidebarAccess([...new Set([
+      ...currentSidebar,
+      ...(currentHeader.includes('/website-builder') ? ['/website-builder'] : []),
+    ])]);
   }, [selectedModule]);
 
   const toggle = (setter, values, enabled) => setter(current => enabled

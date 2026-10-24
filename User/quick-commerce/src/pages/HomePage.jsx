@@ -189,17 +189,47 @@ export default function HomePage({ componentEnabled = () => true, builderPreview
   ).values()].slice(0, 9);
 
   useEffect(() => {
-    shop.home({ lat: currentLocation?.lat, lng: currentLocation?.lng, module: moduleSlug || undefined })
-      .then(home => shop.products({ lat: currentLocation?.lat, lng: currentLocation?.lng, module: moduleSlug || undefined, sort: 'rating' })
-        .then(allProducts => ({ ...home, allProducts }))
-        .catch(() => home))
-      .then(setData)
-      .catch(() => setErr('Catalog load nahi hua. Backend (port 5000) start karein.'));
+    let active = true;
+    let allProducts = null;
+    const params = { lat: currentLocation?.lat, lng: currentLocation?.lng, module: moduleSlug || undefined };
+    setErr('');
+
+    shop.home(params)
+      .then(home => {
+        if (!active) return;
+        setData(allProducts ? { ...home, allProducts } : home);
+      })
+      .catch(() => {
+        if (!active) return;
+        setErr('Catalog load nahi hua. Backend (port 5000) start karein.');
+      });
+
+    shop.products({ ...params, sort: 'rating' })
+      .then(products => {
+        if (!active) return;
+        allProducts = products;
+        setData(current => current ? { ...current, allProducts: products } : current);
+      })
+      .catch(() => {});
+
+    return () => { active = false; };
   }, [currentLocation?.lat, currentLocation?.lng, moduleSlug]);
 
-
   if (err) return <p className="max-w-[1280px] mx-auto px-4 py-16 text-center text-rose-600">{err}</p>;
-  if (!data) return <p className="max-w-[1280px] mx-auto px-4 py-16 text-center text-slate-400">Loading store</p>;
+  if (!data) return <div className="mx-auto w-full max-w-[1280px] space-y-5 px-4 py-4" role="status" aria-label="Loading store">
+    <span className="sr-only">Loading store</span>
+    <div className="h-52 animate-pulse rounded-2xl bg-slate-100 sm:h-64" />
+    {[0, 1, 2].map(section => <section key={section} className="space-y-3 rounded-2xl border border-slate-100 p-4">
+      <div className="h-5 w-40 animate-pulse rounded bg-slate-100" />
+      <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 lg:grid-cols-6">
+        {[0, 1, 2, 3, 4, 5].map(card => <div key={card} className="space-y-2 rounded-xl border border-slate-100 p-2">
+          <div className="aspect-square animate-pulse rounded-lg bg-slate-100" />
+          <div className="h-3 animate-pulse rounded bg-slate-100" />
+          <div className="h-3 w-2/3 animate-pulse rounded bg-slate-100" />
+        </div>)}
+      </div>
+    </section>)}
+  </div>;
 
   return (
     <div className="qc-home max-w-[1280px] mx-auto px-4 py-4 space-y-5">
@@ -224,7 +254,7 @@ export default function HomePage({ componentEnabled = () => true, builderPreview
           query.set('categoryId', c._id);
           query.set('category', c.name);
           return <Link key={c._id} to={'/c?' + query.toString()} className="qc-category-card w-28 shrink-0">
-            <div className="qc-category-image-tile">{c.image && <img src={c.image} alt="" />}</div>
+            <div className="qc-category-image-tile">{c.image && <img src={c.image} alt="" loading="lazy" decoding="async" />}</div>
             <span>{c.name}</span>
           </Link>;
         })}

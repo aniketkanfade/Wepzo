@@ -9,14 +9,19 @@ export default function BusinessSettingsLayout({ children }) {
   const { pathname } = useLocation();
   const { activeModule } = useModuleStore();
   const moduleKey = getAdminModuleKey(activeModule);
-  const visibleSections = moduleKey === 'marketing'
-    ? BUSINESS_SETTINGS_SECTIONS.filter(section => [
-      '/settings/business/info',
-      '/settings/business/colors',
-      '/settings/email-sms',
-      '/settings/app',
-    ].includes(section.path))
-    : BUSINESS_SETTINGS_SECTIONS;
+  const supportsOrderAlerts = ['quick-commerce', 'e-commerce', 'store-single'].includes(moduleKey);
+  const visibleSections = BUSINESS_SETTINGS_SECTIONS.filter(section => {
+    if (section.path === '/settings/business/order-alerts' && !supportsOrderAlerts) return false;
+    if (moduleKey === 'marketing') {
+      return [
+        '/settings/business/info',
+        '/settings/business/colors',
+        '/settings/email-sms',
+        '/settings/app',
+      ].includes(section.path);
+    }
+    return true;
+  });
   const tabsRef = useRef(null);
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(false);
