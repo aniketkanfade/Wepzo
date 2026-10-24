@@ -98,7 +98,12 @@ export default function Layout() {
     : websiteAccess;
   const websiteBuilderAccess = websiteAccess.header.includes('/website-builder') || websiteAccess.sidebar.includes('/website-builder');
   const allKnownPaths = [...new Set([...getWebsiteHeaderAccessPaths(), ...flattenMenuPaths(ADMIN_SIDEBAR_MENU), '/website-subscription', '/settings/welcome-page', '/settings/on-domain', '/on-domain'])];
-  const allowedPaths = [...new Set([...effectiveWebsiteAccess.header, ...effectiveWebsiteAccess.sidebar, ...(isWebsiteUser && websiteBuilderAccess ? ['/website-subscription'] : [])])];
+  const allowedPaths = [...new Set([
+    ...effectiveWebsiteAccess.header,
+    ...effectiveWebsiteAccess.sidebar,
+    ...(effectiveWebsiteAccess.header.includes('/orders') || effectiveWebsiteAccess.sidebar.includes('/orders') ? ['/transactions-reports'] : []),
+    ...(isWebsiteUser && websiteBuilderAccess ? ['/website-subscription'] : []),
+  ])];
   const settingsAllowedPaths = allowedPaths.includes('/settings/business')
     ? [...allowedPaths, '/settings/business/info']
     : allowedPaths;

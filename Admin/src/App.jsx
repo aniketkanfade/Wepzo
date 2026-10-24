@@ -102,6 +102,7 @@ const StoreSingleAdminHome = lazy(() => import('./WebAdmin/Qucik commerce/StoreS
 const StoreSingleCatalogPage = lazy(() => import('./WebAdmin/Qucik commerce/StoreSingleCatalogPage'));
 const StoreSingleSettingsPage = lazy(() => import('./WebAdmin/Qucik commerce/StoreSingleSettingsPage'));
 const QuickCommerceZonesPage = lazy(() => import('./WebAdmin/Qucik commerce/QuickCommerceZonesPage'));
+const TransactionsReportsPage = lazy(() => import('./pages/TransactionsReportsPage'));
 
 function PrivateRoute({ children }) {
   const { token } = useAuthStore();
@@ -249,6 +250,7 @@ export default function App() {
         <Route path="quick-commerce/flash-sales/:saleId/edit" element={<FlashSaleFormPage />} />
         <Route path="orders/flash-sales" element={<Navigate to="/quick-commerce/flash-sales" replace />} />
         <Route path="orders/view/:orderId" element={<OrderDetailPage />} />
+        <Route path="transactions-reports" element={<TransactionsReportsPage />} />
         <Route path="orders/live" element={<LiveOrdersTrackingPage />} />
         <Route path="orders/quick-commerce" element={<QuickCommerceOrders />} />
         <Route path="orders/:status" element={<StoreSingleOrdersPage />} />

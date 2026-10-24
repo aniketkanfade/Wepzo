@@ -4197,6 +4197,158 @@ router.get('/stores/stats', auth, (req, res) => {
   });
 });
 
+router.get('/transactions-reports', auth, (req, res) => {
+  const mainAdmin = req.user?.role === 'main_admin';
+  if (!mainAdmin && req.user?.role === 'website_user') {
+    const moduleSlug = adminWebsiteModuleSlug(req);
+    const module = (store.websiteModules || []).find(item => websiteModuleSlugFor(item) === moduleSlug);
+    const allowedPaths = new Set([...(module?.access?.header || []), ...(module?.access?.sidebar || [])]);
+    if (!allowedPaths.has('/transactions-reports') && !allowedPaths.has('/orders')) {
+      return res.status(403).json({ message: 'Transactions & Reports access has not been granted for this website.' });
+    }
+  } else if (!mainAdmin && req.user?.employeeId) {
+    const access = req.user.accessSections || [];
+    if (!access.includes('all') && !access.includes('transactions_reports') && !access.includes('transactions-reports') && !access.includes('orders')) {
+      return res.status(403).json({ message: 'Transactions & Reports access is required.' });
+    }
+  } else if (!mainAdmin) {
+    return res.status(403).json({ message: 'Admin access is required.' });
+  }
+
+  ensureOrders();
+  const orders = (store.orders || []).filter(order => isInAdminWebsiteData(req, order));
+  const activeOrders = orders.filter(order => !['cancelled', 'failed', 'payment pending'].includes(String(order.status || '').toLowerCase()));
+  const deliveredOrders = activeOrders.filter(order => String(order.status || '').toLowerCase() === 'delivered');
+  const orderAmount = order => Number(order.amount ?? order.total ?? order.details?.billing?.total) || 0;
+  const stores = (store.stores || []).filter(item => isInAdminWebsiteModule(req, item));
+  const riders = (store.deliveryMen || []).filter(item => isInAdminWebsiteModule(req, item));
+  const customers = (store.customers || []).filter(item => isInAdminWebsiteData(req, item));
+  const customerRows = customers.map(customer => {
+    const moduleWallet = customer.walletByModule?.[adminWebsiteModuleSlug(req)];
+    const savedWalletTransactions = Array.isArray(customer.walletTransactions)
+      ? customer.walletTransactions
+      : Array.isArray(customer.wallet?.transactions) ? customer.wallet.transactions : [];
+    const walletTransactions = Array.isArray(moduleWallet?.transactions)
+      ? moduleWallet.transactions
+      : savedWalletTransactions.filter(transaction => isInAdminWebsiteModule(req, transaction));
+    const customerOrders = activeOrders.filter(order =>
+      String(order.customerId || order.userId || '') === String(customer._id)
+      || (customer.phone && String(order.phone || '').replace(/\D/g, '') === String(customer.phone).replace(/\D/g, ''))
+      || (customer.email && String(order.email || order.customerEmail || '').toLowerCase() === String(customer.email).toLowerCase())
+    );
+    const withdrawalTransactions = walletTransactions.filter(transaction =>
+      /withdraw/i.test(String(transaction.type || transaction.transactionType || ''))
+    );
+    return {
+      id: String(customer._id),
+      name: customer.name || 'Customer',
+      phone: customer.phone || '',
+      orderCount: customerOrders.length,
+      spent: customerOrders.reduce((total, order) => total + orderAmount(order), 0),
+      walletBalance: Number(moduleWallet?.balance ?? (adminWebsiteModuleInfo(req).quickCommerce ? customer.walletBalance ?? customer.wallet?.balance : 0)) || 0,
+      walletWithdrawn: withdrawalTransactions.length
+        ? withdrawalTransactions.reduce((total, transaction) => total + Math.abs(Number(transaction.amount) || 0), 0)
+        : null,
+      walletTransactions: walletTransactions.length,
+    };
+  });
+  const storeRows = stores.map(item => {
+    const storeOrders = activeOrders.filter(order => belongsToStore(order, item));
+    const sales = storeOrders.reduce((total, order) => total + orderAmount(order), 0);
+    const withdrawn = Number(item.withdraws) || 0;
+    return {
+      id: String(item._id || item.storeId),
+      name: item.name || 'Store',
+      owner: item.ownerName || '',
+      orderCount: storeOrders.length,
+      sales,
+      withdrawn,
+      remaining: Math.max(0, sales - withdrawn),
+    };
+  });
+  const riderRows = riders.map(rider => {
+    const riderOrders = orders.filter(order =>
+      String(order.rider?._id || order.riderId || order.deliveryManId || '') === String(rider._id)
+    );
+    const completedOrders = riderOrders.filter(order => String(order.status || '').toLowerCase() === 'delivered');
+    const wallet = rider.wallet && typeof rider.wallet === 'object' ? rider.wallet : {};
+    const withdrawn = rider.withdrawnAmount ?? rider.totalWithdrawn ?? rider.withdraws ?? wallet.withdrawn;
+    const balance = wallet.balance ?? rider.walletBalance ?? rider.availableBalance;
+    return {
+      id: String(rider._id),
+      name: rider.name || 'Delivery rider',
+      phone: rider.phone || '',
+      orderCount: riderOrders.length,
+      deliveredCount: completedOrders.length,
+      deliveredOrderValue: completedOrders.reduce((total, order) => total + orderAmount(order), 0),
+      withdrawn: Number.isFinite(Number(withdrawn)) ? Number(withdrawn) : null,
+      remaining: Number.isFinite(Number(balance)) ? Number(balance) : null,
+    };
+  });
+
+  const response = {
+    scope: { module: adminWebsiteModuleInfo(req).module?.name || adminWebsiteModuleSlug(req) },
+    summary: {
+      orderCount: activeOrders.length,
+      sales: activeOrders.reduce((total, order) => total + orderAmount(order), 0),
+      deliveredSales: deliveredOrders.reduce((total, order) => total + orderAmount(order), 0),
+      storeWithdrawn: storeRows.reduce((total, item) => total + item.withdrawn, 0),
+      storeRemaining: storeRows.reduce((total, item) => total + item.remaining, 0),
+      customerWalletBalance: customerRows.reduce((total, item) => total + item.walletBalance, 0),
+    },
+    orders: activeOrders.slice().sort((a, b) => orderCreatedMs(b) - orderCreatedMs(a)).slice(0, 100).map(order => ({
+      id: String(order._id),
+      orderNo: order.orderNo || order.orderId || String(order._id),
+      date: order.createdAt || order.orderDate || order.date || '',
+      customer: order.customer || '',
+      store: order.store || '',
+      rider: order.rider?.name || '',
+      amount: orderAmount(order),
+      status: order.status || '',
+      payment: order.payment || order.paymentMethod || '',
+    })),
+    stores: storeRows,
+    riders: riderRows,
+    customers: customerRows,
+  };
+
+  if (mainAdmin) {
+    const websiteOwners = (store.users || []).filter(user => user.role === 'website_user').map(user => {
+      const websites = (store.websites || []).filter(item => String(item.userId) === String(user._id));
+      const purchases = websites.map(website => website.purchase).filter(Boolean);
+      const legacyPurchase = user.marketingSubscription || user.subscription;
+      if (legacyPurchase && !purchases.includes(legacyPurchase)) purchases.push(legacyPurchase);
+      const paidPayments = purchases.flatMap(purchase =>
+        Array.isArray(purchase.payments) && purchase.payments.length
+          ? purchase.payments
+          : [purchase]
+      ).filter(payment => String(payment.status || '').toLowerCase() === 'paid');
+      const domainPayments = (store.ownDomainOrders || []).filter(order =>
+        String(order.userId) === String(user._id) && String(order.status || '').toLowerCase() === 'paid'
+      );
+      const paidAmount = paidPayments.reduce((total, payment) =>
+        total + (Number(payment.totalAmount || payment.amount) || 0), 0
+      ) + domainPayments.reduce((total, payment) => total + (Number(payment.totalAmount || payment.amount) || 0), 0);
+      const dueAmount = purchases.reduce((total, purchase) => total + (Number(purchase.balanceDue) || 0), 0);
+      return {
+        id: String(user._id),
+        name: user.name || 'Website owner',
+        email: user.email || '',
+        website: websites.map(website => website.name).filter(Boolean).join(', '),
+        module: [...new Set(websites.map(website => website.websiteModuleSlug).filter(Boolean))].join(', ') || user.selectedModuleName || user.selectedModuleSlug || '',
+        status: purchases.map(purchase => purchase.status).filter(Boolean).join(', ') || (domainPayments.length ? 'paid' : 'No purchase'),
+        paidAmount,
+        balanceDue: dueAmount,
+        paymentCount: paidPayments.length + domainPayments.length,
+      };
+    });
+    response.websiteOwners = websiteOwners;
+    response.summary.websiteOwnerPayments = websiteOwners.reduce((total, owner) => total + owner.paidAmount, 0);
+  }
+
+  res.json(response);
+});
+
 router.get('/stores/bulk/history/import', auth, (req, res) => res.json(store.storeImportHistory.filter(item => isInAdminWebsiteModule(req, item))));
 router.get('/stores/bulk/history/export', auth, (req, res) => res.json(store.storeExportHistory.filter(item => isInAdminWebsiteModule(req, item))));
 

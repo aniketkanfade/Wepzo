@@ -129,6 +129,7 @@ export default function Header({ onMenuToggle, showMenuToggle = true, websiteAcc
   if (user?.role === 'website_user') {
     const granted = new Set(websiteAccess?.header || []);
     const allowedPaths = new Set([...(websiteAccess?.header || []), ...(websiteAccess?.sidebar || [])]);
+    if (allowedPaths.has('/orders')) allowedPaths.add('/transactions-reports');
     const module = { slug: user.selectedModuleSlug, name: user.selectedModuleName };
     const moduleAdminPath = getAdminModulePath(module);
     const deliveryModuleItems = flattenDeliveryItems(
@@ -138,7 +139,9 @@ export default function Header({ onMenuToggle, showMenuToggle = true, websiteAcc
       { path: moduleAdminPath, label: `${user.selectedModuleName || 'Module'} Admin` },
       ...WEBSITE_HEADER_ACCESS_OPTIONS.filter(item => item.path !== '/website-builder'),
     ];
-    const links = headerOptions.filter(item => granted.has(item.path) || grantedHeaderChildren(item.children || [], granted).length > 0);
+    const links = headerOptions.filter(item => granted.has(item.path)
+      || (item.path === '/transactions-reports' && granted.has('/orders'))
+      || grantedHeaderChildren(item.children || [], granted).length > 0);
     const searchItems = flattenNavigation([
       ...getAdminSidebarMenu(module),
       ...SETTINGS_SIDEBARS.settings.items,
@@ -185,6 +188,13 @@ export default function Header({ onMenuToggle, showMenuToggle = true, websiteAcc
   const adminDeliveryItems = flattenDeliveryItems(
     getAdminSidebarMenu(activeModule).find(item => item.label === 'Delivery Management')?.children || []
   );
+  const employeeAccess = user?.accessSections || [];
+  const canViewTransactionsReports = user?.role === 'main_admin'
+    || !user?.employeeId
+    || employeeAccess.includes('all')
+    || employeeAccess.includes('transactions_reports')
+    || employeeAccess.includes('transactions-reports')
+    || employeeAccess.includes('orders');
   return (
     <header className="sticky top-0 z-30 flex flex-wrap items-center justify-between gap-x-2 gap-y-1.5 border-b border-gray-200 bg-white px-2.5 py-1.5 sm:px-4 sm:py-2 lg:flex-nowrap lg:gap-2 lg:px-6 lg:py-2.5">
       <div className="flex min-w-0 flex-1 items-center gap-1.5 sm:gap-4">
@@ -194,7 +204,7 @@ export default function Header({ onMenuToggle, showMenuToggle = true, websiteAcc
           </button>
         )}
         <nav className="hidden min-w-0 items-center gap-2 whitespace-nowrap text-xs lg:flex xl:gap-4 xl:text-sm">
-          <Link to="/orders" className="text-gray-600 transition hover:text-primary-600">Transactions & Reports</Link>
+          {canViewTransactionsReports && <Link to="/transactions-reports" className="text-gray-600 transition hover:text-primary-600">Transactions & Reports</Link>}
 
           <div className="relative" ref={wrapRef}>
             <button type="button" onClick={() => setOpen(v => !v)}

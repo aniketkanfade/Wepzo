@@ -2,7 +2,7 @@
 
 export const WEBSITE_HEADER_ACCESS_OPTIONS = [
   { path: '/customers', label: 'Customers' },
-  { path: '/orders', label: 'Transactions & Reports' },
+  { path: '/transactions-reports', label: 'Transactions & Reports' },
   {
     path: '/settings/business',
     label: 'Settings',
