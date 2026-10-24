@@ -1,0 +1,12 @@
+{
+  "name": "WEPZO Quick Commerce",
+  "short_name": "WEPZO Shop",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#f4510b",
+  "icons": [
+    { "src": "/wepzo-favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}

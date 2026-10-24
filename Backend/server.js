@@ -61,6 +61,8 @@ async function bootstrap() {
   }
   console.log('MongoDB connected');
   await require('./models/PlatformData').createIndexes();
+  await require('./models/OrderPushSubscription').createIndexes();
+  await require('./models/OrderNotificationConfig').createIndexes();
   await loadPersistedFromMongo();
   await require('./models/ShopperState').syncIndexes();
 

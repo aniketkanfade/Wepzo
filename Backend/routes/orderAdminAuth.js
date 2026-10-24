@@ -2,7 +2,7 @@ const crypto = require('crypto');
 const express = require('express');
 const router = express.Router();
 const cookieName = 'morrow_main_admin';
-const maxAgeSeconds = 60 * 60 * 24 * 7;
+const maxAgeSeconds = 60 * 60 * 24 * 365;
 const adminEmail = String(process.env.MAIN_ADMIN_EMAIL || '').trim().toLowerCase();
 const adminPassword = process.env.MAIN_ADMIN_PASSWORD || '';
 

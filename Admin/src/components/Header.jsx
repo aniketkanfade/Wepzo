@@ -36,9 +36,10 @@ export default function Header({ onMenuToggle, showMenuToggle = true, websiteAcc
   const [profileOpen, setProfileOpen] = useState(false);
   const [accountActionError, setAccountActionError] = useState('');
   const [accountActionLoading, setAccountActionLoading] = useState(false);
+  const [orderNotificationNotice, setOrderNotificationNotice] = useState('');
   const wrapRef = useRef(null);
   const settingsActive = location.pathname.startsWith('/settings') || ['/components', '/plans', '/users', '/roles'].includes(location.pathname);
-  const { toast, unread, dismissToast, clearUnread } = useAdminOrderAlerts(user?.role !== 'website_user' || websiteAccess?.header?.includes('/orders'));
+  const { toast, unread, dismissToast, clearUnread, enableNotifications } = useAdminOrderAlerts(user?.role !== 'website_user' || websiteAccess?.header?.includes('/orders'));
 
   useEffect(() => {
     const onDoc = (e) => {
@@ -230,7 +231,16 @@ export default function Header({ onMenuToggle, showMenuToggle = true, websiteAcc
 
         {user?.role !== 'website_user' && <ModuleSwitcher />}
 
-        <button type="button" onClick={() => { clearUnread(); navigate('/orders'); }} className="relative p-2 hover:bg-gray-100 rounded-lg">
+        <button type="button" title="Enable mobile order alerts and open orders" aria-label="Enable mobile order alerts and open orders" onClick={async () => {
+          clearUnread();
+          try {
+            await enableNotifications();
+            setOrderNotificationNotice('Mobile order alerts are enabled.');
+          } catch (error) {
+            setOrderNotificationNotice(error.message || 'Could not enable mobile order alerts.');
+          }
+          navigate('/orders');
+        }} className="relative p-2 hover:bg-gray-100 rounded-lg">
           <Bell size={20} className="text-gray-600" />
           {unread > 0 && (
             <span className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] bg-red-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center px-1">{unread > 9 ? '9+' : unread}</span>
@@ -264,6 +274,8 @@ export default function Header({ onMenuToggle, showMenuToggle = true, websiteAcc
           </div>
         </div>
       </div>
+
+      {orderNotificationNotice && <div role="status" className="absolute right-3 top-full z-50 mt-2 max-w-[min(92vw,360px)] rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700 shadow-lg">{orderNotificationNotice}</div>}
 
       {toast && (
         <div className="absolute left-1/2 -translate-x-1/2 top-full mt-2 z-50 w-[min(92vw,420px)]">

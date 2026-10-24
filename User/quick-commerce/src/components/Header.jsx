@@ -1,5 +1,5 @@
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { ChevronDown, Heart, Search, ShoppingCart, User, MapPin, Home, Mic, ClipboardList, Wallet, Tag, Award, Gift, Truck, Zap, LogOut } from 'lucide-react';
+import { ChevronDown, Heart, Search, ShoppingCart, User, MapPin, Home, Mic, ClipboardList, Wallet, Tag, Award, Gift, Truck, Zap, LogOut, Bell } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { useCart } from '../store/cart';
 import { useLocationStore } from '../store/location';
@@ -12,6 +12,7 @@ import CartDrawer from './CartDrawer';
 import { useSiteSettings } from '../store/siteSettings';
 import googleLensIcon from '../assets/google-lens-icon.svg';
 import { prepareVisualSearchImage, setVisualSearchImage } from '../utils/visualSearch';
+import { enableCustomerOrderNotifications } from '../lib/orderNotifications';
 
 function locationSubtitle(current) {
   if (!current) return 'Select location';
@@ -78,6 +79,8 @@ export default function Header({ componentEnabled = () => true }) {
   const recognitionRef = useRef(null);
   const [searchNotice, setSearchNotice] = useState('');
   const [imageSearching, setImageSearching] = useState(false);
+  const [orderNotificationNotice, setOrderNotificationNotice] = useState('');
+  const [orderNotificationsEnabled, setOrderNotificationsEnabled] = useState(() => typeof Notification !== 'undefined' && Notification.permission === 'granted');
 
   useEffect(() => {
     const openLocation = () => setOpen(true);
@@ -432,6 +435,17 @@ export default function Header({ componentEnabled = () => true }) {
               {profileItems.map(([Icon, label, href]) => <Link key={href} role="menuitem" to={href} onClick={() => setMenu(false)} className="flex items-center gap-3 px-4 py-2.5 text-sm text-slate-800 hover:bg-violet-50"><Icon size={17} className="shrink-0 text-slate-500"/><span>{label}</span></Link>)}
               {componentEnabled('quick-commerce-favorites') && <Link role="menuitem" to="/c?wishlist=1" onClick={() => setMenu(false)} className="flex items-center gap-3 px-4 py-2.5 text-sm text-slate-800 hover:bg-violet-50"><Heart size={17} className="shrink-0 text-slate-500"/><span>Favorites</span>{wishCount > 0 && <span className="ml-auto rounded-full bg-rose-100 px-2 py-0.5 text-[10px] font-semibold text-rose-600">{wishCount}</span>}</Link>}
               <Link role="menuitem" to="/track" onClick={() => setMenu(false)} className="mt-1 flex items-center gap-3 border-t border-slate-200 px-4 py-2.5 text-sm text-slate-800 hover:bg-violet-50"><Truck size={17} className="text-slate-500"/><span>Track Order</span></Link>
+              <button type="button" role="menuitem" onClick={async () => {
+                setOrderNotificationNotice('');
+                try {
+                  await enableCustomerOrderNotifications();
+                  setOrderNotificationsEnabled(true);
+                  setOrderNotificationNotice('Order alerts are enabled on this phone.');
+                } catch (error) {
+                  setOrderNotificationNotice(error.message || 'Could not enable order alerts.');
+                }
+              }} className="flex w-full items-center gap-3 border-t border-slate-100 px-4 py-2.5 text-left text-sm text-slate-800 hover:bg-violet-50"><Bell size={17} className="text-slate-500"/><span>{orderNotificationsEnabled ? 'Refresh phone order alerts' : 'Enable phone order alerts'}</span></button>
+              {orderNotificationNotice && <p role="status" className="mx-3 mb-2 rounded-lg bg-violet-50 px-3 py-2 text-xs text-violet-800">{orderNotificationNotice}</p>}
               <button type="button" role="menuitem" onClick={() => { setMenu(false); logout(); navigate('/'); }} className="flex w-full items-center gap-3 border-t border-slate-100 px-4 py-2.5 text-left text-sm text-slate-800 hover:bg-violet-50"><LogOut size={17} className="text-slate-500"/><span>Logout</span></button>
             </> : <>
               {componentEnabled('quick-commerce-favorites') && <Link role="menuitem" to="/c?wishlist=1" onClick={() => setMenu(false)} className="flex items-center gap-3 px-4 py-3 text-sm text-slate-800 hover:bg-violet-50"><Heart size={17}/><span>Favorites</span>{wishCount > 0 && <span className="ml-auto rounded-full bg-rose-100 px-2 py-0.5 text-[10px] font-semibold text-rose-600">{wishCount}</span>}</Link>}

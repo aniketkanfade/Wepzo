@@ -16,6 +16,14 @@ const { v4: uuidv4 } = require('uuid');
 const { store, schedulePersist, persistNowStrict } = require('../lib/memoryStore');
 const BusinessSettings = require('../models/BusinessSettings');
 const ShopperState = require('../models/ShopperState');
+const {
+  getPublicKey: getOrderNotificationPublicKey,
+  saveSubscription: saveOrderPushSubscription,
+  removeSubscription: removeOrderPushSubscription,
+  notifyAdminsOfNewOrder,
+  notifyCustomerOfNewOrder,
+  notifyCustomerOfOrderStatus,
+} = require('../lib/orderPushNotifications');
 const WEB_PAGE_DEFAULT_CONTENT = require('../../shared/webPageDefaults.json');
 const {
   attachStoreRef, syncData, recomputeStoreCounts, cascadeDeleteStore,
@@ -521,7 +529,7 @@ const JWT_VERIFY_SECRETS = [...new Set([
   'wepzo-dev',
   'wepzo_super_secret_key_change_in_production',
 ].filter(Boolean))];
-const token = (id, extra = {}) => jwt.sign({ id, ...extra }, JWT_SIGN_SECRET, { expiresIn: '7d' });
+const token = (id, extra = {}) => jwt.sign({ id, ...extra }, JWT_SIGN_SECRET, { expiresIn: '365d' });
 function normalizeWebsiteModuleSlug(value) {
   const raw = String(value || '').trim().toLowerCase().replace(/_/g, '-');
   if (!raw) return '';
@@ -600,7 +608,7 @@ function readShopToken(req) {
   try { return decodeURIComponent(cookie.slice('wepzo_shop_session='.length)); } catch { return ''; }
 }
 
-function setShopSessionCookie(req, res, value, maxAge = 60 * 60 * 24 * 7) {
+function setShopSessionCookie(req, res, value, maxAge = 60 * 60 * 24 * 365) {
   const secure = process.env.NODE_ENV === 'production' || process.env.RENDER === 'true' || req.get('x-forwarded-proto') === 'https' ? '; Secure' : '';
   res.setHeader('Set-Cookie', `wepzo_shop_session=${encodeURIComponent(value)}; Path=/; Max-Age=${maxAge}; HttpOnly; SameSite=Lax${secure}`);
 }
@@ -3043,6 +3051,7 @@ router.put('/orders/:id', auth, (req, res) => {
   if (idx === -1) return res.status(404).json({ message: 'Order not found' });
   const updates = { ...req.body };
   const current = store.orders[idx];
+  const statusChanged = Boolean(updates.status && updates.status !== current.status);
 
   // Live GPS is written only by the assigned rider endpoint. Generic order
   // edits must never be able to replace a rider identity or GPS fix.
@@ -3089,6 +3098,7 @@ router.put('/orders/:id', auth, (req, res) => {
     updates.refundCancelledAt = formatNow();
   }
   store.orders[idx] = { ...current, ...updates, websiteModuleSlug: adminWebsiteModuleSlug(req), _id: current._id };
+  if (statusChanged) notifyCustomerOfOrderStatus(store.orders[idx], updates.status);
   res.json(store.orders[idx]);
 });
 
@@ -7520,6 +7530,8 @@ function finalizeShopPayment(order, paymentId) {
   }
   syncData(store);
   if (!wasPaid) {
+    notifyAdminsOfNewOrder(order);
+    notifyCustomerOfNewOrder(order);
     void sendShopOrderNotifications(order).catch(error => {
       console.error(`Order email notification failed for ${order.orderNo}:`, error.message || 'Unexpected notification error.');
     });
@@ -8147,6 +8159,45 @@ const sweepExpiredOnDomainSubscriptions = async () => {
     onDomainExpirySweepRunning = false;
   }
 };
+
+router.get('/order-notifications/vapid-public-key', async (_req, res) => {
+  try {
+    res.set('Cache-Control', 'public, max-age=3600').json({ publicKey: await getOrderNotificationPublicKey() });
+  } catch (error) {
+    res.status(503).json({ message: error.message || 'Order notifications are unavailable.' });
+  }
+});
+
+router.post('/order-notifications/subscription', auth, async (req, res) => {
+  const user = req.user || {};
+  const ownerId = String(user._id || user.employeeId || user.id || '');
+  if (!ownerId) return res.status(401).json({ message: 'Please sign in to enable order notifications.' });
+  try {
+    await saveOrderPushSubscription({
+      subscription: req.body?.subscription,
+      ownerType: 'admin',
+      ownerId,
+      role: user.role || '',
+      websiteId: user.websiteId || req.get('X-Website-Id') || '',
+      websiteModuleId: user.selectedModuleId || user.websiteModuleId || req.get('X-Website-Module-Id') || '',
+      websiteModuleSlug: user.selectedModuleSlug || user.websiteModuleSlug || req.get('X-Website-Module') || '',
+    });
+    res.status(201).json({ ok: true });
+  } catch (error) {
+    res.status(error.status || 503).json({ message: error.message || 'Could not save the notification subscription.' });
+  }
+});
+
+router.delete('/order-notifications/subscription', auth, async (req, res) => {
+  const user = req.user || {};
+  const ownerId = String(user._id || user.employeeId || user.id || '');
+  try {
+    await removeOrderPushSubscription(req.body?.endpoint, 'admin', ownerId);
+    res.json({ ok: true });
+  } catch (error) {
+    res.status(503).json({ message: error.message || 'Could not remove the notification subscription.' });
+  }
+});
 const onDomainExpiryWorker = setInterval(sweepExpiredOnDomainSubscriptions, 60 * 1000);
 onDomainExpiryWorker.unref?.();
 setTimeout(sweepExpiredOnDomainSubscriptions, 5000).unref?.();
@@ -9144,6 +9195,29 @@ router.post('/shop/auth/logout', (req, res) => {
   setShopSessionCookie(req, res, '', 0);
   res.json({ ok: true });
 });
+router.post('/shop/notifications/subscription', shopAuth, async (req, res) => {
+  try {
+    await saveOrderPushSubscription({
+      subscription: req.body?.subscription,
+      ownerType: 'customer',
+      ownerId: req.customer._id,
+      websiteId: req.customer.websiteId || '',
+      websiteModuleId: req.customer.websiteModuleId || '',
+      websiteModuleSlug: req.customer.websiteModuleSlug || req.websiteContext?.moduleSlug || '',
+    });
+    res.status(201).json({ ok: true });
+  } catch (error) {
+    res.status(error.status || 503).json({ message: error.message || 'Could not save the notification subscription.' });
+  }
+});
+router.delete('/shop/notifications/subscription', shopAuth, async (req, res) => {
+  try {
+    await removeOrderPushSubscription(req.body?.endpoint, 'customer', req.customer._id);
+    res.json({ ok: true });
+  } catch (error) {
+    res.status(503).json({ message: error.message || 'Could not remove the notification subscription.' });
+  }
+});
 router.put('/shop/auth/me', shopAuth, (req, res) => {
   const name = String(req.body?.name || '').trim();
   const phone = String(req.body?.phone || '').replace(/\D/g, '');
@@ -9722,6 +9796,8 @@ router.post('/shop/orders', shopAuth, async (req, res) => {
   };
   store.orders.unshift(order);
   if (paymentMethod !== 'ONLINE') {
+    notifyAdminsOfNewOrder(order);
+    notifyCustomerOfNewOrder(order);
     void sendShopOrderNotifications(order).catch(error => {
       console.error(`Order email notification failed for ${order.orderNo}:`, error.message || 'Unexpected notification error.');
     });

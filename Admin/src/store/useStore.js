@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { revokeAdminOrderNotifications } from '../lib/orderNotifications';
 
 const normalizeModuleKey = (value, name = '') => {
   const raw = String(value || '').trim().toLowerCase().replace(/_/g, '-');
@@ -96,6 +97,7 @@ export const useAuthStore = create(set => ({
     return { user };
   }),
   logout: () => {
+    revokeAdminOrderNotifications().catch(() => {});
     localStorage.removeItem('user');
     localStorage.removeItem('token');
     localStorage.removeItem('adminModule');

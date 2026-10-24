@@ -1,0 +1,12 @@
+{
+  "name": "WEPZO Admin",
+  "short_name": "WEPZO Admin",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f8fafc",
+  "theme_color": "#1a3a8a",
+  "icons": [
+    { "src": "/wepzo-favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}

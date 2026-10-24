@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { BUILDER_PREVIEW, getWebsiteId, imageOf, request } from '../lib/storefront'
+import { enableCustomerOrderNotifications, playOrderAlert, revokeCustomerOrderNotifications, showCustomerOrderNotification, unlockOrderAlertSound } from '../lib/orderNotifications'
 
 const isActiveCategory = item => item.status !== false
   && !['false', 'inactive', 'disabled', '0'].includes(String(item.status ?? '').trim().toLowerCase())
@@ -51,6 +52,8 @@ export default function useStorefront() {
   const [authOpen, setAuthOpen] = useState(false)
   const [authMode, setAuthMode] = useState('login')
   const [customer, setCustomer] = useState(null)
+  const [orderNotificationsEnabled, setOrderNotificationsEnabled] = useState(() => typeof Notification !== 'undefined' && Notification.permission === 'granted')
+  const [orderNotificationNotice, setOrderNotificationNotice] = useState('')
   const [message, setMessage] = useState('')
   const [checkout, setCheckout] = useState(() => currentPageFromPath() === 'checkout')
   const [address, setAddress] = useState('')
@@ -79,6 +82,12 @@ export default function useStorefront() {
       themeColors: previewTheme.themeColors || current.themeColors || {},
     }
   }, [home?.business, previewTheme])
+
+  useEffect(() => {
+    const unlock = () => unlockOrderAlertSound()
+    window.addEventListener('pointerdown', unlock, { once: true })
+    return () => window.removeEventListener('pointerdown', unlock)
+  }, [])
 
   useEffect(() => {
     let active = true
@@ -122,6 +131,35 @@ export default function useStorefront() {
     loadShopperState()
     return () => { active = false }
   }, [])
+
+  useEffect(() => {
+    if (!customer?._id && !customer?.id) return undefined
+    let active = true
+    let previousStatuses = null
+    const refreshOrderStatuses = async () => {
+      try {
+        const orders = await request('/shop/orders')
+        if (!active || !Array.isArray(orders)) return
+        const nextStatuses = new Map(orders.map(order => [String(order._id || order.orderNo), String(order.status || 'Pending')]))
+        if (previousStatuses) {
+          const changed = orders.filter(order => {
+            const id = String(order._id || order.orderNo)
+            return previousStatuses.has(id) && previousStatuses.get(id) !== String(order.status || 'Pending')
+          })
+          if (changed.length) {
+            playOrderAlert()
+            changed.slice(0, 4).forEach(order => showCustomerOrderNotification(order))
+          }
+        }
+        previousStatuses = nextStatuses
+      } catch {
+        // Web Push handles updates while the customer website is in the background.
+      }
+    }
+    refreshOrderStatuses()
+    const timer = window.setInterval(refreshOrderStatuses, 15000)
+    return () => { active = false; window.clearInterval(timer) }
+  }, [customer?._id, customer?.id])
 
   useEffect(() => {
     if (!shopperStateReady || !shopperPersistenceEnabled) return undefined
@@ -544,13 +582,30 @@ export default function useStorefront() {
   }
 
   const signOut = () => {
-    request('/shop/auth/logout', { method: 'POST' })
-      .then(() => load())
-      .catch(error => setMessage(error.message))
+    void (async () => {
+      try { await revokeCustomerOrderNotifications() } catch { /* Logout continues if push cleanup is unavailable. */ }
+      try {
+        await request('/shop/auth/logout', { method: 'POST' })
+        await load()
+      } catch (error) { setMessage(error.message) }
+    })()
     setPendingPaymentOrder(null)
     setCustomer(null)
     setMessage('You have been signed out.')
   }
+
+  const enableOrderNotifications = useCallback(async () => {
+    setOrderNotificationNotice('')
+    try {
+      await enableCustomerOrderNotifications()
+      setOrderNotificationsEnabled(true)
+      setOrderNotificationNotice('Order alerts are enabled on this phone.')
+      return true
+    } catch (error) {
+      setOrderNotificationNotice(error.message || 'Could not enable order alerts.')
+      return false
+    }
+  }, [])
 
   const choosePaymentMethod = method => {
     if (method !== paymentMethod) discardPendingPaymentOrder()
@@ -712,6 +767,7 @@ export default function useStorefront() {
     currentPage, navigatePage,
     locationOpen, setLocationOpen, location, setLocation, serviceArea, checkServiceArea, authOpen, setAuthOpen, authMode, setAuthMode,
     customer, message, setMessage, checkout, setCheckout, address, setAddress, addressDetails, phone, setPhone,
+    orderNotificationsEnabled, orderNotificationNotice, enableOrderNotifications,
     addressOpen, setAddressOpen, startCheckout, closeAuth, saveDeliveryAddress, saveDetectedLocation,
     busy: busy || paymentWindowOpen, quote, setQuote, couponCode, setCouponCode, applyCoupon, removeCoupon, paymentMethod, setPaymentMethod: choosePaymentMethod,
     cookieAccepted, setCookieAccepted, recentlyViewed, categories, modules, shown, deals,

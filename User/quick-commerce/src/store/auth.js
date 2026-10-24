@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { shop } from '../api';
+import { revokeCustomerOrderNotifications } from '../lib/orderNotifications';
 
 export const useAuthStore = create((set) => ({
   token: null,
@@ -11,6 +12,7 @@ export const useAuthStore = create((set) => ({
     if (typeof window !== 'undefined') window.dispatchEvent(new Event('wepzo:shop-session-changed'));
   },
   logout: () => {
+    revokeCustomerOrderNotifications().catch(() => {});
     shop.setToken(null);
     set({ token: null, user: null, loading: false });
     shop.logout().catch(error => {

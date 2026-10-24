@@ -10,7 +10,7 @@ function highlightMatch(text, term) {
   return <>{text.slice(0, index)}<mark>{text.slice(index, index + term.length)}</mark>{text.slice(index + term.length)}</>
 }
 
-export default function StoreHeader({ business, customer, query, setQuery, searchProducts = [], onSelectProduct, location, onOpenLocation, onOpenOrders, onOpenProfile, onOpenCart, onOpenWishlist, onSearch, count, showLogo, showSearch, showLocation, showProfile, showCart, showFavorites, favoriteCount = 0 }) {
+export default function StoreHeader({ business, customer, query, setQuery, searchProducts = [], onSelectProduct, location, onOpenLocation, onOpenOrders, onOpenProfile, onOpenCart, onOpenWishlist, onEnableOrderNotifications, orderNotificationsEnabled, orderNotificationNotice, onSearch, count, showLogo, showSearch, showLocation, showProfile, showCart, showFavorites, favoriteCount = 0 }) {
   const isWepzo = String(business.businessName || 'WEPZO').trim().toLowerCase() === 'wepzo'
   const [searchOpen, setSearchOpen] = useState(false)
   const [activeSuggestion, setActiveSuggestion] = useState(-1)
@@ -109,6 +109,9 @@ export default function StoreHeader({ business, customer, query, setQuery, searc
       </div>}
     </div>}
     <div className="header-actions">
+      {customer && showProfile && <button className="header-service" onClick={onEnableOrderNotifications} aria-label="Enable order notifications" title={orderNotificationNotice || 'Enable phone order notifications'}>
+        <Icon><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"/></Icon><span>{orderNotificationsEnabled ? 'Alerts on' : 'Alerts'}</span>
+      </button>}
       <button className="header-service" onClick={onOpenOrders} aria-label="Orders">
         <Icon><path d="M5 8h14l1 13H4L5 8Z"/><path d="M9 9V6a3 3 0 0 1 6 0v3M9 13h6"/></Icon><span>Orders</span>
       </button>

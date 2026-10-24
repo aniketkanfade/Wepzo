@@ -72,7 +72,7 @@ function ensureMarketingWebsite(user, module) {
   return website;
 }
 
-function sessionCookie(req, res, token, maxAge = 60 * 60 * 24 * 7) {
+function sessionCookie(req, res, token, maxAge = 60 * 60 * 24 * 365) {
   const secure = process.env.NODE_ENV === 'production'
     || process.env.RENDER === 'true'
     || req.get('x-forwarded-proto') === 'https'
@@ -150,7 +150,7 @@ router.post('/register', async (req, res) => {
   } catch (error) {
     return res.status(503).json({ message: error.message || 'Your account could not be saved.' });
   }
-  const token = jwt.sign({ id: user._id }, JWT_SECRET, { expiresIn: '7d' });
+  const token = jwt.sign({ id: user._id }, JWT_SECRET, { expiresIn: '365d' });
   sessionCookie(req, res, token);
   return res.status(201).json({ user: publicUser(user) });
 });
@@ -176,7 +176,7 @@ router.post('/login', async (req, res) => {
   } catch (error) {
     return res.status(503).json({ message: error.message || 'Your account could not be loaded from the server.' });
   }
-  const token = jwt.sign({ id: user._id }, JWT_SECRET, { expiresIn: '7d' });
+  const token = jwt.sign({ id: user._id }, JWT_SECRET, { expiresIn: '365d' });
   sessionCookie(req, res, token);
   return res.json({ user: publicUser(user) });
 });

@@ -18,6 +18,7 @@ import { useAuthStore } from './store/auth';
 import CartDrawer from './components/CartDrawer';
 import { shop } from './api';
 import { getWebsiteContext, setWebsiteContext } from './websiteContext';
+import { playOrderAlert, showCustomerOrderNotification, unlockOrderAlertSound } from './lib/orderNotifications';
 
 function UnavailableFeature() {
   return <div className="mx-auto max-w-3xl px-4 py-20 text-center text-slate-500">This feature is not included in this website.</div>;
@@ -45,6 +46,7 @@ export default function App() {
     ? location.state?.backgroundLocation || { pathname: '/', search: location.search, hash: '' }
     : null;
   const business = useSiteSettings(state => state.business);
+  const customer = useAuthStore(state => state.user);
   const setPreviewTheme = useSiteSettings(state => state.setPreviewTheme);
   const pendingAdd = useCart(state => state.pendingAdd);
   const confirmPendingAdd = useCart(state => state.confirmPendingAdd);
@@ -64,6 +66,12 @@ export default function App() {
   const hasSelectedComponents = selectedComponents.size > 0;
   const componentEnabled = slug => (adminPreview || !websiteContextActive || !hasSelectedComponents || selectedComponents.has(slug))
     && !(templatePreview && ['quick-commerce-profile', 'quick-commerce-account'].includes(slug));
+
+  useEffect(() => {
+    const unlock = () => unlockOrderAlertSound();
+    window.addEventListener('pointerdown', unlock, { once: true });
+    return () => window.removeEventListener('pointerdown', unlock);
+  }, []);
 
   useEffect(() => {
     if (!builderPreview) return undefined;
@@ -134,6 +142,35 @@ export default function App() {
       window.removeEventListener('wepzo:shop-session-error', handleSessionError);
     };
   }, []);
+
+  useEffect(() => {
+    if (!customer?._id && !customer?.id) return undefined;
+    let active = true;
+    let previousStatuses = null;
+    const refreshOrderStatuses = async () => {
+      try {
+        const orders = await shop.orders();
+        if (!active || !Array.isArray(orders)) return;
+        const nextStatuses = new Map(orders.map(order => [String(order._id || order.orderNo), String(order.status || 'Pending')]));
+        if (previousStatuses) {
+          const changed = orders.filter(order => {
+            const id = String(order._id || order.orderNo);
+            return previousStatuses.has(id) && previousStatuses.get(id) !== String(order.status || 'Pending');
+          });
+          if (changed.length) {
+            playOrderAlert();
+            changed.slice(0, 4).forEach(order => showCustomerOrderNotification(order));
+          }
+        }
+        previousStatuses = nextStatuses;
+      } catch {
+        // Web Push handles updates while the customer website is in the background.
+      }
+    };
+    refreshOrderStatuses();
+    const timer = window.setInterval(refreshOrderStatuses, 15000);
+    return () => { active = false; window.clearInterval(timer); };
+  }, [customer?._id, customer?.id]);
 
   useEffect(() => {
     if (!templatePreview && (publishedPreview || builderPreview) && searchParams.get('websiteId')) {

@@ -1,34 +1,19 @@
 import { useEffect, useRef, useState } from 'react';
 import api from '../api/axios';
+import { enableAdminOrderNotifications, playOrderAlert, unlockOrderAlertSound } from '../lib/orderNotifications';
 
 const POLL_MS = 6000;
-
-function playOrderBeep() {
-  try {
-    const Ctx = window.AudioContext || window.webkitAudioContext;
-    if (!Ctx) return;
-    const ctx = new Ctx();
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.type = 'sine';
-    osc.frequency.setValueAtTime(880, ctx.currentTime);
-    osc.frequency.setValueAtTime(660, ctx.currentTime + 0.12);
-    gain.gain.setValueAtTime(0.14, ctx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.32);
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-    osc.start();
-    osc.stop(ctx.currentTime + 0.34);
-    osc.onended = () => ctx.close().catch(() => {});
-  } catch {
-    /* autoplay / AudioContext may be blocked until a user gesture */
-  }
-}
 
 export default function useAdminOrderAlerts(enabled = true) {
   const [toast, setToast] = useState(null);
   const [unread, setUnread] = useState(0);
   const seenRef = useRef(null);
+
+  useEffect(() => {
+    const unlock = () => unlockOrderAlertSound();
+    window.addEventListener('pointerdown', unlock, { once: true });
+    return () => window.removeEventListener('pointerdown', unlock);
+  }, []);
 
   useEffect(() => {
     if (!enabled) return;
@@ -54,7 +39,17 @@ export default function useAdminOrderAlerts(enabled = true) {
           customer: newest.customer,
           amount: newest.amount,
         });
-        playOrderBeep();
+      playOrderAlert();
+      if ('Notification' in window && Notification.permission === 'granted') {
+        navigator.serviceWorker?.ready.then(registration => registration.showNotification('New order received', {
+          body: `Order #${newest.orderNo}${newest.customer ? ` from ${newest.customer}` : ''}`,
+          icon: '/wepzo-favicon.svg',
+          badge: '/wepzo-favicon.svg',
+          tag: `new-order-${newest._id || newest.orderNo}`,
+          vibrate: [220, 100, 220, 100, 320],
+          data: { url: '/orders' },
+        })).catch(() => {});
+      }
       } catch {
         /* ignore poll errors */
       }
@@ -70,6 +65,7 @@ export default function useAdminOrderAlerts(enabled = true) {
 
   const dismissToast = () => setToast(null);
   const clearUnread = () => setUnread(0);
+  const enableNotifications = () => enableAdminOrderNotifications();
 
-  return { toast, unread, dismissToast, clearUnread };
+  return { toast, unread, dismissToast, clearUnread, enableNotifications };
 }

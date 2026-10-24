@@ -264,6 +264,9 @@ export default function StorefrontPage() {
       setCategory={setCategory} setQuery={setQuery} searchProducts={products} onSelectProduct={openProduct} location={location}
       onOpenLocation={() => setLocationOpen(true)}
       onOpenOrders={() => navigatePage('orders')} onOpenProfile={() => navigatePage('profile')}
+      onEnableOrderNotifications={store.enableOrderNotifications}
+      orderNotificationsEnabled={store.orderNotificationsEnabled}
+      orderNotificationNotice={store.orderNotificationNotice}
       onOpenCart={() => navigatePage('cart')} onOpenWishlist={() => navigatePage('wishlist')}
       count={count} favoriteCount={favorites.length}
       onSearch={() => document.getElementById('collection')?.scrollIntoView({ behavior: 'smooth' })}
