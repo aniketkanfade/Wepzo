@@ -279,6 +279,9 @@ export default function Header({ onMenuToggle, showMenuToggle = true, websiteAcc
             {user?.role === 'main_admin' && <Link to="/settings/payment-gateway" className="block px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50">
               <CreditCard size={14} className="mr-2 inline" />Payment Gateway
             </Link>}
+            {user?.role === 'main_admin' && <Link to="/settings/website-modules" className="block px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50">
+              <Globe size={14} className="mr-2 inline" />Website Modules
+            </Link>}
             {user?.role === 'main_admin' && <Link to="/settings/welcome-page" className="block px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50">
               <BookOpen size={14} className="mr-2 inline" />Welcome Page
             </Link>}
