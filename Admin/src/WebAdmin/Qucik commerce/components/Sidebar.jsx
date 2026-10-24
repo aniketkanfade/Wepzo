@@ -8,7 +8,7 @@ import {
   ShoppingBasket, ReceiptText, Grid3X3, Gift, Bell, Tag, List, PackagePlus,
   PackageSearch, Barcode, Upload, Download, RotateCcw, Zap, Smartphone, Truck, Mail, FileText,
   UserCircle, UserRoundCheck, UserRoundX, MapPin, Star, MessageSquareText, Globe2, Link2,
-  Bike, UserPlus, UserCheck, ClipboardList
+  Bike, UserPlus, UserCheck, ClipboardList, Image
 } from 'lucide-react';
 import { useAuthStore } from '../../../store/useStore';
 import { useModuleStore } from '../../../store/useStore';
