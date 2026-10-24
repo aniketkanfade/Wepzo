@@ -501,6 +501,7 @@ function ensureWebsiteModuleCatalog() {
   const defaultModules = [
     { name: 'Quick Commerce', slug: 'quick-commerce', type: 'quick-commerce' },
     { name: 'E-Commerce', slug: 'e-commerce', type: 'e-commerce' },
+    { name: 'Store Singlepage Web', slug: 'store-singlepage-web', type: 'store-singlepage-web' },
     { name: 'Marketing', slug: 'marketing', type: 'marketing' },
     { name: 'Web Page', slug: 'general', type: 'general' },
   ];

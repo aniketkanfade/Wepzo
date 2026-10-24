@@ -12,11 +12,23 @@ const DEFAULT_MODULE_OPTIONS = [
   { _id: 'marketing', name: 'Marketing', slug: 'marketing', type: 'marketing' },
   { _id: 'general', name: 'Web Page', slug: 'general', type: 'general' },
 ];
+const MODULE_ALIASES = {
+  'quick-commerce': ['quick-commerce', 'quick_commerce', 'quickcommerce', 'qcommerce'],
+  'e-commerce': ['e-commerce', 'e_commerce', 'ecommerce'],
+  'store-single': ['store-single', 'store-singlepage-web', 'store-single-page', 'store-singlepage'],
+  marketing: ['marketing', 'promotion', 'promotions'],
+  'information-web': ['information-web', 'information_web', 'website', 'web', 'general'],
+};
+const matchesKnownModule = (module, key) => [
+  module.slug,
+  module.type,
+  module.name,
+].some(value => MODULE_ALIASES[key]?.includes(String(value || '').trim().toLowerCase().replace(/\s+/g, '-')));
 
 export default function ModuleSwitcher() {
   const navigate = useNavigate();
   const { activeModule, setActiveModule } = useModuleStore();
-  const [modules, setModules] = useState(DEFAULT_MODULE_OPTIONS);
+  const [modules, setModules] = useState([]);
   const activeModuleKey = getAdminModuleKey(activeModule);
   let currentUser = null;
   try { currentUser = JSON.parse(localStorage.getItem('user') || 'null'); } catch { currentUser = null; }
@@ -29,30 +41,34 @@ export default function ModuleSwitcher() {
       api.get('/website-modules').then(({ data }) => {
         const available = Array.isArray(data) ? data : [];
         const active = available.filter(module => module.status !== false && module.status !== 'false' && module.status !== 'inactive');
-        const options = DEFAULT_MODULE_OPTIONS.map(fallback => {
+        const options = DEFAULT_MODULE_OPTIONS.flatMap(fallback => {
           const key = getAdminModuleKey(fallback);
-          const matchingModules = active.filter(module => getAdminModuleKey(module) === key);
-          return matchingModules.find(module => String(module.slug || '').toLowerCase() === fallback.slug)
+          const matchingModules = active.filter(module => getAdminModuleKey(module) === key && matchesKnownModule(module, key));
+          const module = matchingModules.find(module => String(module.slug || '').toLowerCase() === fallback.slug)
             || matchingModules.find(module => String(module.name || '').trim().toLowerCase() === fallback.name.toLowerCase())
-            || matchingModules[0]
-            || fallback;
+            || matchingModules[0];
+          return module ? [module] : [];
         }).filter(module => !lockedSlug || getAdminModuleKey(module) === getAdminModuleKey({ slug: lockedSlug }));
-        setModules(options.length ? options : DEFAULT_MODULE_OPTIONS.filter(module => !lockedSlug || getAdminModuleKey(module) === getAdminModuleKey({ slug: lockedSlug })));
+        setModules(options);
         const selectedKey = lockedSlug ? getAdminModuleKey({ slug: lockedSlug }) : activeModuleKey;
         const selected = options.find(module => getAdminModuleKey(module) === selectedKey);
         if (!selected) {
           const fallback = (lockedSlug && options[0]) || options.find(module => ['qcommerce', 'quick-commerce', 'quick_commerce'].includes(String(module.slug || '').toLowerCase()) || String(module.name || '').toLowerCase().includes('quick commerce'))
             || options.find(module => getAdminModuleKey(module) === 'quick-commerce') || options[0];
-          if (fallback) setActiveModule(fallback);
+          if (fallback) {
+            setActiveModule(fallback);
+            navigate(getAdminModulePath(fallback));
+          }
         }
-      }).catch(() => setModules(lockedSlug
-        ? DEFAULT_MODULE_OPTIONS.filter(module => String(module.slug).toLowerCase() === lockedSlug)
-        : DEFAULT_MODULE_OPTIONS));
+      }).catch(error => {
+        console.error('Website modules could not be loaded:', error.response?.data?.message || error.message);
+        setModules([]);
+      });
     };
     loadModules();
     window.addEventListener('wepzo:website-modules-updated', loadModules);
     return () => window.removeEventListener('wepzo:website-modules-updated', loadModules);
-  }, [activeModuleKey, lockedSlug, setActiveModule]);
+  }, [activeModuleKey, lockedSlug, navigate, setActiveModule]);
 
   const selectedModuleValue = useMemo(() => {
     const selected = modules.find(module => getAdminModuleKey(module) === activeModuleKey);
@@ -65,6 +81,8 @@ export default function ModuleSwitcher() {
     setActiveModule(module);
     navigate(getAdminModulePath(module));
   };
+
+  if (!modules.length) return null;
 
   return (
     <label className="flex h-8 items-center gap-1 rounded-lg border border-slate-200 bg-white px-1.5 text-xs text-slate-700 shadow-sm sm:h-9 sm:gap-2 sm:px-3 sm:py-2 sm:text-sm">
